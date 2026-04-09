@@ -28,6 +28,10 @@ function atividades_validateRegistryDiscovery_() {
     issues.push('KEY nao encontrada no Registry: ' + ATIVIDADES_CFG.STABLE_KEYS.SEMESTERS);
   }
 
+  if (!atividades_getRegistryEntryByKey_(ATIVIDADES_CFG.STABLE_KEYS.PERIODS)) {
+    issues.push('KEY recomendada nao encontrada no Registry: ' + ATIVIDADES_CFG.STABLE_KEYS.PERIODS);
+  }
+
   if (!atividades_getRegistryEntryByKey_(ATIVIDADES_CFG.STABLE_KEYS.MEMBER_LIFECYCLE_EVENTS)) {
     issues.push('KEY recomendada nao encontrada no Registry: ' + ATIVIDADES_CFG.STABLE_KEYS.MEMBER_LIFECYCLE_EVENTS);
   }

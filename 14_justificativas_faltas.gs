@@ -532,6 +532,10 @@ function atividades_aplicarDecisaoJustificativaRow_(rowNumber, opts) {
       applied: true,
       rowNumber: targetRow,
       decision: 'F_MANTIDA',
+      disciplinary: atividades_recalcularMotorDisciplinarPeriodoVigente_({
+        rowNumbers: [target.rowNumber],
+        logTransitions: true
+      }),
       notification: atividades_notificarResultadoJustificativa_(Object.assign({}, record, {
         EMAIL: target.presenceRecord.EMAIL || record.EMAIL || '',
         NOME_MEMBRO: record.NOME_MEMBRO || target.presenceRecord.NOME_MEMBRO || ''
@@ -574,6 +578,10 @@ function atividades_aplicarDecisaoJustificativaRow_(rowNumber, opts) {
     rowNumber: targetRow,
     decision: 'F_PARA_J',
     abono: abono,
+    disciplinary: atividades_recalcularMotorDisciplinarPeriodoVigente_({
+      rowNumbers: [target.rowNumber],
+      logTransitions: true
+    }),
     notification: atividades_notificarResultadoJustificativa_(Object.assign({}, record, {
       EMAIL: target.presenceRecord.EMAIL || record.EMAIL || '',
       NOME_MEMBRO: record.NOME_MEMBRO || target.presenceRecord.NOME_MEMBRO || '',

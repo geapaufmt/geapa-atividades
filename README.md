@@ -80,10 +80,12 @@ A V1 implementada aqui cobre:
 - uso de pasta de historico com uma planilha por periodo encerrado;
 - aplicacao de notas, filtros, congelamento, cores e listas suspensas;
 - heranca automatica de `Atividades_Config` para `Atividades`;
+- suporte a `BASE_PLANEJAMENTO_INICIAL` na aba `Atividades`;
 - seed padrao e nao destrutivo de `Atividades_Config` quando a aba estiver vazia;
 - sincronizacao da aba de periodo vigente;
 - inicializacao e sincronizacao historica da aba oficial de presencas dos membros;
-- fluxo V1 de justificativas de faltas com base bruta de formulario, aba oficial de analise, reflexo automatico em presencas e abono visual `J -> A`.
+- fluxo V1 de justificativas de faltas com base bruta de formulario, aba oficial de analise, reflexo automatico em presencas e abono visual `J -> A`;
+- motor disciplinar por faltas com snapshot normativo do periodo, faixa disciplinar automatica e logs de transicao.
 
 ## Arquitetura
 
@@ -171,6 +173,12 @@ Se nenhuma ancora de historico existir no `Registry`, essa e a unica adicao real
 - `atividades_garantirPeriodoVigente()`
 - `atividades_sincronizarPeriodoVigente()`
 - `atividades_sincronizarPresencasPeriodoVigente()`
+- `atividades_congelarSnapshotNormativoPeriodoVigente()`
+- `atividades_forcarRecalculoSnapshotNormativoPeriodoVigente()`
+- `atividades_recalcularMotorDisciplinarPeriodoVigente()`
+- `atividades_gerarEventosDesligamentoPorFaltasPeriodoVigente()`
+- `atividades_instalarTriggers()`
+- `atividades_removerTriggers()`
 - `atividades_aplicarUxPlanilhas()`
 - `atividades_aplicarConfigLinhaAtividade(rowNumber)`
 - `atividades_fillMissingActivityIds()`
@@ -258,6 +266,131 @@ Regras atuais de consumo em presencas:
 - desligamentos e suspensoes homologados passam a definir `DATA_SAIDA_NO_PERIODO`;
 - eventos cancelados ou apenas registrados ainda nao entram no periodo;
 - se a base de eventos nao existir, o modulo continua com fallback para `MEMBERS_ATUAIS` e para os dados ja preservados na propria aba de presencas.
+
+## Motor disciplinar por faltas
+
+### Base normativa do periodo
+
+O modulo usa um desenho hibrido:
+
+- `Atividades` = planejamento detalhado;
+- `VIGENCIA_PERIODOS` = snapshot normativo congelado do periodo.
+
+Evolucao minima em `Atividades`:
+
+- `PERIODO_REFERENCIA`
+- `BASE_PLANEJAMENTO_INICIAL`
+
+`PERIODO_REFERENCIA` permite registrar atividades planejadas para o periodo mesmo quando a `DATA_ATIVIDADE` ainda nao estiver fechada.
+
+`BASE_PLANEJAMENTO_INICIAL` indica se a atividade integrou a base oficial usada para congelar o limite de faltas do periodo. Ela nao substitui o `STATUS`.
+
+Fluxo leve atual para `STATUS = PLANEJADA`:
+
+- gera `ID_ATIVIDADE` automaticamente, quando elegivel;
+- aplica heranca de `Atividades_Config` sem sobrescrever valores manuais ja preenchidos;
+- preenche `BASE_PLANEJAMENTO_INICIAL = SIM` por default quando `CONTA_FALTA = SIM` e a coluna estiver vazia.
+
+Para compor o total planejado que conta falta, o modulo considera apenas atividades que:
+
+- pertencam ao periodo por `PERIODO_REFERENCIA` ou, na falta dele, por `DATA_ATIVIDADE` dentro da vigencia;
+- tenham `BASE_PLANEJAMENTO_INICIAL = SIM`;
+- tenham `CONTA_FALTA = SIM`;
+
+### Snapshot congelado em `VIGENCIA_PERIODOS`
+
+O modulo passa a usar ou criar estes campos na aba de periodos:
+
+- `TOTAL_ATIVIDADES_QUE_CONTAM_FALTA_PLANEJADAS`
+- `LIMITE_FALTAS_PERIODO_CONGELADO`
+- `DATA_FECHAMENTO_PLANEJAMENTO`
+
+Regra normativa implementada:
+
+- `LIMITE_FALTAS_PERIODO = floor(0.20 * TOTAL_ATIVIDADES_QUE_CONTAM_FALTA_PLANEJADAS_NO_INICIO_DO_PERIODO)`
+
+`DATA_FECHAMENTO_PLANEJAMENTO` e derivada automaticamente como `23:59` do dia anterior a primeira atividade da base inicial que tenha `DATA_ATIVIDADE` definida.
+
+Quando o snapshot ja estiver congelado, o motor disciplinar usa esses valores oficiais.
+Enquanto ainda nao estiver congelado, o modulo usa uma projecao derivada de `Atividades` e atualiza a data-limite de fechamento.
+
+Depois do congelamento:
+
+- o limite nao diminui automaticamente se o numero de atividades cair;
+- o limite nao aumenta automaticamente se novas atividades surgirem;
+- o snapshot so muda novamente por recalcule manual.
+
+Funcao publica para recalcule manual:
+
+- `atividades_forcarRecalculoSnapshotNormativoPeriodoVigente()`
+
+### Campos novos em `Presencas_<PERIODO>`
+
+- `TOTAL_ATIVIDADES_QUE_CONTAM_FALTA`
+- `LIMITE_FALTAS_PERIODO`
+- `FALTAS_LIQUIDAS`
+- `PERCENTUAL_USO_LIMITE`
+- `SITUACAO_DISCIPLINAR`
+
+Regras de calculo:
+
+- `TOTAL_ATIVIDADES_QUE_CONTAM_FALTA` = base oficial congelada do periodo, ou projecao enquanto o snapshot nao for fechado;
+- `LIMITE_FALTAS_PERIODO` = limite oficial congelado do periodo;
+- `FALTAS_LIQUIDAS` = contagem de `F + J`;
+- `A` nao conta como falta liquida;
+- `PERCENTUAL_USO_LIMITE` = `FALTAS_LIQUIDAS / LIMITE_FALTAS_PERIODO`;
+- `SITUACAO_DISCIPLINAR`:
+  - `NORMAL`
+  - `ALERTA_60`
+  - `ALERTA_80`
+  - `LIMITE_ATINGIDO`
+
+### Logs e eventos
+
+O modulo registra em `Atividades_Log` quando houver transicao para:
+
+- `DISCIPLINA_ALERTA_60`
+- `DISCIPLINA_ALERTA_80`
+- `DISCIPLINA_LIMITE_ATINGIDO`
+
+Tambem existe a funcao:
+
+- `atividades_gerarEventosDesligamentoPorFaltasPeriodoVigente()`
+
+Ela nao move automaticamente membros para ex-membros nesta sprint.
+Ela apenas registra eventos institucionais `DESLIGAMENTO_POR_FALTAS` com `STATUS_EVENTO = REGISTRADO` para casos ja em `LIMITE_ATINGIDO`, com deduplicacao por `RGA + periodo`.
+
+### Teste manual da sprint disciplinar
+
+1. Em `Atividades`, crie ou edite uma linha com `STATUS = PLANEJADA`, `CONTA_FALTA = SIM` e confira a geracao do `ID_ATIVIDADE`, a heranca nao destrutiva do config e o default de `BASE_PLANEJAMENTO_INICIAL = SIM`.
+2. Ajuste o planejamento em `Atividades` com `PERIODO_REFERENCIA` quando a `DATA_ATIVIDADE` ainda nao estiver fechada.
+3. Rode `atividades_forcarRecalculoSnapshotNormativoPeriodoVigente()` para recalcular e gravar o snapshot oficial atual em `VIGENCIA_PERIODOS`.
+4. Confira em `VIGENCIA_PERIODOS`:
+   - `TOTAL_ATIVIDADES_QUE_CONTAM_FALTA_PLANEJADAS`
+   - `LIMITE_FALTAS_PERIODO_CONGELADO`
+   - `DATA_FECHAMENTO_PLANEJAMENTO`
+5. Rode `atividades_sincronizarPresencasPeriodoVigente()` ou `atividades_recalcularMotorDisciplinarPeriodoVigente()` e confira:
+   - `NORMAL`
+   - `ALERTA_60`
+   - `ALERTA_80`
+   - `LIMITE_ATINGIDO`
+6. Altere manualmente valores `F`, `J` e `A` nas colunas dinamicas da aba de presencas e confirme o recalculo do bloco disciplinar.
+7. Quando houver membro em `LIMITE_ATINGIDO`, rode `atividades_gerarEventosDesligamentoPorFaltasPeriodoVigente()` e confira a criacao do evento institucional na base `MEMBER_EVENTOS_VINCULO`.
+
+### Triggers recomendados
+
+Instalador automatico:
+
+- `atividades_instalarTriggers()`
+
+Esse instalador cria:
+
+- trigger instalavel de edicao para `onEditAtividades`;
+- trigger horario para `atividades_jobPlanejamentoNormativo_`, que atualiza a data-limite, tenta congelar o snapshot quando a hora chegar e recalcula o bloco disciplinar.
+
+Para limpar e reinstalar:
+
+- `atividades_removerTriggers()`
 
 ## Fluxo de virada de periodo
 

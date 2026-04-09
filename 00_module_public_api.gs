@@ -26,6 +26,34 @@ function atividades_sincronizarPresencasPeriodoVigente() {
   return atividades_sincronizarPresencasPeriodoVigente_();
 }
 
+function atividades_congelarSnapshotNormativoPeriodoVigente() {
+  return atividades_congelarSnapshotNormativoPeriodoVigente_();
+}
+
+function atividades_forcarRecalculoSnapshotNormativoPeriodoVigente() {
+  return atividades_forcarRecalculoSnapshotNormativoPeriodoVigente_();
+}
+
+function atividades_gerarIdsBasePlanejamentoInicialPeriodoVigente() {
+  return atividades_fillMissingActivityIdsForPlanningBasePeriodoVigente_();
+}
+
+function atividades_recalcularMotorDisciplinarPeriodoVigente() {
+  return atividades_recalcularMotorDisciplinarPeriodoVigente_();
+}
+
+function atividades_gerarEventosDesligamentoPorFaltasPeriodoVigente() {
+  return atividades_gerarEventosDesligamentoPorFaltasPeriodoVigente_();
+}
+
+function atividades_instalarTriggers() {
+  return atividades_instalarTriggers_();
+}
+
+function atividades_removerTriggers() {
+  return atividades_removerTriggers_();
+}
+
 function atividades_aplicarUxPlanilhas() {
   return atividades_aplicarUxPlanilhas_();
 }

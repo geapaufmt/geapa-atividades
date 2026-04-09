@@ -33,7 +33,10 @@ function atividades_getNextActivityId_() {
 function atividades_isActivityRowEligibleForId_(rowObj) {
   return !!(
     String(rowObj.TIPO_ATIVIDADE || '').trim() &&
-    String(rowObj.DATA_ATIVIDADE || '').trim()
+    (
+      String(rowObj.DATA_ATIVIDADE || '').trim() ||
+      String(rowObj.PERIODO_REFERENCIA || '').trim()
+    )
   );
 }
 
@@ -122,5 +125,35 @@ function atividades_fillMissingActivityIds_() {
     ok: true,
     createdCount: results.length,
     created: results
+  };
+}
+
+function atividades_fillMissingActivityIdsForPlanningBasePeriodoVigente_(opts) {
+  opts = opts || {};
+  var ctx = opts.ctx || atividades_getCurrentPeriodContext_();
+  var sheet = atividades_getAtividadesSheet_();
+  var lastRow = sheet.getLastRow();
+  var lastCol = sheet.getLastColumn();
+  var headers = sheet.getRange(1, 1, 1, lastCol).getValues()[0];
+  var values = lastRow >= 2 ? sheet.getRange(2, 1, lastRow - 1, lastCol).getValues() : [];
+  var created = [];
+  var eligibleRows = [];
+
+  values.forEach(function(row, index) {
+    var rowNumber = index + 2;
+    var record = GEAPA_CORE.coreRowToObject(headers, row);
+    if (!atividades_isPlanningBaseCandidate_(record, ctx)) return;
+    eligibleRows.push(rowNumber);
+    if (String(record.ID_ATIVIDADE || '').trim()) return;
+    var result = atividades_ensureActivityIdForRow_(rowNumber);
+    if (result && result.created) created.push(result);
+  });
+
+  return {
+    ok: true,
+    period: ctx,
+    eligibleRowCount: eligibleRows.length,
+    createdCount: created.length,
+    created: created
   };
 }

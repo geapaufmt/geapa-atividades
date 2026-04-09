@@ -39,10 +39,20 @@ function atividades_findBestConfigRule_(activityRow) {
   return best || null;
 }
 
-function atividades_aplicarConfigLinhaAtividade_(rowNumber) {
+function atividades_aplicarConfigLinhaAtividade_(rowNumber, opts) {
+  opts = opts || {};
   var sheet = atividades_getAtividadesSheet_();
+  if (rowNumber === undefined || rowNumber === null || String(rowNumber).trim() === '') {
+    return {
+      ok: false,
+      skipped: true,
+      reason: 'row_number_required',
+      message: 'Informe uma linha valida, por exemplo atividades_aplicarConfigLinhaAtividade(2), ou use o wrapper de teste test_atividades_aplicar_config_linha_2().'
+    };
+  }
+
   var targetRow = Number(rowNumber || 0);
-  if (targetRow < 2) {
+  if (targetRow < 2 || !isFinite(targetRow)) {
     throw new Error('rowNumber invalido para heranca de config: ' + rowNumber);
   }
 
@@ -67,10 +77,17 @@ function atividades_aplicarConfigLinhaAtividade_(rowNumber) {
 
   var headerMap = GEAPA_CORE.coreHeaderMap(sheet, 1);
   var changedHeaders = [];
+  var skippedHeaders = [];
 
   ATIVIDADES_CFG.CONFIG_INHERITED_HEADERS.forEach(function(header) {
     if (!Object.prototype.hasOwnProperty.call(rule, header)) return;
     if (!GEAPA_CORE.coreGetCol(headerMap, header)) return;
+    var existingValue = rowObj[header];
+    var hasExistingValue = String(existingValue === null || existingValue === undefined ? '' : existingValue).trim() !== '';
+    if (opts.fillOnlyEmpty !== false && hasExistingValue) {
+      skippedHeaders.push(header);
+      return;
+    }
 
     GEAPA_CORE.coreWriteCellByHeader(sheet, targetRow, headerMap, header, rule[header], {
       oneBased: true
@@ -92,6 +109,7 @@ function atividades_aplicarConfigLinhaAtividade_(rowNumber) {
       tipoAtividade: rule.TIPO_ATIVIDADE || '',
       subtipoAtividade: rule.SUBTIPO_ATIVIDADE || ''
     },
-    changedHeaders: changedHeaders
+    changedHeaders: changedHeaders,
+    skippedHeaders: skippedHeaders
   };
 }

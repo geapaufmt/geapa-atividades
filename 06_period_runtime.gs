@@ -37,6 +37,9 @@ function atividades_garantirEstruturasFixasV1_() {
   var created = [];
   var cfg = ATIVIDADES_CFG.FIXED_SHEETS.JUSTIFICATIVAS;
   var targetName = cfg.sheetNames[0];
+  var atividadesSheet = atividades_getAtividadesSheet_();
+
+  atividades_ensureHeadersOnSheet_(atividadesSheet, ['PERIODO_REFERENCIA', 'BASE_PLANEJAMENTO_INICIAL']);
 
   if (!atividades_findSheetByName_(operational, targetName)) {
     atividades_createSheetWithHeaders_(
@@ -54,6 +57,8 @@ function atividades_garantirEstruturasFixasV1_() {
       OBSERVACOES: 'Criada automaticamente pela V1 do fluxo de faltas.'
     });
   }
+
+  atividades_ensureHeadersOnSheet_(atividades_getJustificativasFaltasSheet_(), ATIVIDADES_SCHEMA.JUSTIFICATIVAS_FALTAS);
 
   return {
     ok: true,
@@ -482,6 +487,7 @@ function atividades_filterActivitiesForCurrentPeriod_(records, ctx) {
 
     if (!idAtividade || !data) return false;
     if (status === 'CANCELADA' || status === 'ARQUIVADA') return false;
+    if (ATIVIDADES_CFG.PLANNING.PERIOD_SYNC_STATUSES.indexOf(status) === -1) return false;
     if (!contaPresenca && !contaFalta) return false;
     return atividades_isDateInsideRange_(data, ctx.startDate, ctx.endDate);
   }).sort(function(a, b) {
@@ -518,6 +524,9 @@ function atividades_writeTabularPayload_(sheet, headers, rows) {
 
 function atividades_sincronizarPeriodoVigente_() {
   var ensure = atividades_garantirPeriodoVigente_();
+  atividades_tryAutoFreezeSnapshotNormativoPeriodoVigente_({
+    ctx: ensure.period
+  });
   var ensuredIds = atividades_fillMissingActivityIds_();
   var ensuredCargaHoraria = atividades_fillCargaHorariaFromTimes_();
   var ctx = ensure.period;

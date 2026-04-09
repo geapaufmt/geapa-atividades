@@ -262,6 +262,30 @@ function atividades_applyPresenceSummaryFormulas_(sheet, headers, rowCount, firs
   });
 }
 
+function atividades_applyPresenceSummaryNumberFormats_(sheet, rowCount) {
+  if (!rowCount) return;
+
+  var headerMap = GEAPA_CORE.coreHeaderMap(sheet, 1);
+  [
+    'TOTAL_PRESENCAS',
+    'TOTAL_FALTAS',
+    'TOTAL_JUSTIFICADAS',
+    'TOTAL_ATIVIDADES_QUE_CONTAM_FALTA',
+    'LIMITE_FALTAS_PERIODO',
+    'FALTAS_LIQUIDAS'
+  ].forEach(function(header) {
+    var col = GEAPA_CORE.coreGetCol(headerMap, header);
+    if (!col) return;
+    sheet.getRange(2, col, rowCount, 1).setNumberFormat('0');
+  });
+
+  ['PERCENTUAL_FREQUENCIA', 'PERCENTUAL_USO_LIMITE'].forEach(function(header) {
+    var col = GEAPA_CORE.coreGetCol(headerMap, header);
+    if (!col) return;
+    sheet.getRange(2, col, rowCount, 1).setNumberFormat('0.00%');
+  });
+}
+
 function atividades_readExistingPresenceSnapshot_(sheet) {
   var records = GEAPA_CORE.coreReadSheetRecords(sheet, { headerRow: 1 });
   var byRga = {};
@@ -442,9 +466,247 @@ function atividades_buildPresenceRow_(state, headers, dynamicHeaders, activityDa
     if (header === 'OBS_EVENTO_PERIODO') return state.obsEventoPeriodo;
     if (header === 'CARGO_FUNCAO_ATUAL') return state.cargo;
     if (dynamicHeaders.indexOf(header) >= 0) return atividades_resolvePresenceCellValue_(state, header, activityDatesByHeader, ctx);
+    if (ATIVIDADES_CFG.PRESENCAS.DISCIPLINARY_HEADERS.indexOf(header) >= 0) return state.existing[header] || '';
     if (header === 'OBSERVACOES') return String(state.existing.OBSERVACOES || '').trim();
     return '';
   });
+}
+
+function atividades_buildContaFaltaHeaders_(periodRows) {
+  return (periodRows || []).filter(function(row) {
+    return atividades_isTruthySim_(row.CONTA_FALTA);
+  }).map(function(row) {
+    return String(row.COLUNA_PRESENCA || '').trim();
+  }).filter(function(header) {
+    return !!header;
+  });
+}
+
+function atividades_countPresenceValuesByHeaders_(record, headers, acceptedValues) {
+  var accepted = {};
+  (acceptedValues || []).forEach(function(value) {
+    accepted[atividades_normalizeTextUpper_(value)] = true;
+  });
+
+  return (headers || []).reduce(function(total, header) {
+    var current = atividades_normalizeTextUpper_(record && record[header]);
+    return total + (accepted[current] ? 1 : 0);
+  }, 0);
+}
+
+function atividades_calcularFaltasLiquidas_(record, contaFaltaHeaders) {
+  return atividades_countPresenceValuesByHeaders_(record, contaFaltaHeaders, ['F', 'J']);
+}
+
+function atividades_calcularPercentualUsoLimite_(faltasLiquidas, limiteFaltas) {
+  var faltas = Number(faltasLiquidas || 0);
+  var limite = Number(limiteFaltas || 0);
+  if (limite <= 0) {
+    return faltas > 0 ? 1 : 0;
+  }
+  return faltas / limite;
+}
+
+function atividades_classificarSituacaoDisciplinar_(percentualUsoLimite) {
+  var percentual = Number(percentualUsoLimite || 0);
+  if (percentual >= ATIVIDADES_CFG.DISCIPLINA.LIMIT_ATINGIDO) return 'LIMITE_ATINGIDO';
+  if (percentual >= ATIVIDADES_CFG.DISCIPLINA.ALERT_80) return 'ALERTA_80';
+  if (percentual >= ATIVIDADES_CFG.DISCIPLINA.ALERT_60) return 'ALERTA_60';
+  return 'NORMAL';
+}
+
+function atividades_buildDisciplinaryMetricsForPresenceRecord_(record, snapshot, contaFaltaHeaders) {
+  var totalAtividades = Number(snapshot && snapshot.totalPlanejado || 0);
+  var limiteFaltas = Number(snapshot && snapshot.limiteCongelado || 0);
+  var faltasLiquidas = atividades_calcularFaltasLiquidas_(record, contaFaltaHeaders);
+  var percentualUsoLimite = atividades_calcularPercentualUsoLimite_(faltasLiquidas, limiteFaltas);
+  return {
+    TOTAL_ATIVIDADES_QUE_CONTAM_FALTA: totalAtividades,
+    LIMITE_FALTAS_PERIODO: limiteFaltas,
+    FALTAS_LIQUIDAS: faltasLiquidas,
+    PERCENTUAL_USO_LIMITE: percentualUsoLimite,
+    SITUACAO_DISCIPLINAR: atividades_classificarSituacaoDisciplinar_(percentualUsoLimite)
+  };
+}
+
+function atividades_writeDisciplinaryMetricsToRow_(sheet, headerMap, rowNumber, metrics) {
+  ATIVIDADES_CFG.PRESENCAS.DISCIPLINARY_HEADERS.forEach(function(header) {
+    var col = GEAPA_CORE.coreGetCol(headerMap, header);
+    if (!col) return;
+    sheet.getRange(rowNumber, col).setValue(metrics[header]);
+  });
+}
+
+function atividades_getDisciplinaryLogType_(situacao) {
+  if (situacao === 'ALERTA_60') return ATIVIDADES_CFG.DISCIPLINA_LOG_TYPES.ALERTA_60;
+  if (situacao === 'ALERTA_80') return ATIVIDADES_CFG.DISCIPLINA_LOG_TYPES.ALERTA_80;
+  if (situacao === 'LIMITE_ATINGIDO') return ATIVIDADES_CFG.DISCIPLINA_LOG_TYPES.LIMITE_ATINGIDO;
+  return '';
+}
+
+function atividades_shouldLogDisciplinaryTransition_(previousSituacao, nextSituacao) {
+  var previous = String(previousSituacao || '').trim();
+  var next = String(nextSituacao || '').trim();
+  if (!next || next === 'NORMAL' || previous === next) return false;
+  return !!atividades_getDisciplinaryLogType_(next);
+}
+
+function atividades_logDisciplinaryTransition_(ctx, record, previousSituacao, metrics) {
+  if (!atividades_shouldLogDisciplinaryTransition_(previousSituacao, metrics.SITUACAO_DISCIPLINAR)) {
+    return null;
+  }
+
+  return atividades_logEvento_({
+    TIPO_EVENTO_LOG: atividades_getDisciplinaryLogType_(metrics.SITUACAO_DISCIPLINAR),
+    STATUS: 'OK',
+    ACAO_EXECUTADA: 'Registrar transicao de faixa disciplinar por faltas',
+    RESULTADO: String(record.RGA || '').trim(),
+    OBSERVACOES: 'Periodo=' + ctx.code +
+      ' | situacao_anterior=' + String(previousSituacao || '').trim() +
+      ' | situacao_atual=' + metrics.SITUACAO_DISCIPLINAR +
+      ' | faltas_liquidas=' + metrics.FALTAS_LIQUIDAS +
+      ' | limite=' + metrics.LIMITE_FALTAS_PERIODO +
+      ' | percentual=' + Utilities.formatString('%.4f', Number(metrics.PERCENTUAL_USO_LIMITE || 0))
+  });
+}
+
+function atividades_recalcularMotorDisciplinarPeriodoVigente_(opts) {
+  opts = opts || {};
+  var presenceState = opts.presenceState || atividades_buildCurrentPresenceState_();
+  var ctx = opts.ctx || presenceState.ctx || atividades_getCurrentPeriodContext_();
+  atividades_tryAutoFreezeSnapshotNormativoPeriodoVigente_({ ctx: ctx });
+  var periodRows = opts.periodRows || atividades_getCurrentPeriodActivitiesMap_();
+  var snapshot = opts.snapshot || atividades_getSnapshotNormativoPeriodo_(ctx);
+  var contaFaltaHeaders = atividades_buildContaFaltaHeaders_(periodRows);
+  var rowNumbersFilter = {};
+  var hasFilter = Array.isArray(opts.rowNumbers) && opts.rowNumbers.length > 0;
+
+  if (hasFilter) {
+    opts.rowNumbers.forEach(function(rowNumber) {
+      var row = Number(rowNumber || 0);
+      if (row >= 2) rowNumbersFilter[row] = true;
+    });
+  }
+
+  var updatedRows = 0;
+  var transitions = [];
+  var headerMap = presenceState.headerMap;
+  var percentualUsoCol = GEAPA_CORE.coreGetCol(headerMap, 'PERCENTUAL_USO_LIMITE');
+
+  (presenceState.records || []).forEach(function(record, index) {
+    var rowNumber = index + 2;
+    if (hasFilter && !rowNumbersFilter[rowNumber]) return;
+
+    var metrics = atividades_buildDisciplinaryMetricsForPresenceRecord_(record, snapshot, contaFaltaHeaders);
+    atividades_writeDisciplinaryMetricsToRow_(presenceState.sheet, headerMap, rowNumber, metrics);
+    updatedRows++;
+
+    var previousSituacao = String(record.SITUACAO_DISCIPLINAR || '').trim();
+    if (opts.logTransitions !== false && atividades_shouldLogDisciplinaryTransition_(previousSituacao, metrics.SITUACAO_DISCIPLINAR)) {
+      atividades_logDisciplinaryTransition_(ctx, record, previousSituacao, metrics);
+      transitions.push({
+        rowNumber: rowNumber,
+        rga: String(record.RGA || '').trim(),
+        from: previousSituacao,
+        to: metrics.SITUACAO_DISCIPLINAR
+      });
+    }
+  });
+
+  if (percentualUsoCol && updatedRows) {
+    var targetRows = hasFilter ? Object.keys(rowNumbersFilter).map(function(value) { return Number(value); }).sort(function(a, b) { return a - b; }) : null;
+    if (targetRows && targetRows.length) {
+      targetRows.forEach(function(rowNumber) {
+        presenceState.sheet.getRange(rowNumber, percentualUsoCol).setNumberFormat('0.00%');
+      });
+    } else {
+      presenceState.sheet.getRange(2, percentualUsoCol, presenceState.records.length, 1).setNumberFormat('0.00%');
+    }
+  }
+
+  return {
+    ok: true,
+    period: ctx,
+    frozenSnapshot: !!snapshot.frozen,
+    snapshotSource: snapshot.source,
+    totalAtividadesQueContamFalta: snapshot.totalPlanejado,
+    limiteFaltasPeriodo: snapshot.limiteCongelado,
+    updatedRows: updatedRows,
+    transitions: transitions
+  };
+}
+
+function atividades_gerarEventosDesligamentoPorFaltasPeriodoVigente_() {
+  var presenceState = atividades_buildCurrentPresenceState_();
+  var ctx = presenceState.ctx;
+  var lifecycleEvents = atividades_getLifecycleEventRecords_().map(atividades_extractLifecycleEvent_);
+  var existingKeys = {};
+
+  lifecycleEvents.forEach(function(event) {
+    if (event.tipo !== 'DESLIGAMENTO_POR_FALTAS') return;
+    var key = String(event.rga || '').trim() + '|' + String(event.origemChave || '').trim();
+    existingKeys[key] = true;
+  });
+
+  var created = [];
+  (presenceState.records || []).forEach(function(record) {
+    var rga = String(record.RGA || '').trim();
+    if (!rga) return;
+    if (String(record.SITUACAO_DISCIPLINAR || '').trim() !== 'LIMITE_ATINGIDO') return;
+
+    var dedupeKey = rga + '|' + ctx.code;
+    if (existingKeys[dedupeKey]) return;
+
+    var eventRow = {
+      ID_EVENTO_MEMBRO: 'EVM-' + Utilities.getUuid().slice(0, 8).toUpperCase(),
+      RGA: rga,
+      TIPO_EVENTO: 'DESLIGAMENTO_POR_FALTAS',
+      DATA_EVENTO: new Date(),
+      STATUS_EVENTO: 'REGISTRADO',
+      MOTIVO_EVENTO: 'DESLIGAMENTO_POR_FALTAS',
+      ORIGEM_MODULO: 'GEAPA_ATIVIDADES',
+      ORIGEM_CHAVE: ctx.code,
+      ORIGEM_ROW: '',
+      NOME_MEMBRO: String(record.NOME_MEMBRO || '').trim(),
+      EMAIL: String(record.EMAIL || '').trim(),
+      OBSERVACOES: 'Gerado pelo motor disciplinar de faltas. faltas_liquidas=' +
+        String(record.FALTAS_LIQUIDAS || '').trim() +
+        ' | limite=' + String(record.LIMITE_FALTAS_PERIODO || '').trim(),
+      CRIADO_EM: new Date(),
+      ATUALIZADO_EM: new Date()
+    };
+
+    GEAPA_CORE.coreAppendObjectByHeaders(
+      atividades_getSheetByKeyCached_(ATIVIDADES_CFG.STABLE_KEYS.MEMBER_LIFECYCLE_EVENTS),
+      eventRow,
+      { headerRow: 1 }
+    );
+    created.push(eventRow);
+    existingKeys[dedupeKey] = true;
+  });
+
+  if (created.length) {
+    atividades_logEvento_({
+      TIPO_EVENTO_LOG: 'DISCIPLINA_EVENTO_DESLIGAMENTO_POR_FALTAS',
+      STATUS: 'OK',
+      ACAO_EXECUTADA: 'Gerar eventos institucionais de desligamento por faltas',
+      RESULTADO: ctx.code,
+      OBSERVACOES: 'eventos_gerados=' + created.length
+    });
+  }
+
+  return {
+    ok: true,
+    period: ctx,
+    generated: created.length,
+    events: created.map(function(item) {
+      return {
+        ID_EVENTO_MEMBRO: item.ID_EVENTO_MEMBRO,
+        RGA: item.RGA,
+        STATUS_EVENTO: item.STATUS_EVENTO
+      };
+    })
+  };
 }
 
 function atividades_sincronizarPresencasPeriodoVigente_() {
@@ -488,12 +750,24 @@ function atividades_sincronizarPresencasPeriodoVigente_() {
   atividades_writeTabularPayload_(sheet, headers, rows);
   atividades_applyPresenceSummaryFormulas_(sheet, headers, rows.length, firstActivityCol, lastActivityCol);
   atividades_applySheetUx_(sheet, ATIVIDADES_CFG.DYNAMIC_SHEET_PROFILES.PERIODO_PRESENCAS);
+  atividades_applyPresenceSummaryNumberFormats_(sheet, rows.length);
 
   var headerMap = GEAPA_CORE.coreHeaderMap(sheet, 1);
   var percentualCol = GEAPA_CORE.coreGetCol(headerMap, 'PERCENTUAL_FREQUENCIA');
   if (percentualCol && rows.length) {
     sheet.getRange(2, percentualCol, rows.length, 1).setNumberFormat('0.00%');
   }
+  var disciplinar = atividades_recalcularMotorDisciplinarPeriodoVigente_({
+    presenceState: {
+      ctx: ctx,
+      sheet: sheet,
+      headerMap: headerMap,
+      records: GEAPA_CORE.coreReadSheetRecords(sheet, { headerRow: 1 })
+    },
+    ctx: ctx,
+    periodRows: periodRows,
+    logTransitions: true
+  });
 
   var entrantsCount = rows.filter(function(row) {
     return row[GEAPA_CORE.coreGetCol(headerMap, 'STATUS_NO_PERIODO') - 1] === 'ENTRADA_POSTERIOR';
@@ -512,7 +786,9 @@ function atividades_sincronizarPresencasPeriodoVigente_() {
       ' | entrantes=' + entrantsCount +
       ' | desligados/suspensos=' + inactiveCount +
       ' | membros_com_eventos=' + Object.keys(lifecycleEventsByRga).length +
-      ' | colunas dinamicas=' + dynamicHeaders.length
+      ' | colunas dinamicas=' + dynamicHeaders.length +
+      ' | snapshot_disciplina=' + disciplinar.snapshotSource +
+      ' | transicoes_disciplina=' + disciplinar.transitions.length
   });
 
   return {
@@ -522,6 +798,7 @@ function atividades_sincronizarPresencasPeriodoVigente_() {
     entrantsCount: entrantsCount,
     inactiveCount: inactiveCount,
     dynamicColumns: dynamicHeaders.length,
+    disciplinary: disciplinar,
     sheetName: ctx.presenceSheetName
   };
 }

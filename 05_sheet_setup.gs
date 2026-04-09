@@ -29,6 +29,7 @@ function atividades_buildDropdownRules_() {
       EXIGE_LISTA_PRESENCA: { values: ATIVIDADES_CFG.ENUMS.SIM_NAO, helpText: 'Campo herdado do config na V1.' },
       CONTA_PRESENCA: { values: ATIVIDADES_CFG.ENUMS.SIM_NAO, helpText: 'Se SIM, gera coluna oficial na presenca do periodo.' },
       CONTA_FALTA: { values: ATIVIDADES_CFG.ENUMS.SIM_NAO, helpText: 'Se SIM, pode contabilizar falta oficial.' },
+      BASE_PLANEJAMENTO_INICIAL: { values: ATIVIDADES_CFG.ENUMS.SIM_NAO, helpText: 'Indica se a atividade integrou a base oficial usada para congelar o limite de faltas do periodo.' },
       GERA_CERTIFICADO: { values: ATIVIDADES_CFG.ENUMS.SIM_NAO, helpText: 'Reservado para fluxos posteriores.' },
       STATUS: { values: ATIVIDADES_CFG.ENUMS.STATUS_ATIVIDADE, helpText: 'Status operacional atual.' }
     },
@@ -106,10 +107,12 @@ function atividades_buildHeaderNotes_() {
       CLASSIFICACAO_ACESSO: 'Define se a atividade e aberta ou restrita.',
       TITULO: 'Titulo humano da atividade.',
       DATA_ATIVIDADE: 'Data principal da atividade.',
+      PERIODO_REFERENCIA: 'Codigo do periodo de referencia para planejamento, inclusive quando a data da atividade ainda nao estiver fechada.',
       FORMATO: 'PRESENCIAL, ONLINE ou HIBRIDO.',
       OBRIGATORIA: 'Marque SIM apenas quando houver obrigatoriedade formal.',
       CONTA_PRESENCA: 'Se SIM, gera coluna oficial em Presencas.',
       CONTA_FALTA: 'Se SIM, pode contabilizar falta oficial.',
+      BASE_PLANEJAMENTO_INICIAL: 'Indica se a atividade integrou a base oficial usada para congelar o limite de faltas do periodo. Nao substitui o STATUS.',
       STATUS: 'Status operacional atual da atividade.',
       OBSERVACOES: 'Observacoes gerais da atividade.'
     },
@@ -178,8 +181,14 @@ function atividades_buildHeaderNotes_() {
       MOTIVO_ALTERACAO_NO_PERIODO: 'Motivo historico da entrada, desligamento, suspensao ou retorno no periodo.',
       OBS_EVENTO_PERIODO: 'Observacoes livres sobre o evento historico do periodo.',
       TOTAL_PRESENCAS: 'Total de marcacoes P e R no periodo.',
+      TOTAL_FALTAS: 'Total de faltas plenas mantidas como F no periodo.',
       TOTAL_JUSTIFICADAS: 'Total de marcacoes J e A no periodo.',
-      PERCENTUAL_FREQUENCIA: 'Percentual calculado de frequencia.'
+      PERCENTUAL_FREQUENCIA: 'Percentual calculado de frequencia.',
+      TOTAL_ATIVIDADES_QUE_CONTAM_FALTA: 'Base normativa oficial do periodo para faltas, preferencialmente congelada em VIGENCIA_PERIODOS.',
+      LIMITE_FALTAS_PERIODO: 'Limite oficial congelado do periodo, calculado com floor(20% do total planejado que conta falta).',
+      FALTAS_LIQUIDAS: 'Total disciplinar de faltas liquidas, contando F e J e ignorando A.',
+      PERCENTUAL_USO_LIMITE: 'Percentual de uso do limite oficial de faltas no periodo.',
+      SITUACAO_DISCIPLINAR: 'Faixa disciplinar automatica do membro no periodo.'
     }
   };
 }
@@ -188,8 +197,8 @@ function atividades_buildHeaderColors_() {
   return {
     Atividades: [
       { color: '#d9ead3', headers: ['ID_ATIVIDADE', 'CLASSIFICACAO_REUNIAO', 'TIPO_ATIVIDADE', 'SUBTIPO_ATIVIDADE', 'CLASSIFICACAO_ACESSO', 'STATUS'] },
-      { color: '#d0e0e3', headers: ['DATA_ATIVIDADE', 'HORARIO_INICIO', 'HORARIO_FIM', 'DATA_CONVOCACAO', 'DATA_LEMBRETE', 'DATA_REALIZACAO', 'CRIADO_EM', 'ATUALIZADO_EM'] },
-      { color: '#fff2cc', headers: ['OBRIGATORIA', 'EXIGE_CONVOCACAO', 'EXIGE_LEMBRETE', 'EXIGE_ATA', 'EXIGE_MATERIAL', 'EXIGE_LISTA_PRESENCA', 'CONTA_PRESENCA', 'CONTA_FALTA', 'GERA_CERTIFICADO'] },
+      { color: '#d0e0e3', headers: ['DATA_ATIVIDADE', 'PERIODO_REFERENCIA', 'HORARIO_INICIO', 'HORARIO_FIM', 'DATA_CONVOCACAO', 'DATA_LEMBRETE', 'DATA_REALIZACAO', 'CRIADO_EM', 'ATUALIZADO_EM'] },
+      { color: '#fff2cc', headers: ['OBRIGATORIA', 'EXIGE_CONVOCACAO', 'EXIGE_LEMBRETE', 'EXIGE_ATA', 'EXIGE_MATERIAL', 'EXIGE_LISTA_PRESENCA', 'CONTA_PRESENCA', 'CONTA_FALTA', 'BASE_PLANEJAMENTO_INICIAL', 'GERA_CERTIFICADO'] },
       { color: '#fce5cd', headers: ['TITULO', 'DESCRICAO', 'LOCAL', 'FORMATO', 'RESPONSAVEL_INTERNO', 'RESPONSAVEL_EMAIL', 'PUBLICO_ALVO', 'OBSERVACOES'] }
     ],
     Atividades_Apresentacoes: [
@@ -223,7 +232,8 @@ function atividades_buildHeaderColors_() {
     ],
     PERIODO_Presencas: [
       { color: '#d9ead3', headers: ['RGA', 'NOME_MEMBRO', 'EMAIL', 'CARGO_FUNCAO_ATUAL', 'STATUS_CADASTRAL', 'STATUS_NO_PERIODO'] },
-      { color: '#d0e0e3', headers: ['DATA_ENTRADA_NO_PERIODO', 'DATA_SAIDA_NO_PERIODO', 'MOTIVO_ALTERACAO_NO_PERIODO', 'OBS_EVENTO_PERIODO'] }
+      { color: '#d0e0e3', headers: ['DATA_ENTRADA_NO_PERIODO', 'DATA_SAIDA_NO_PERIODO', 'MOTIVO_ALTERACAO_NO_PERIODO', 'OBS_EVENTO_PERIODO'] },
+      { color: '#fff2cc', headers: ['TOTAL_ATIVIDADES_QUE_CONTAM_FALTA', 'LIMITE_FALTAS_PERIODO', 'FALTAS_LIQUIDAS', 'PERCENTUAL_USO_LIMITE', 'SITUACAO_DISCIPLINAR'] }
     ]
   };
 }

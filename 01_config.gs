@@ -107,7 +107,29 @@ var ATIVIDADES_CFG = Object.freeze({
     start: Object.freeze(['Inicio', 'Data_Inicio', 'Inicio_Periodo', 'Data Inicio']),
     end: Object.freeze(['Fim', 'Data_Fim', 'Fim_Periodo', 'Data Fim']),
     status: Object.freeze(['Status', 'STATUS']),
-    displayName: Object.freeze(['Nome', 'Nome_Periodo', 'Descricao', 'Descricao_Periodo'])
+    displayName: Object.freeze(['Nome', 'Nome_Periodo', 'Descricao', 'Descricao_Periodo']),
+    plannedTotal: Object.freeze([
+      'TOTAL_ATIVIDADES_QUE_CONTAM_FALTA_PLANEJADAS',
+      'TOTAL_ATIVIDADES_QUE_CONTAM_FALTA_PLANEJADAS_NO_INICIO_DO_PERIODO',
+      'TOTAL_ATIVIDADES_PLANEJADAS_COM_FALTA'
+    ]),
+    frozenLimit: Object.freeze([
+      'LIMITE_FALTAS_PERIODO_CONGELADO',
+      'LIMITE_FALTAS_PERIODO',
+      'LIMITE_FALTAS_CONGELADO'
+    ]),
+    planningClosedAt: Object.freeze([
+      'DATA_FECHAMENTO_PLANEJAMENTO',
+      'DATA_FECHAMENTO_SNAPSHOT',
+      'DATA_CONGELAMENTO_PLANEJAMENTO'
+    ])
+  }),
+
+  SEMESTER_HEADER_ALIASES: Object.freeze({
+    id: Object.freeze(['ID_Semestre', 'ID_Semestre', 'ID Semestre', 'Semestre']),
+    start: Object.freeze(['Inicio', 'Início', 'Data_Inicio', 'Inicio_Semestre', 'Data Inicio']),
+    end: Object.freeze(['Fim', 'Data_Fim', 'Fim_Semestre', 'Data Fim']),
+    periodId: Object.freeze(['ID_Periodo', 'ID_Período', 'Periodo', 'Periodo_ID'])
   }),
 
   ENUMS: Object.freeze({
@@ -230,6 +252,12 @@ var ATIVIDADES_CFG = Object.freeze({
       'MOTIVO_PESSOAL_RELEVANTE',
       'FORCA_MAIOR',
       'OUTRO'
+    ]),
+    SITUACAO_DISCIPLINAR: Object.freeze([
+      'NORMAL',
+      'ALERTA_60',
+      'ALERTA_80',
+      'LIMITE_ATINGIDO'
     ])
   }),
 
@@ -246,11 +274,23 @@ var ATIVIDADES_CFG = Object.freeze({
       'MOTIVO_ALTERACAO_NO_PERIODO',
       'OBS_EVENTO_PERIODO'
     ]),
+    DISCIPLINARY_HEADERS: Object.freeze([
+      'TOTAL_ATIVIDADES_QUE_CONTAM_FALTA',
+      'LIMITE_FALTAS_PERIODO',
+      'FALTAS_LIQUIDAS',
+      'PERCENTUAL_USO_LIMITE',
+      'SITUACAO_DISCIPLINAR'
+    ]),
     SUMMARY_HEADERS: Object.freeze([
       'TOTAL_PRESENCAS',
       'TOTAL_FALTAS',
       'TOTAL_JUSTIFICADAS',
       'PERCENTUAL_FREQUENCIA',
+      'TOTAL_ATIVIDADES_QUE_CONTAM_FALTA',
+      'LIMITE_FALTAS_PERIODO',
+      'FALTAS_LIQUIDAS',
+      'PERCENTUAL_USO_LIMITE',
+      'SITUACAO_DISCIPLINAR',
       'OBSERVACOES'
     ])
   }),
@@ -286,6 +326,19 @@ var ATIVIDADES_CFG = Object.freeze({
     RESULTADO_JUSTIFICATIVA: 'RESULTADO_JUSTIFICATIVA'
   }),
 
+  DISCIPLINA: Object.freeze({
+    LIMIT_PERCENTAGE: 0.20,
+    ALERT_60: 0.60,
+    ALERT_80: 0.80,
+    LIMIT_ATINGIDO: 1.0
+  }),
+
+  DISCIPLINA_LOG_TYPES: Object.freeze({
+    ALERTA_60: 'DISCIPLINA_ALERTA_60',
+    ALERTA_80: 'DISCIPLINA_ALERTA_80',
+    LIMITE_ATINGIDO: 'DISCIPLINA_LIMITE_ATINGIDO'
+  }),
+
   CONFIG_INHERITED_HEADERS: Object.freeze([
     'CLASSIFICACAO_REUNIAO',
     'TIPO_ATIVIDADE',
@@ -299,5 +352,10 @@ var ATIVIDADES_CFG = Object.freeze({
     'CONTA_PRESENCA',
     'CONTA_FALTA',
     'GERA_CERTIFICADO'
-  ])
+  ]),
+
+  PLANNING: Object.freeze({
+    BASE_DEFAULT: 'SIM',
+    PERIOD_SYNC_STATUSES: Object.freeze(['CONFIRMADA', 'REALIZADA'])
+  })
 });

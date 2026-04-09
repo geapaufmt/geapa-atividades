@@ -18,6 +18,68 @@ function test_atividades_sync_presencas_periodo_vigente() {
   return atividades_sincronizarPresencasPeriodoVigente();
 }
 
+function test_atividades_congelar_snapshot_normativo_periodo_vigente() {
+  var result = atividades_congelarSnapshotNormativoPeriodoVigente();
+  Logger.log(JSON.stringify(result, null, 2));
+  return result;
+}
+
+function test_atividades_forcar_recalculo_snapshot_normativo_periodo_vigente() {
+  var result = atividades_forcarRecalculoSnapshotNormativoPeriodoVigente();
+  Logger.log(JSON.stringify(result, null, 2));
+  return result;
+}
+
+function test_atividades_gerar_ids_base_planejamento_inicial_periodo_vigente() {
+  var result = atividades_gerarIdsBasePlanejamentoInicialPeriodoVigente();
+  Logger.log(JSON.stringify(result, null, 2));
+  return result;
+}
+
+function test_atividades_debug_planejamento_normativo_periodo_vigente() {
+  var ctx = atividades_getCurrentPeriodContext_();
+  var result = atividades_getSnapshotNormativoPeriodo_(ctx, { ensureHeaders: true });
+  Logger.log(JSON.stringify({
+    period: {
+      id: ctx.id,
+      code: ctx.code,
+      displayName: ctx.displayName
+    },
+    snapshot: {
+      frozen: result.frozen,
+      source: result.source,
+      totalPlanejado: result.totalPlanejado,
+      limiteCongelado: result.limiteCongelado
+    },
+    derived: result.derived
+  }, null, 2));
+  return result;
+}
+
+function test_atividades_recalcular_motor_disciplinar_periodo_vigente() {
+  var result = atividades_recalcularMotorDisciplinarPeriodoVigente();
+  Logger.log(JSON.stringify(result, null, 2));
+  return result;
+}
+
+function test_atividades_gerar_eventos_desligamento_por_faltas_periodo_vigente() {
+  var result = atividades_gerarEventosDesligamentoPorFaltasPeriodoVigente();
+  Logger.log(JSON.stringify(result, null, 2));
+  return result;
+}
+
+function test_atividades_instalar_triggers() {
+  var result = atividades_instalarTriggers();
+  Logger.log(JSON.stringify(result, null, 2));
+  return result;
+}
+
+function test_atividades_remover_triggers() {
+  var result = atividades_removerTriggers();
+  Logger.log(JSON.stringify(result, null, 2));
+  return result;
+}
+
 function test_atividades_aplicar_config_linha_2() {
   var result = atividades_aplicarConfigLinhaAtividade(2);
   var sheet = atividades_getAtividadesSheet_();
@@ -49,6 +111,12 @@ function test_atividades_aplicar_config_linha_2() {
 
 function test_atividades_ensure_id_linha_2() {
   var result = atividades_ensureActivityIdForRow(2);
+  Logger.log(JSON.stringify(result, null, 2));
+  return result;
+}
+
+function test_atividades_apply_planning_defaults_linha_2() {
+  var result = atividades_applyPlanningDefaultsForRow_(2);
   Logger.log(JSON.stringify(result, null, 2));
   return result;
 }
