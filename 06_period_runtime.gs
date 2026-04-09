@@ -32,6 +32,35 @@ function atividades_createSheetWithHeaders_(targetSpreadsheet, newName, headers,
   return inserted;
 }
 
+function atividades_garantirEstruturasFixasV1_() {
+  var operational = atividades_getOperationalHolder_().spreadsheet;
+  var created = [];
+  var cfg = ATIVIDADES_CFG.FIXED_SHEETS.JUSTIFICATIVAS;
+  var targetName = cfg.sheetNames[0];
+
+  if (!atividades_findSheetByName_(operational, targetName)) {
+    atividades_createSheetWithHeaders_(
+      operational,
+      targetName,
+      ATIVIDADES_SCHEMA.JUSTIFICATIVAS_FALTAS,
+      'Justificativas_Faltas'
+    );
+    created.push(targetName);
+    atividades_logEvento_({
+      TIPO_EVENTO_LOG: 'CRIACAO_ABA_FIXA',
+      STATUS: 'OK',
+      ACAO_EXECUTADA: 'Criar aba fixa de justificativas de faltas',
+      RESULTADO: targetName,
+      OBSERVACOES: 'Criada automaticamente pela V1 do fluxo de faltas.'
+    });
+  }
+
+  return {
+    ok: true,
+    created: created
+  };
+}
+
 function atividades_buildUniqueSheetName_(spreadsheet, baseName, exceptSheetId) {
   var wanted = String(baseName || '').trim();
   if (!wanted) throw new Error('baseName obrigatorio para nome de aba.');
@@ -388,7 +417,7 @@ function atividades_garantirPeriodoVigente_() {
       operational,
       ctx.activitySheetName,
       ATIVIDADES_SCHEMA.PERIODO_ATIVIDADES,
-      ATIVIDADES_CFG.MODEL_SHEETS.PERIODO_ATIVIDADES
+      ATIVIDADES_CFG.DYNAMIC_SHEET_PROFILES.PERIODO_ATIVIDADES
     );
     created.push(ctx.activitySheetName);
     atividades_logEvento_({
@@ -405,7 +434,7 @@ function atividades_garantirPeriodoVigente_() {
       operational,
       ctx.presenceSheetName,
       ATIVIDADES_SCHEMA.PRESENCAS_BASE.concat(ATIVIDADES_SCHEMA.PRESENCAS_SUMARIO),
-      ATIVIDADES_CFG.MODEL_SHEETS.PERIODO_PRESENCAS
+      ATIVIDADES_CFG.DYNAMIC_SHEET_PROFILES.PERIODO_PRESENCAS
     );
     created.push(ctx.presenceSheetName);
     atividades_logEvento_({
@@ -517,7 +546,7 @@ function atividades_sincronizarPeriodoVigente_() {
   });
 
   atividades_writeTabularPayload_(periodSheet, ATIVIDADES_SCHEMA.PERIODO_ATIVIDADES.slice(), rows);
-  atividades_applySheetUx_(periodSheet, ATIVIDADES_CFG.MODEL_SHEETS.PERIODO_ATIVIDADES);
+  atividades_applySheetUx_(periodSheet, ATIVIDADES_CFG.DYNAMIC_SHEET_PROFILES.PERIODO_ATIVIDADES);
 
   atividades_logEvento_({
     TIPO_EVENTO_LOG: 'SYNC_PERIODO_VIGENTE',
@@ -538,6 +567,7 @@ function atividades_sincronizarPeriodoVigente_() {
 }
 
 function atividades_setupV1_() {
+  var fixed = atividades_garantirEstruturasFixasV1_();
   var ensure = atividades_garantirPeriodoVigente_();
   var seededConfig = atividades_garantirConfigPadrao_();
   var syncPeriodo = atividades_sincronizarPeriodoVigente_();
@@ -546,8 +576,9 @@ function atividades_setupV1_() {
 
   return {
     ok: true,
+    fixed: fixed,
     period: ensure.period,
-    createdSheets: ensure.created,
+    createdSheets: fixed.created.concat(ensure.created),
     seededConfig: seededConfig,
     syncPeriodo: syncPeriodo,
     syncPresencas: syncPresencas,

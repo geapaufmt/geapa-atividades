@@ -73,6 +73,25 @@ function atividades_buildDropdownRules_() {
       CONTA_FALTA: { values: ATIVIDADES_CFG.ENUMS.SIM_NAO, helpText: 'Se SIM, a atividade conta falta oficial.' },
       GERA_CERTIFICADO: { values: ATIVIDADES_CFG.ENUMS.SIM_NAO, helpText: 'Indicador para fluxos futuros.' },
       EXIGE_REGRAS_APRESENTACAO: { values: ATIVIDADES_CFG.ENUMS.SIM_NAO, helpText: 'Use SIM quando houver regra especial de apresentacao.' }
+    },
+
+    Justificativas_Faltas: {
+      MOTIVO_DECLARADO: {
+        values: ATIVIDADES_CFG.ENUMS.MOTIVO_AUSENCIA,
+        helpText: 'Motivo declarado pelo membro no formulario oficial.'
+      },
+      STATUS_ANALISE: {
+        values: ATIVIDADES_CFG.ENUMS.STATUS_ANALISE_JUSTIFICATIVA,
+        helpText: 'Resultado manual da analise administrativa da justificativa.'
+      },
+      DECISAO_APLICADA_NA_PRESENCA: {
+        values: ATIVIDADES_CFG.ENUMS.DECISAO_APLICADA_PRESENCA,
+        helpText: 'Reflexo atual da decisao na planilha de presencas.'
+      },
+      POSSUI_DOCUMENTO_COMPROBATORIO: {
+        values: ATIVIDADES_CFG.ENUMS.SIM_NAO,
+        helpText: 'Indica se o membro informou documento comprobatorio.'
+      }
     }
   };
 }
@@ -120,6 +139,18 @@ function atividades_buildHeaderNotes_() {
       ACAO_EXECUTADA: 'Acao executada pelo modulo.',
       RESULTADO: 'Resultado resumido da acao.'
     },
+    Justificativas_Faltas: {
+      ID_JUSTIFICATIVA: 'Identificador unico da justificativa no formato JUS-00001.',
+      PERIODO: 'Periodo ao qual a ausencia pertence.',
+      CODIGO_ATIVIDADE: 'Codigo operacional da atividade no periodo, usado no formulario e no e-mail.',
+      ID_ATIVIDADE: 'Referencia para a atividade principal em Atividades.',
+      DATA_LIMITE_JUSTIFICATIVA: 'Prazo final de 48 horas para envio da justificativa.',
+      STATUS_ANALISE: 'Status da analise manual da diretoria ou secretaria.',
+      DECISAO_APLICADA_NA_PRESENCA: 'Reflexo atual da decisao na planilha oficial de presencas.',
+      VALOR_ANTES: 'Valor encontrado na presenca antes da aplicacao da decisao.',
+      VALOR_DEPOIS: 'Valor final refletido na presenca apos decisao e abono.',
+      OBSERVACOES: 'Campo livre para observacoes administrativas.'
+    },
     META: {
       PERIODO_ID: 'Identificador do periodo arquivado.',
       ARQUIVADO_EM: 'Data e hora em que o arquivamento foi realizado.',
@@ -130,12 +161,12 @@ function atividades_buildHeaderNotes_() {
       VERSAO_MODULO: 'Versao do modulo que gerou o arquivamento.',
       OBSERVACOES: 'Observacoes livres sobre o snapshot historico.'
     },
-    MODELO_Atividades_Periodo: {
+    PERIODO_Atividades: {
       COD_ATIVIDADE_PERIODO: 'Codigo sequencial da atividade no periodo.',
       COLUNA_PRESENCA: 'Nome da coluna dinamica correspondente em Presencas, no formato ID_ATIVIDADE_YYYYMMDD.',
       CLASSIFICACAO_REUNIAO: 'Replica a classificacao de reuniao da atividade quando se aplicar.'
     },
-    MODELO_Presencas_Periodo: {
+    PERIODO_Presencas: {
       RGA: 'Identificador oficial do membro.',
       NOME_MEMBRO: 'Nome do membro.',
       EMAIL: 'Email institucional ou principal do membro.',
@@ -146,7 +177,8 @@ function atividades_buildHeaderNotes_() {
       DATA_SAIDA_NO_PERIODO: 'Data a partir da qual o membro deixa de contar presenca/falta no periodo.',
       MOTIVO_ALTERACAO_NO_PERIODO: 'Motivo historico da entrada, desligamento, suspensao ou retorno no periodo.',
       OBS_EVENTO_PERIODO: 'Observacoes livres sobre o evento historico do periodo.',
-      TOTAL_PRESENCAS: 'Total de marcacoes P no periodo.',
+      TOTAL_PRESENCAS: 'Total de marcacoes P e R no periodo.',
+      TOTAL_JUSTIFICADAS: 'Total de marcacoes J e A no periodo.',
       PERCENTUAL_FREQUENCIA: 'Percentual calculado de frequencia.'
     }
   };
@@ -175,15 +207,21 @@ function atividades_buildHeaderColors_() {
     Atividades_Log: [
       { color: '#d9ead3', headers: ['ID_LOG', 'ID_ATIVIDADE', 'TIPO_EVENTO_LOG', 'STATUS'] }
     ],
+    Justificativas_Faltas: [
+      { color: '#d9ead3', headers: ['ID_JUSTIFICATIVA', 'PERIODO', 'CODIGO_ATIVIDADE', 'ID_ATIVIDADE', 'RGA', 'NOME_MEMBRO', 'STATUS_ANALISE', 'DECISAO_APLICADA_NA_PRESENCA'] },
+      { color: '#d0e0e3', headers: ['DATA_ATIVIDADE', 'DATA_LIMITE_JUSTIFICATIVA', 'DATA_ENVIO', 'DATA_ANALISE'] },
+      { color: '#fff2cc', headers: ['MOTIVO_DECLARADO', 'POSSUI_DOCUMENTO_COMPROBATORIO', 'LINK_DOCUMENTO_COMPROBATORIO'] },
+      { color: '#fce5cd', headers: ['DESCRICAO_JUSTIFICATIVA', 'ANALISADO_POR', 'VALOR_ANTES', 'VALOR_DEPOIS', 'OBSERVACOES'] }
+    ],
     META: [
       { color: '#d9ead3', headers: ['PERIODO_ID', 'ARQUIVADO_EM', 'VERSAO_MODULO'] },
       { color: '#d0e0e3', headers: ['ORIGEM_PLANILHA_ID', 'ORIGEM_PLANILHA_NOME'] },
       { color: '#fce5cd', headers: ['ABA_ATIVIDADES_PERIODO', 'ABA_PRESENCAS_PERIODO', 'OBSERVACOES'] }
     ],
-    MODELO_Atividades_Periodo: [
+    PERIODO_Atividades: [
       { color: '#d9ead3', headers: ['COD_ATIVIDADE_PERIODO', 'COLUNA_PRESENCA', 'ID_ATIVIDADE', 'CLASSIFICACAO_REUNIAO'] }
     ],
-    MODELO_Presencas_Periodo: [
+    PERIODO_Presencas: [
       { color: '#d9ead3', headers: ['RGA', 'NOME_MEMBRO', 'EMAIL', 'CARGO_FUNCAO_ATUAL', 'STATUS_CADASTRAL', 'STATUS_NO_PERIODO'] },
       { color: '#d0e0e3', headers: ['DATA_ENTRADA_NO_PERIODO', 'DATA_SAIDA_NO_PERIODO', 'MOTIVO_ALTERACAO_NO_PERIODO', 'OBS_EVENTO_PERIODO'] }
     ]
@@ -234,7 +272,7 @@ function atividades_applyPresenceDynamicValidation_(sheet) {
   var validation = SpreadsheetApp.newDataValidation()
     .requireValueInList(ATIVIDADES_CFG.ENUMS.PRESENCA_VALORES, true)
     .setAllowInvalid(true)
-    .setHelpText('Valores aceitos: P, F, J, R ou N/A.')
+    .setHelpText('Valores aceitos: P, R, F, J, A ou N/A.')
     .build();
 
   sheet.getRange(2, firstDynamicCol, Math.max(sheet.getMaxRows() - 1, 1), totalDynamicCols)
@@ -242,7 +280,7 @@ function atividades_applyPresenceDynamicValidation_(sheet) {
 
   for (var col = firstDynamicCol; col < firstSummaryCol; col++) {
     sheet.getRange(1, col).setNote(
-      'Coluna dinamica de presenca oficial do periodo. Valores aceitos: P, F, J, R ou N/A.'
+      'Coluna dinamica de presenca oficial do periodo. Valores aceitos: P, R, F, J, A ou N/A.'
     );
   }
 
@@ -263,7 +301,7 @@ function atividades_applySheetUx_(sheet, logicalName) {
   });
   GEAPA_CORE.coreApplyDropdownValidationByHeader(sheet, rulesBySheet[currentLogicalName] || {}, 1, {});
 
-  if (currentLogicalName === ATIVIDADES_CFG.MODEL_SHEETS.PERIODO_PRESENCAS ||
+  if (currentLogicalName === ATIVIDADES_CFG.DYNAMIC_SHEET_PROFILES.PERIODO_PRESENCAS ||
       sheet.getName().indexOf(ATIVIDADES_CFG.DYNAMIC_SHEET_PREFIXES.PERIODO_PRESENCAS) === 0) {
     atividades_applyPresenceMetadataValidation_(sheet);
     atividades_applyPresenceDynamicValidation_(sheet);
@@ -271,11 +309,14 @@ function atividades_applySheetUx_(sheet, logicalName) {
 }
 
 function atividades_aplicarUxPlanilhas_() {
+  atividades_garantirEstruturasFixasV1_();
+
   var fixed = [
     { sheet: atividades_getAtividadesSheet_(), logicalName: 'Atividades' },
     { sheet: atividades_getApresentacoesSheet_(), logicalName: 'Atividades_Apresentacoes' },
     { sheet: atividades_getConvidadosSheet_(), logicalName: 'Atividade_Convidados' },
     { sheet: atividades_getConfigSheet_(), logicalName: 'Atividades_Config' },
+    { sheet: atividades_getJustificativasFaltasSheet_(), logicalName: 'Justificativas_Faltas' },
     { sheet: atividades_getLogSheet_(), logicalName: 'Atividades_Log' }
   ];
 
@@ -289,11 +330,11 @@ function atividades_aplicarUxPlanilhas_() {
   var dynamicPresencas = atividades_findSheetByName_(operational, ctx.presenceSheetName);
 
   if (dynamicAtividades) {
-    atividades_applySheetUx_(dynamicAtividades, ATIVIDADES_CFG.MODEL_SHEETS.PERIODO_ATIVIDADES);
+    atividades_applySheetUx_(dynamicAtividades, ATIVIDADES_CFG.DYNAMIC_SHEET_PROFILES.PERIODO_ATIVIDADES);
   }
 
   if (dynamicPresencas) {
-    atividades_applySheetUx_(dynamicPresencas, ATIVIDADES_CFG.MODEL_SHEETS.PERIODO_PRESENCAS);
+    atividades_applySheetUx_(dynamicPresencas, ATIVIDADES_CFG.DYNAMIC_SHEET_PROFILES.PERIODO_PRESENCAS);
   }
 
   return {

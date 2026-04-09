@@ -230,11 +230,15 @@ function atividades_buildPresenceSummaryFormula_(headerName, rowNumber, firstAct
   var rangeA1 = startA1 + ':' + endA1;
   var sep = argSeparator || ',';
 
-  if (headerName === 'TOTAL_PRESENCAS') return '=COUNTIF(' + rangeA1 + sep + '"P")';
+  if (headerName === 'TOTAL_PRESENCAS') {
+    return '=COUNTIF(' + rangeA1 + sep + '"P")+COUNTIF(' + rangeA1 + sep + '"R")';
+  }
   if (headerName === 'TOTAL_FALTAS') return '=COUNTIF(' + rangeA1 + sep + '"F")';
-  if (headerName === 'TOTAL_JUSTIFICADAS') return '=COUNTIF(' + rangeA1 + sep + '"J")';
+  if (headerName === 'TOTAL_JUSTIFICADAS') {
+    return '=COUNTIF(' + rangeA1 + sep + '"J")+COUNTIF(' + rangeA1 + sep + '"A")';
+  }
   if (headerName === 'PERCENTUAL_FREQUENCIA') {
-    return '=IFERROR((COUNTIF(' + rangeA1 + sep + '"P")+COUNTIF(' + rangeA1 + sep + '"J"))/(COUNTIF(' + rangeA1 + sep + '"P")+COUNTIF(' + rangeA1 + sep + '"F")+COUNTIF(' + rangeA1 + sep + '"J"))' + sep + '0)';
+    return '=IFERROR((COUNTIF(' + rangeA1 + sep + '"P")+COUNTIF(' + rangeA1 + sep + '"R")+COUNTIF(' + rangeA1 + sep + '"A"))/(COUNTIF(' + rangeA1 + sep + '"P")+COUNTIF(' + rangeA1 + sep + '"R")+COUNTIF(' + rangeA1 + sep + '"F")+COUNTIF(' + rangeA1 + sep + '"J")+COUNTIF(' + rangeA1 + sep + '"A"))' + sep + '0)';
   }
 
   return '';
@@ -483,7 +487,7 @@ function atividades_sincronizarPresencasPeriodoVigente_() {
 
   atividades_writeTabularPayload_(sheet, headers, rows);
   atividades_applyPresenceSummaryFormulas_(sheet, headers, rows.length, firstActivityCol, lastActivityCol);
-  atividades_applySheetUx_(sheet, ATIVIDADES_CFG.MODEL_SHEETS.PERIODO_PRESENCAS);
+  atividades_applySheetUx_(sheet, ATIVIDADES_CFG.DYNAMIC_SHEET_PROFILES.PERIODO_PRESENCAS);
 
   var headerMap = GEAPA_CORE.coreHeaderMap(sheet, 1);
   var percentualCol = GEAPA_CORE.coreGetCol(headerMap, 'PERCENTUAL_FREQUENCIA');

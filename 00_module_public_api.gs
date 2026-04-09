@@ -57,3 +57,19 @@ function atividades_seedConfigPadrao() {
 function atividades_arquivarPeriodosAntigos() {
   return atividades_arquivarPeriodosAntigos_();
 }
+
+function atividades_importarJustificativasFaltas() {
+  return atividades_importarJustificativasFaltas_();
+}
+
+function atividades_aplicarDecisoesJustificativas() {
+  return atividades_aplicarDecisoesJustificativas_();
+}
+
+function atividades_recalcularAbonosPeriodoVigente() {
+  return atividades_recalcularAbonosPeriodoVigente_();
+}
+
+function atividades_notificarFaltasPendentes() {
+  return atividades_notificarFaltasPendentes_();
+}

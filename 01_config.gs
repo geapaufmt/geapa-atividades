@@ -12,6 +12,9 @@ var ATIVIDADES_CFG = Object.freeze({
   ACTIVITY_ID_DATE_TOKEN_FORMAT: 'yyyyMMdd',
   ACTIVITY_ID_PREFIX: 'ATV-',
   ACTIVITY_ID_PAD_LENGTH: 4,
+  JUSTIFICATIVA_ID_PREFIX: 'JUS-',
+  JUSTIFICATIVA_ID_PAD_LENGTH: 5,
+  JUSTIFICATIVA_FORM_URL: 'https://docs.google.com/forms/d/e/1FAIpQLSc3s2PXBLSwcjahOVLHJGkMS853A7IKwxxDpiGQJXe1nRT3TQ/viewform?usp=publish-editor',
 
   FIXED_SHEETS: Object.freeze({
     ATIVIDADES: Object.freeze({
@@ -30,6 +33,11 @@ var ATIVIDADES_CFG = Object.freeze({
       preferredKeys: Object.freeze(['ATIVIDADES_CONFIG']),
       sheetNames: Object.freeze(['Atividades_Config'])
     }),
+    JUSTIFICATIVAS: Object.freeze({
+      preferredKeys: Object.freeze([]),
+      sheetNames: Object.freeze(['Justificativas_Faltas']),
+      sameSpreadsheetAsOperational: true
+    }),
     LOG: Object.freeze({
       preferredKeys: Object.freeze(['ATIVIDADES_LOG']),
       sheetNames: Object.freeze(['Atividades_Log'])
@@ -41,6 +49,19 @@ var ATIVIDADES_CFG = Object.freeze({
     EXTERNOS_FORM: Object.freeze({
       preferredKeys: Object.freeze(['PARTICIPANTES_EXTERNOS_FORM']),
       sheetNames: Object.freeze(['Cadastro de Participantes Externos (respostas)'])
+    }),
+    JUSTIFICATIVAS_FORM: Object.freeze({
+      preferredKeys: Object.freeze([
+        'JUSTIFICATIVAS_FALTAS_FORM',
+        'JUSTIFICATIVAS_FORM',
+        'JUSTIFICATIVA_FALTA_FORM'
+      ]),
+      sheetNames: Object.freeze([
+        'JUSTIFICATIVA DE FALTA - GEAPA (respostas)',
+        'Respostas ao formulário 1',
+        'Respostas do formulário 1'
+      ]),
+      keyTokens: Object.freeze(['JUSTIFICAT', 'FALTA'])
     })
   }),
 
@@ -50,19 +71,6 @@ var ATIVIDADES_CFG = Object.freeze({
     PERIODS: 'VIGENCIA_PERIODOS',
     SEMESTERS: 'VIGENCIA_SEMESTRES',
     MEMBER_LIFECYCLE_EVENTS: 'MEMBER_EVENTOS_VINCULO'
-  }),
-
-  MODELS_DISCOVERY: Object.freeze({
-    preferredKeys: Object.freeze([
-      'ATIVIDADES_MODELOS',
-      'ATIVIDADES_MODELO_ATIVIDADES_PERIODO',
-      'ATIVIDADES_MODELO_PRESENCAS_PERIODO'
-    ]),
-    requiredSheetNames: Object.freeze([
-      'MODELO_Atividades_Periodo',
-      'MODELO_Presencas_Periodo'
-    ]),
-    keyTokens: Object.freeze(['ATIVIDADES', 'MODELO'])
   }),
 
   HISTORY_DISCOVERY: Object.freeze({
@@ -84,9 +92,9 @@ var ATIVIDADES_CFG = Object.freeze({
     PERIODO_PRESENCAS: 'Presencas_'
   }),
 
-  MODEL_SHEETS: Object.freeze({
-    PERIODO_ATIVIDADES: 'MODELO_Atividades_Periodo',
-    PERIODO_PRESENCAS: 'MODELO_Presencas_Periodo'
+  DYNAMIC_SHEET_PROFILES: Object.freeze({
+    PERIODO_ATIVIDADES: 'PERIODO_Atividades',
+    PERIODO_PRESENCAS: 'PERIODO_Presencas'
   }),
 
   ARCHIVE: Object.freeze({
@@ -203,7 +211,26 @@ var ATIVIDADES_CFG = Object.freeze({
       'PROCESSADO_ATIVIDADES',
       'PROCESSADO_MEMBROS'
     ]),
-    PRESENCA_VALORES: Object.freeze(['P', 'F', 'J', 'R', 'N/A'])
+    PRESENCA_VALORES: Object.freeze(['P', 'R', 'F', 'J', 'A', 'N/A']),
+    STATUS_ANALISE_JUSTIFICATIVA: Object.freeze([
+      'PENDENTE',
+      'DEFERIDA',
+      'INDEFERIDA'
+    ]),
+    DECISAO_APLICADA_PRESENCA: Object.freeze([
+      'NAO_APLICADA',
+      'F_MANTIDA',
+      'F_PARA_J',
+      'J_PARA_A'
+    ]),
+    MOTIVO_AUSENCIA: Object.freeze([
+      'SAUDE',
+      'COMPROMISSO_ACADEMICO',
+      'COMPROMISSO_PROFISSIONAL',
+      'MOTIVO_PESSOAL_RELEVANTE',
+      'FORCA_MAIOR',
+      'OUTRO'
+    ])
   }),
 
   PRESENCAS: Object.freeze({
@@ -226,6 +253,37 @@ var ATIVIDADES_CFG = Object.freeze({
       'PERCENTUAL_FREQUENCIA',
       'OBSERVACOES'
     ])
+  }),
+
+  JUSTIFICATIVAS: Object.freeze({
+    DEFAULT_ANALYSIS_STATUS: 'PENDENTE',
+    DEFAULT_DECISION_STATUS: 'NAO_APLICADA',
+    NOTIFICATION_WINDOW_HOURS: 48
+  }),
+
+  JUSTIFICATIVAS_FORM_FIELDS: Object.freeze({
+    dataEnvio: Object.freeze(['Carimbo de data/hora', 'Timestamp', 'DATA_ENVIO', 'Data de envio']),
+    nomeCompleto: Object.freeze(['NOME_COMPLETO', 'Nome completo', 'Nome Completo']),
+    rga: Object.freeze(['RGA']),
+    codigoAtividade: Object.freeze(['CODIGO_ATIVIDADE', 'Codigo atividade', 'Código da atividade']),
+    motivoAusencia: Object.freeze(['MOTIVO_AUSENCIA', 'Motivo da ausencia', 'Motivo da ausência']),
+    descricaoJustificativa: Object.freeze(['DESCRICAO_JUSTIFICATIVA', 'Descricao justificativa', 'Descrição da justificativa']),
+    possuiDocumento: Object.freeze(['POSSUI_DOCUMENTO_COMPROBATORIO', 'Possui documento comprobatorio', 'Possui documento comprobatório']),
+    linkDocumento: Object.freeze(['LINK_DOCUMENTO_COMPROBATORIO', 'Link documento comprobatorio', 'Link do documento comprobatório']),
+    observacoes: Object.freeze(['OBSERVACOES_ADICIONAIS', 'Observacoes adicionais', 'Observações adicionais'])
+  }),
+
+  JUSTIFICATIVAS_STATUS_FINAIS: Object.freeze({
+    DEFERIDA: 'DEFERIDA',
+    INDEFERIDA: 'INDEFERIDA'
+  }),
+
+  JUSTIFICATIVAS_LOG_TYPES: Object.freeze({
+    AVISO_FALTA: 'AVISO_FALTA',
+    IMPORT_JUSTIFICATIVA: 'IMPORT_JUSTIFICATIVA',
+    APLICACAO_JUSTIFICATIVA: 'APLICACAO_JUSTIFICATIVA',
+    ABONO_JUSTIFICATIVA: 'ABONO_JUSTIFICATIVA',
+    RESULTADO_JUSTIFICATIVA: 'RESULTADO_JUSTIFICATIVA'
   }),
 
   CONFIG_INHERITED_HEADERS: Object.freeze([

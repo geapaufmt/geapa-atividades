@@ -81,6 +81,11 @@ function atividades_validateFixedSheets_() {
     'Atividades_Config'
   ));
   checks.push(atividades_validateSheetHeaders_(
+    atividades_getJustificativasFaltasSheet_(),
+    ATIVIDADES_SCHEMA.JUSTIFICATIVAS_FALTAS,
+    'Justificativas_Faltas'
+  ));
+  checks.push(atividades_validateSheetHeaders_(
     atividades_getLogSheet_(),
     ATIVIDADES_SCHEMA.LOG,
     'Atividades_Log'

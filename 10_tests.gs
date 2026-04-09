@@ -66,3 +66,33 @@ function test_atividades_seed_config_padrao() {
 function test_atividades_arquivar_periodos_antigos() {
   return atividades_arquivarPeriodosAntigos();
 }
+
+function test_atividades_importar_justificativas_faltas() {
+  var result = atividades_importarJustificativasFaltas();
+  Logger.log(JSON.stringify(result, null, 2));
+  return result;
+}
+
+function test_atividades_aplicar_decisoes_justificativas() {
+  var result = atividades_aplicarDecisoesJustificativas();
+  Logger.log(JSON.stringify(result, null, 2));
+  return result;
+}
+
+function test_atividades_recalcular_abonos_periodo() {
+  var result = atividades_recalcularAbonosPeriodoVigente();
+  Logger.log(JSON.stringify(result, null, 2));
+  return result;
+}
+
+function test_atividades_notificar_faltas_pendentes() {
+  var result = atividades_notificarFaltasPendentes();
+  Logger.log(JSON.stringify(result, null, 2));
+  return result;
+}
+
+function test_atividades_aplicar_decisao_justificativa_linha_2() {
+  var result = atividades_aplicarDecisaoJustificativaRow_(2);
+  Logger.log(JSON.stringify(result, null, 2));
+  return result;
+}

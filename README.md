@@ -82,7 +82,8 @@ A V1 implementada aqui cobre:
 - heranca automatica de `Atividades_Config` para `Atividades`;
 - seed padrao e nao destrutivo de `Atividades_Config` quando a aba estiver vazia;
 - sincronizacao da aba de periodo vigente;
-- inicializacao e sincronizacao historica da aba oficial de presencas dos membros.
+- inicializacao e sincronizacao historica da aba oficial de presencas dos membros;
+- fluxo V1 de justificativas de faltas com base bruta de formulario, aba oficial de analise, reflexo automatico em presencas e abono visual `J -> A`.
 
 ## Arquitetura
 
@@ -94,6 +95,7 @@ Mantem apenas:
 - `Atividades_Apresentacoes`
 - `Atividade_Convidados`
 - `Atividades_Config`
+- `Justificativas_Faltas`
 - `Atividades_Log`
 - `Atividades_Periodo_<PERIODO_VIGENTE>`
 - `Presencas_<PERIODO_VIGENTE>`
@@ -137,6 +139,7 @@ Preferencias atuais:
 - `ATIVIDADES_APRESENTACOES`
 - `ATIVIDADES_CONVIDADOS`
 - `ATIVIDADES_CONFIG`
+- `Justificativas_Faltas` e `JUSTIFICATIVA DE FALTA - GEAPA (respostas)` podem ser descobertas por nome de aba quando nao houver KEY dedicada
 - `ATIVIDADES_LOG`
 
 ### Estruturas estaveis obrigatorias
@@ -174,6 +177,46 @@ Se nenhuma ancora de historico existir no `Registry`, essa e a unica adicao real
 - `atividades_ensureActivityIdForRow(rowNumber)`
 - `atividades_seedConfigPadrao()`
 - `atividades_arquivarPeriodosAntigos()`
+- `atividades_importarJustificativasFaltas()`
+- `atividades_aplicarDecisoesJustificativas()`
+- `atividades_recalcularAbonosPeriodoVigente()`
+- `atividades_notificarFaltasPendentes()`
+
+## Fluxo V1 de justificativas de faltas
+
+Estruturas usadas:
+
+- planilha bruta: `JUSTIFICATIVA DE FALTA - GEAPA (respostas)`
+- aba oficial permanente: `Justificativas_Faltas`
+- reflexo final: `Presencas_<PERIODO>`
+
+Valores aceitos nas colunas dinamicas de presenca:
+
+- `P` = Presente
+- `R` = Remoto validado
+- `F` = Falta
+- `J` = Falta justificada
+- `A` = Falta abonada
+- `N/A` = Nao se aplica
+
+Resumo do fluxo:
+
+1. a equipe registra a ausencia em `Presencas_<PERIODO>` com `F`;
+2. `atividades_notificarFaltasPendentes()` importa primeiro a base bruta, depois envia aviso automatico para os `F` elegiveis ainda sem justificativa registrada;
+3. `atividades_importarJustificativasFaltas()` consolida as respostas brutas em `Justificativas_Faltas`;
+4. a diretoria analisa manualmente em `Justificativas_Faltas`;
+5. ao marcar `STATUS_ANALISE = DEFERIDA` ou `INDEFERIDA`, o modulo reflete automaticamente a decisao na presenca e envia um e-mail com o resultado da analise;
+6. a cada duas justificativas deferidas no periodo, uma passa de `J` para `A`.
+
+Regras aplicadas na V1:
+
+- o prazo padrao e de 48 horas apos a atividade;
+- o formulario usa `CODIGO_ATIVIDADE` como chave principal;
+- a base bruta continua separada da base oficial de analise;
+- membros com `N/A`, `P`, `R`, `J` ou `A` nao recebem cobranca;
+- o aviso usa a fila central `MAIL_SAIDA` e o processamento central do core;
+- o resultado da analise tambem usa a fila central `MAIL_SAIDA`, com deduplicacao por `CODIGO_ATIVIDADE + RGA + STATUS_ANALISE`;
+- o link operacional de formulario usado pelo modulo e `https://docs.google.com/forms/d/e/1FAIpQLSc3s2PXBLSwcjahOVLHJGkMS853A7IKwxxDpiGQJXe1nRT3TQ/viewform?usp=publish-editor`.
 
 ## Integracao de eventos de vinculo
 
@@ -281,6 +324,36 @@ Regras atuais de consumo em presencas:
 4. confirme `MOTIVO_ALTERACAO_NO_PERIODO = SUSPENSAO`;
 5. confirme `N/A` nas atividades posteriores a data do evento.
 
+### Falta simples com aviso
+
+1. marque `F` em uma coluna dinamica de `Presencas_<PERIODO>` para um membro elegivel;
+2. rode `atividades_notificarFaltasPendentes()`;
+3. confirme a nova saida em `MAIL_SAIDA` e o log correspondente em `Atividades_Log`;
+4. confirme que o e-mail traz `CODIGO_ATIVIDADE`, prazo de 48 horas e link do formulario oficial.
+
+### Justificativa deferida
+
+1. rode `atividades_importarJustificativasFaltas()` apos receber uma resposta na planilha bruta;
+2. confira a linha em `Justificativas_Faltas` com `STATUS_ANALISE = PENDENTE`;
+3. altere `STATUS_ANALISE` para `DEFERIDA`;
+4. confirme que a celula correspondente em `Presencas_<PERIODO>` muda de `F` para `J`;
+5. confirme a nova saida em `MAIL_SAIDA` com o resultado deferido.
+
+### Justificativa indeferida
+
+1. importe a resposta normalmente;
+2. altere `STATUS_ANALISE` para `INDEFERIDA`;
+3. confirme que a celula correspondente permanece `F`;
+4. confira `DECISAO_APLICADA_NA_PRESENCA = F_MANTIDA`;
+5. confirme a nova saida em `MAIL_SAIDA` com o resultado indeferido.
+
+### Conversao de `J` para `A`
+
+1. defira duas justificativas do mesmo membro no mesmo periodo;
+2. confirme que, apos a segunda, uma das justificativas deferidas permanece `J` e a outra passa a `A`;
+3. confira `DECISAO_APLICADA_NA_PRESENCA = J_PARA_A` na linha que recebeu o abono;
+4. rode `atividades_recalcularAbonosPeriodoVigente()` se quiser forcar a reconciliacao manual.
+
 ## Backlog V2
 
 - automacoes de comunicacao usando a central `MAIL_SAIDA`, `MAIL_EVENTOS` e `MAIL_INDICE`;
@@ -288,4 +361,5 @@ Regras atuais de consumo em presencas:
 - sincronizacao mais rica das regras especiais de apresentacoes;
 - refinamentos adicionais de auditoria do processo de arquivamento;
 - consolidacao de metricas e relatorios historicos multi-periodo;
-- suporte completo a multiplas janelas no mesmo periodo, como suspensao seguida de retorno.
+- suporte completo a multiplas janelas no mesmo periodo, como suspensao seguida de retorno;
+- integracao mais rica com a norma complementar para tratar suspensoes, reversoes de decisao e reprocessamento historico de abonos.

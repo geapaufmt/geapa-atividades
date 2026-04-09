@@ -32,6 +32,9 @@ function atividades_assertCoreLibrary_() {
     'coreApplyDropdownValidationByHeader',
     'coreGetCurrentSemester',
     'coreFormatDate',
+    'coreIsValidEmail',
+    'coreMailQueueOutgoing',
+    'coreMailProcessOutbox',
     'coreRunId',
     'coreLogInfo',
     'coreLogWarn',
@@ -121,6 +124,26 @@ function atividades_findRegistryEntryBySheetNames_(sheetNames) {
   return null;
 }
 
+function atividades_findSheetByNameTokens_(spreadsheet, tokens) {
+  var wanted = (Array.isArray(tokens) ? tokens : [tokens]).map(function(token) {
+    return atividades_normalizeTextLower_(token);
+  }).filter(function(token) {
+    return !!token;
+  });
+  if (!wanted.length) return null;
+
+  var sheets = spreadsheet.getSheets();
+  for (var i = 0; i < sheets.length; i++) {
+    var normalizedName = atividades_normalizeTextLower_(sheets[i].getName());
+    var allMatch = wanted.every(function(token) {
+      return normalizedName.indexOf(token) >= 0;
+    });
+    if (allMatch) return sheets[i];
+  }
+
+  return null;
+}
+
 function atividades_findRegistryEntryByKeyTokens_(tokens) {
   var list = Array.isArray(tokens) ? tokens : [tokens];
   var normalizedTokens = list.map(function(token) {
@@ -165,11 +188,32 @@ function atividades_getFixedSheetEntry_(logicalName) {
   if (!entry) {
     entry = atividades_findRegistryEntryBySheetNames_(cfg.sheetNames);
   }
+  if (!entry && cfg.keyTokens && cfg.keyTokens.length) {
+    entry = atividades_findRegistryEntryByKeyTokens_(cfg.keyTokens);
+  }
+
+  if (!entry) {
+    if (cfg.sameSpreadsheetAsOperational && logicalName !== 'ATIVIDADES') {
+      var operationalCfg = ATIVIDADES_CFG.FIXED_SHEETS.ATIVIDADES;
+      var operationalEntry = atividades_findEntryByPreferredKeys_(operationalCfg.preferredKeys);
+      if (!operationalEntry) {
+        operationalEntry = atividades_findRegistryEntryBySheetNames_(operationalCfg.sheetNames);
+      }
+
+      if (operationalEntry) {
+        entry = Object.freeze({
+          key: '',
+          id: operationalEntry.id,
+          sheet: cfg.sheetNames[0]
+        });
+      }
+    }
+  }
 
   if (!entry) {
     throw new Error(
       'Nao foi possivel localizar a aba fixa "' + logicalName + '" no Registry. ' +
-      'Preferidas: ' + cfg.preferredKeys.join(', ') + ' | Abas esperadas: ' + cfg.sheetNames.join(', ')
+      'Preferidas: ' + (cfg.preferredKeys || []).join(', ') + ' | Abas esperadas: ' + cfg.sheetNames.join(', ')
     );
   }
 
@@ -243,19 +287,6 @@ function atividades_getOperationalHolder_() {
   });
 }
 
-function atividades_getModelsHolder_() {
-  var entry = atividades_findHolderEntry_('MODELS', {
-    preferredKeys: ATIVIDADES_CFG.MODELS_DISCOVERY.preferredKeys,
-    sheetNames: ATIVIDADES_CFG.MODELS_DISCOVERY.requiredSheetNames,
-    keyTokens: ATIVIDADES_CFG.MODELS_DISCOVERY.keyTokens
-  });
-
-  return Object.freeze({
-    entry: entry,
-    spreadsheet: atividades_openSpreadsheetByIdCached_(entry.id)
-  });
-}
-
 function atividades_getHistoryFolder_() {
   var entry = atividades_findHolderEntry_('HISTORY', {
     preferredKeys: ATIVIDADES_CFG.HISTORY_DISCOVERY.preferredKeys,
@@ -292,13 +323,29 @@ function atividades_getOperationalSheetByLogicalName_(logicalName) {
   );
 }
 
-function atividades_getModelsSheetByName_(sheetName) {
-  var holder = atividades_getModelsHolder_();
-  var sheet = atividades_findSheetByName_(holder.spreadsheet, sheetName);
-  if (!sheet) {
-    throw new Error('Aba de modelo nao encontrada: "' + sheetName + '".');
+function atividades_getFixedSheetByLogicalName_(logicalName) {
+  var entry = atividades_getFixedSheetEntry_(logicalName);
+  var cfg = ATIVIDADES_CFG.FIXED_SHEETS[logicalName];
+  var spreadsheet = cfg && cfg.sameSpreadsheetAsOperational
+    ? atividades_getOperationalHolder_().spreadsheet
+    : atividades_openSpreadsheetByIdCached_(entry.id);
+  var byRealName = atividades_findSheetByName_(spreadsheet, entry.sheet);
+  if (byRealName) return byRealName;
+
+  for (var i = 0; i < cfg.sheetNames.length; i++) {
+    var fallback = atividades_findSheetByName_(spreadsheet, cfg.sheetNames[i]);
+    if (fallback) return fallback;
   }
-  return sheet;
+
+  if (cfg.keyTokens && cfg.keyTokens.length) {
+    var tokenMatch = atividades_findSheetByNameTokens_(spreadsheet, cfg.keyTokens);
+    if (tokenMatch) return tokenMatch;
+  }
+
+  throw new Error(
+    'Aba fixa nao encontrada para "' + logicalName + '". ' +
+    'Registry apontou para "' + entry.sheet + '".'
+  );
 }
 
 function atividades_getAtividadesSheet_() {
@@ -319,4 +366,12 @@ function atividades_getConfigSheet_() {
 
 function atividades_getLogSheet_() {
   return atividades_getOperationalSheetByLogicalName_('LOG');
+}
+
+function atividades_getJustificativasFaltasSheet_() {
+  return atividades_getFixedSheetByLogicalName_('JUSTIFICATIVAS');
+}
+
+function atividades_getJustificativasFormSheet_() {
+  return atividades_getFixedSheetByLogicalName_('JUSTIFICATIVAS_FORM');
 }

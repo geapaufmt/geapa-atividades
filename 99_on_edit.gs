@@ -1,5 +1,6 @@
 function onEditAtividades(e) {
   atividades_onEditConfigInheritance_(e);
+  atividades_onEditJustificativas_(e);
 }
 
 function atividades_onEditConfigInheritance_(e) {
@@ -21,4 +22,25 @@ function atividades_onEditConfigInheritance_(e) {
   atividades_ensureActivityIdForRow_(e.range.getRow());
   atividades_applyCargaHorariaForRow_(e.range.getRow());
   atividades_aplicarConfigLinhaAtividade_(e.range.getRow());
+}
+
+function atividades_onEditJustificativas_(e) {
+  if (!e || !e.range) return;
+
+  var sheet = e.range.getSheet();
+  var justificativasSheet;
+  try {
+    justificativasSheet = atividades_getJustificativasFaltasSheet_();
+  } catch (err) {
+    return;
+  }
+
+  if (sheet.getSheetId() !== justificativasSheet.getSheetId()) return;
+  if (e.range.getRow() <= 1) return;
+
+  var headerMap = GEAPA_CORE.coreHeaderMap(justificativasSheet, 1);
+  var statusCol = GEAPA_CORE.coreGetCol(headerMap, 'STATUS_ANALISE');
+  if (!statusCol || e.range.getColumn() !== statusCol) return;
+
+  atividades_aplicarDecisaoJustificativaRow_(e.range.getRow());
 }
