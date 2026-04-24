@@ -62,6 +62,12 @@ function test_atividades_recalcular_motor_disciplinar_periodo_vigente() {
   return result;
 }
 
+function test_atividades_notificar_alertas_disciplinares_periodo_vigente() {
+  var result = atividades_notificarAlertasDisciplinaresPeriodoVigente();
+  Logger.log(JSON.stringify(result, null, 2));
+  return result;
+}
+
 function test_atividades_gerar_eventos_desligamento_por_faltas_periodo_vigente() {
   var result = atividades_gerarEventosDesligamentoPorFaltasPeriodoVigente();
   Logger.log(JSON.stringify(result, null, 2));

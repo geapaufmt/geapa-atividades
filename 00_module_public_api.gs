@@ -42,6 +42,10 @@ function atividades_recalcularMotorDisciplinarPeriodoVigente() {
   return atividades_recalcularMotorDisciplinarPeriodoVigente_();
 }
 
+function atividades_notificarAlertasDisciplinaresPeriodoVigente() {
+  return atividades_notificarAlertasDisciplinaresPeriodoVigente_();
+}
+
 function atividades_gerarEventosDesligamentoPorFaltasPeriodoVigente() {
   return atividades_gerarEventosDesligamentoPorFaltasPeriodoVigente_();
 }
@@ -123,7 +127,9 @@ function atividades_enviarCobrancasArquivoApresentacoesForcado() {
 }
 
 function atividades_processarInboxArquivoApresentacoes() {
-  return atividades_processarInboxArquivoApresentacoes_();
+  return atividades_processarInboxArquivoApresentacoes_({
+    allowGmailFallback: true
+  });
 }
 
 function atividades_processarFotosPendentesApresentacoes() {

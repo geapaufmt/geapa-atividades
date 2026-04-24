@@ -2455,7 +2455,8 @@ function atividades_jobApresentacoesPhasePosEvento_() {
     processOutbox: false
   });
   var inboxArquivo = atividades_processarInboxArquivoApresentacoes_({
-    processOutbox: false
+    processOutbox: false,
+    allowGmailFallback: false
   });
   var fotosPendentes = atividades_processarFotosPendentesApresentacoes_({
     processOutbox: false

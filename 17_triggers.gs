@@ -2,12 +2,21 @@ function atividades_jobPlanejamentoNormativo_() {
   var preview = atividades_atualizarPreviewFechamentoPlanejamentoPeriodoVigente_();
   var autoFreeze = atividades_tryAutoFreezeSnapshotNormativoPeriodoVigente_();
   var disciplinar = atividades_recalcularMotorDisciplinarPeriodoVigente_();
+  var alertasDisciplinares = atividades_notificarAlertasDisciplinaresPeriodoVigente_({
+    rowNumbers: (disciplinar.transitions || []).filter(function(item) {
+      var next = String(item && item.to || '').trim();
+      return next === 'ALERTA_60' || next === 'ALERTA_80';
+    }).map(function(item) {
+      return Number(item.rowNumber || 0);
+    })
+  });
 
   return {
     ok: true,
     preview: preview,
     autoFreeze: autoFreeze,
-    disciplinar: disciplinar
+    disciplinar: disciplinar,
+    alertasDisciplinares: alertasDisciplinares
   };
 }
 

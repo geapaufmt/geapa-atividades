@@ -177,6 +177,7 @@ Se nenhuma ancora de historico existir no `Registry`, essa e a unica adicao real
 - `atividades_congelarSnapshotNormativoPeriodoVigente()`
 - `atividades_forcarRecalculoSnapshotNormativoPeriodoVigente()`
 - `atividades_recalcularMotorDisciplinarPeriodoVigente()`
+- `atividades_notificarAlertasDisciplinaresPeriodoVigente()`
 - `atividades_gerarEventosDesligamentoPorFaltasPeriodoVigente()`
 - `atividades_instalarTriggers()`
 - `atividades_removerTriggers()`
@@ -368,6 +369,19 @@ O modulo registra em `Atividades_Log` quando houver transicao para:
 - `DISCIPLINA_ALERTA_80`
 - `DISCIPLINA_LIMITE_ATINGIDO`
 
+Tambem envia avisos automaticos por e-mail quando houver transicao real para:
+
+- `ALERTA_60`
+- `ALERTA_80`
+
+Regras dos avisos disciplinares:
+
+- o envio usa a fila central `MAIL_SAIDA`;
+- os destinatarios sao o membro em `to` e a secretaria em `cc`;
+- a idempotencia e feita por `Atividades_Log`, com uma notificacao por `PERIODO + RGA + SITUACAO_DISCIPLINAR`;
+- reruns do job e recalcule manual nao reenviam o mesmo estagio;
+- `LIMITE_ATINGIDO` nao dispara novo e-mail disciplinar neste modulo, porque esse caso segue pelo fluxo institucional de desligamento por faltas.
+
 Tambem existe a funcao:
 
 - `atividades_gerarEventosDesligamentoPorFaltasPeriodoVigente()`
@@ -402,6 +416,7 @@ Esse instalador cria:
 
 - trigger instalavel de edicao para `onEditAtividades`;
 - trigger horario para `atividades_jobPlanejamentoNormativo_`, que atualiza a data-limite, tenta congelar o snapshot quando a hora chegar e recalcula o bloco disciplinar;
+- no mesmo job normativo, apos o recalculo disciplinar, o modulo tenta enfileirar automaticamente os avisos de `ALERTA_60` e `ALERTA_80` quando houver transicao real de faixa;
 - trigger horario para `atividades_jobApresentacoes_`, que agora roda em fases ciclicas para reduzir carga e limite de execucoes do Apps Script:
   - `BASE`: garante `ID_ATIVIDADE`, faz upsert de `APRESENTACAO_MEMBRO`, reflete `STATUS_APRESENTACAO` e, quando esse reflexo altera `Atividades.STATUS`, ressincroniza automaticamente `Atividades_Periodo_<PERIODO>` e `Presencas_<PERIODO>` antes de seguir para agendamento, cobranca e inbox de titulo/eixo e aviso a secretaria;
   - `CONVITES`: upsert de professores e externos, convites e lembretes aos membros;
@@ -503,6 +518,8 @@ Pós-apresentação:
   - `STATUS_ENVIO_ARQUIVO`
 - o inbox procura respostas com o assunto `GEAPA | Envio do arquivo da apresentação em PDF`;
 - apenas anexos em PDF sao aceitos;
+- o trigger automatico do `POS_EVENTO` usa a central de mensagens como caminho principal e nao cai mais no fallback direto de Gmail quando nao houver evento pendente, para preservar a cota diaria do Gmail;
+- a funcao publica manual `atividades_processarInboxArquivoApresentacoes()` continua permitindo o fallback direto no Gmail para depuracao e recuperacao operacional;
 - quando o PDF e recebido corretamente, o modulo grava:
   - `STATUS_ENVIO_ARQUIVO = RECEBIDO`
   - `DATA_RECEBIMENTO_ARQUIVO`
@@ -549,6 +566,8 @@ Agora o modulo alterna automaticamente entre tres fases:
 3. `POS_EVENTO`
 
 Cada execucao avanca para a fase seguinte. Isso reduz risco de timeout, limite de chamadas e o erro de "funcao executada muitas vezes em curto espaco de tempo".
+
+No `POS_EVENTO`, a etapa de inbox de arquivo roda em modo `central_only` quando chamada pelo trigger automatico. O fallback direto ao Gmail fica reservado para execucao manual, evitando estourar a cota diaria do servico `gmail`.
 
 Para teste manual, voce pode rodar cada fase isoladamente:
 

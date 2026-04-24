@@ -433,6 +433,20 @@ var ATIVIDADES_CFG = Object.freeze({
     LIMITE_ATINGIDO: 'DISCIPLINA_LIMITE_ATINGIDO'
   }),
 
+  DISCIPLINA_NOTIFICACOES: Object.freeze({
+    FLOW_CODE: 'DISC',
+    STAGE_ALERTA_60: 'AL60',
+    STAGE_ALERTA_80: 'AL80',
+    SUBJECT_ALERTA_60: 'Alerta disciplinar: 60% do limite de faltas no GEAPA',
+    SUBJECT_ALERTA_80: 'Alerta disciplinar: 80% do limite de faltas no GEAPA'
+  }),
+
+  DISCIPLINA_NOTIFICACAO_LOG_TYPES: Object.freeze({
+    RESUMO: 'DISCIPLINA_EMAIL_ALERTA',
+    ALERTA_60: 'DISCIPLINA_EMAIL_ALERTA_60',
+    ALERTA_80: 'DISCIPLINA_EMAIL_ALERTA_80'
+  }),
+
   CONFIG_INHERITED_HEADERS: Object.freeze([
     'CLASSIFICACAO_REUNIAO',
     'TIPO_ATIVIDADE',

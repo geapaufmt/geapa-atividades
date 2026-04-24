@@ -1340,6 +1340,7 @@ function atividades_processarThreadArquivoApresentacoes_(thread) {
 
 function atividades_processarInboxArquivoApresentacoes_(opts) {
   opts = opts || {};
+  var allowGmailFallback = opts.allowGmailFallback === true;
   var processed = [];
   var skipped = 0;
   var errors = [];
@@ -1367,7 +1368,7 @@ function atividades_processarInboxArquivoApresentacoes_(opts) {
     }
   });
 
-  if (!processed.length && !eventosPendentes.length) {
+  if (!processed.length && !eventosPendentes.length && allowGmailFallback) {
     modeUsed = 'gmail_fallback';
     var threads = atividades_buscarThreadsArquivoApresentacoes_();
 
@@ -1390,6 +1391,10 @@ function atividades_processarInboxArquivoApresentacoes_(opts) {
     });
   }
 
+  if (!processed.length && !eventosPendentes.length && !allowGmailFallback) {
+    modeUsed = 'central_only';
+  }
+
   if (processed.length || errors.length) {
     atividades_logEvento_({
       TIPO_EVENTO_LOG: ATIVIDADES_CFG.APRESENTACOES_LOG_TYPES.INBOX_ARQUIVO_APRESENTACAO,
@@ -1410,6 +1415,8 @@ function atividades_processarInboxArquivoApresentacoes_(opts) {
       RESULTADO: 'mode=' + modeUsed + ' | processed=0 | skipped=' + skipped + ' | errors=0',
       OBSERVACOES: modeUsed === 'central'
         ? 'Nenhum evento pendente com anexo compatível foi processado nesta execução.'
+        : modeUsed === 'central_only'
+          ? 'Nenhum evento pendente com anexo compatível foi encontrado. O fallback direto no Gmail foi desabilitado nesta execução para preservar a cota diária.'
         : 'Nenhuma thread compatível foi processada nesta execução.'
     });
   }

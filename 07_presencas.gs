@@ -547,6 +547,268 @@ function atividades_getDisciplinaryLogType_(situacao) {
   return '';
 }
 
+function atividades_getDisciplinaryNotificationLogType_(situacao) {
+  if (situacao === 'ALERTA_60') return ATIVIDADES_CFG.DISCIPLINA_NOTIFICACAO_LOG_TYPES.ALERTA_60;
+  if (situacao === 'ALERTA_80') return ATIVIDADES_CFG.DISCIPLINA_NOTIFICACAO_LOG_TYPES.ALERTA_80;
+  return '';
+}
+
+function atividades_getDisciplinaryNotificationStage_(situacao) {
+  if (situacao === 'ALERTA_60') return ATIVIDADES_CFG.DISCIPLINA_NOTIFICACOES.STAGE_ALERTA_60;
+  if (situacao === 'ALERTA_80') return ATIVIDADES_CFG.DISCIPLINA_NOTIFICACOES.STAGE_ALERTA_80;
+  return '';
+}
+
+function atividades_getDisciplinaryNotificationSubject_(situacao) {
+  if (situacao === 'ALERTA_60') return ATIVIDADES_CFG.DISCIPLINA_NOTIFICACOES.SUBJECT_ALERTA_60;
+  if (situacao === 'ALERTA_80') return ATIVIDADES_CFG.DISCIPLINA_NOTIFICACOES.SUBJECT_ALERTA_80;
+  return '';
+}
+
+function atividades_buildDisciplinaryAlertCorrelationKey_(periodCode, rga, situacao) {
+  return [
+    'ADC',
+    atividades_normalizeTextUpper_(String(periodCode || '').trim() || 'SEM_PERIODO').replace(/[^\w]+/g, '_'),
+    atividades_normalizeTextUpper_(String(rga || '').trim() || 'SEM_RGA').replace(/[^\w]+/g, '_'),
+    atividades_normalizeTextUpper_(String(situacao || '').trim() || 'SEM_STATUS').replace(/[^\w]+/g, '_')
+  ].join('-');
+}
+
+function atividades_buildDisciplinaryAlertNotificationsSentSet_() {
+  var set = Object.create(null);
+  GEAPA_CORE.coreReadSheetRecords(atividades_getLogSheet_(), {
+    headerRow: 1
+  }).forEach(function(record) {
+    var tipo = String(record.TIPO_EVENTO_LOG || '').trim();
+    if (
+      tipo !== ATIVIDADES_CFG.DISCIPLINA_NOTIFICACAO_LOG_TYPES.ALERTA_60 &&
+      tipo !== ATIVIDADES_CFG.DISCIPLINA_NOTIFICACAO_LOG_TYPES.ALERTA_80
+    ) {
+      return;
+    }
+    var key = String(record.RESULTADO || '').trim();
+    if (!key) return;
+    set[key] = true;
+  });
+  return set;
+}
+
+function atividades_buildDisciplinaryAlertPayload_(ctx, record, situacao) {
+  var percentual = Number(record.PERCENTUAL_USO_LIMITE || 0);
+  var faltasLiquidas = Number(record.FALTAS_LIQUIDAS || 0);
+  var limite = Number(record.LIMITE_FALTAS_PERIODO || 0);
+  var tituloSituacao = situacao === 'ALERTA_80'
+    ? 'Uso muito elevado do limite de faltas'
+    : 'Uso elevado do limite de faltas';
+  var introText = situacao === 'ALERTA_80'
+    ? 'Voce atingiu 80% do limite de faltas do periodo vigente do GEAPA. Sua situacao exige atencao imediata para evitar o desligamento por faltas.'
+    : 'Voce atingiu 60% do limite de faltas do periodo vigente do GEAPA. Este e um aviso preventivo para que voce acompanhe sua situacao disciplinar.';
+
+  return {
+    subtitle: 'Alerta disciplinar de faltas no GEAPA',
+    introText: introText,
+    blocks: [
+      {
+        title: 'Situacao atual',
+        items: [
+          { label: 'Periodo', value: String(ctx.code || '').trim() || '-' },
+          { label: 'Faixa disciplinar', value: situacao },
+          { label: 'Faltas liquidas', value: String(faltasLiquidas) },
+          { label: 'Limite de faltas', value: String(limite) },
+          { label: 'Uso do limite', value: Utilities.formatString('%.0f%%', Math.max(0, percentual) * 100) }
+        ]
+      },
+      {
+        title: tituloSituacao,
+        text: situacao === 'ALERTA_80'
+          ? 'Novas faltas podem levar ao atingimento do limite e ao fluxo institucional de desligamento por faltas.'
+          : 'Continue acompanhando suas presencas e, quando aplicavel, utilize o fluxo oficial de justificativas dentro do prazo.'
+      }
+    ],
+    footerNote: 'Este aviso e automatico e tambem foi compartilhado com a secretaria do GEAPA para acompanhamento operacional.'
+  };
+}
+
+function atividades_buildDisciplinaryAlertRowsToNotify_(presenceState, opts) {
+  opts = opts || {};
+  var rowNumbersFilter = Object.create(null);
+  var hasRowFilter = false;
+  if (Array.isArray(opts.rowNumbers) && opts.rowNumbers.length) {
+    opts.rowNumbers.forEach(function(rowNumber) {
+      var row = Number(rowNumber || 0);
+      if (row >= 2) {
+        rowNumbersFilter[row] = true;
+        hasRowFilter = true;
+      }
+    });
+  }
+
+  var targetSituacoes = {
+    ALERTA_60: true,
+    ALERTA_80: true
+  };
+
+  return (presenceState.records || []).map(function(record, index) {
+    return {
+      rowNumber: index + 2,
+      record: record
+    };
+  }).filter(function(item) {
+    if (hasRowFilter && !rowNumbersFilter[item.rowNumber]) return false;
+    var situacao = String(item.record.SITUACAO_DISCIPLINAR || '').trim();
+    return !!targetSituacoes[situacao];
+  });
+}
+
+function atividades_notificarAlertasDisciplinaresPeriodoVigente_(opts) {
+  opts = opts || {};
+  var presenceState = opts.presenceState || atividades_buildCurrentPresenceState_();
+  var ctx = opts.ctx || presenceState.ctx || atividades_getCurrentPeriodContext_();
+  var emailsSecretaria = (GEAPA_CORE.coreGetCurrentEmailsByEmailGroup('SECRETARIA') || []).map(function(email) {
+    return String(email || '').trim();
+  }).filter(function(email) {
+    return GEAPA_CORE.coreIsValidEmail(email);
+  });
+  var notifiedSet = atividades_buildDisciplinaryAlertNotificationsSentSet_();
+  var rows = atividades_buildDisciplinaryAlertRowsToNotify_(presenceState, opts);
+  var queued = [];
+  var duplicates = 0;
+  var deferred = 0;
+  var skipped = [];
+
+  rows.forEach(function(item) {
+    var record = item.record || {};
+    var situacao = String(record.SITUACAO_DISCIPLINAR || '').trim();
+    var rga = String(record.RGA || '').trim();
+    var email = String(record.EMAIL || '').trim();
+    var correlationKey = atividades_buildDisciplinaryAlertCorrelationKey_(ctx.code, rga, situacao);
+    var logType = atividades_getDisciplinaryNotificationLogType_(situacao);
+    var stage = atividades_getDisciplinaryNotificationStage_(situacao);
+    var subjectHuman = atividades_getDisciplinaryNotificationSubject_(situacao);
+
+    if (!rga) {
+      skipped.push({ rowNumber: item.rowNumber, reason: 'sem_rga', situacao: situacao });
+      return;
+    }
+    if (!GEAPA_CORE.coreIsValidEmail(email)) {
+      skipped.push({ rowNumber: item.rowNumber, rga: rga, reason: 'email_invalido', situacao: situacao });
+      return;
+    }
+    if (!stage || !subjectHuman || !logType) {
+      skipped.push({ rowNumber: item.rowNumber, rga: rga, reason: 'situacao_nao_notificavel', situacao: situacao });
+      return;
+    }
+    if (notifiedSet[correlationKey]) {
+      skipped.push({ rowNumber: item.rowNumber, rga: rga, reason: 'alerta_ja_registrado', situacao: situacao });
+      return;
+    }
+
+    var queueResult = atividades_tryQueueOutgoing_({
+      moduleName: ATIVIDADES_CFG.MODULE_CODE,
+      templateKey: 'GEAPA_OPERACIONAL',
+      correlationKey: correlationKey,
+      entityType: 'MEMBRO',
+      entityId: rga,
+      flowCode: ATIVIDADES_CFG.DISCIPLINA_NOTIFICACOES.FLOW_CODE,
+      stage: stage,
+      to: email,
+      cc: emailsSecretaria.join(','),
+      recipientName: String(record.NOME_MEMBRO || '').trim(),
+      subjectHuman: subjectHuman,
+      payload: atividades_buildDisciplinaryAlertPayload_(ctx, record, situacao),
+      metadata: {
+        source: 'geapa-atividades',
+        periodCode: String(ctx.code || '').trim(),
+        rga: rga,
+        situacaoDisciplinar: situacao
+      }
+    });
+
+    if (queueResult && queueResult.duplicate) {
+      duplicates++;
+      atividades_logEvento_({
+        TIPO_EVENTO_LOG: logType,
+        STATUS: 'OK',
+        ACAO_EXECUTADA: 'Registrar aviso disciplinar ja existente na fila central',
+        RESULTADO: correlationKey,
+        OBSERVACOES: 'RGA=' + rga + ' | SITUACAO=' + situacao + ' | origem=mail_hub_duplicate'
+      });
+      notifiedSet[correlationKey] = true;
+      return;
+    }
+
+    if (queueResult && queueResult.locked) {
+      deferred++;
+      return;
+    }
+
+    if (queueResult && queueResult.queued) {
+      queued.push({
+        rowNumber: item.rowNumber,
+        rga: rga,
+        situacao: situacao,
+        correlationKey: correlationKey,
+        saidaId: queueResult.saidaId || ''
+      });
+      atividades_logEvento_({
+        TIPO_EVENTO_LOG: logType,
+        STATUS: 'OK',
+        ACAO_EXECUTADA: 'Enfileirar aviso disciplinar automatico',
+        RESULTADO: correlationKey,
+        OBSERVACOES: 'RGA=' + rga + ' | SITUACAO=' + situacao + ' | saidaId=' + (queueResult.saidaId || '')
+      });
+      notifiedSet[correlationKey] = true;
+    }
+  });
+
+  if (deferred) {
+    atividades_logEvento_({
+      TIPO_EVENTO_LOG: ATIVIDADES_CFG.DISCIPLINA_NOTIFICACAO_LOG_TYPES.RESUMO,
+      STATUS: 'ATENCAO',
+      ACAO_EXECUTADA: 'Adiar avisos disciplinares por contencao da fila central',
+      RESULTADO: 'deferred=' + deferred,
+      OBSERVACOES: 'A fila central de e-mails estava ocupada. O job tentara novamente no proximo ciclo.'
+    });
+  }
+
+  if (skipped.length) {
+    atividades_logEvento_({
+      TIPO_EVENTO_LOG: ATIVIDADES_CFG.DISCIPLINA_NOTIFICACAO_LOG_TYPES.RESUMO,
+      STATUS: 'ATENCAO',
+      ACAO_EXECUTADA: 'Registrar linhas ignoradas no envio de alertas disciplinares',
+      RESULTADO: 'skipped=' + skipped.length,
+      OBSERVACOES: skipped.slice(0, 20).map(function(item) {
+        return (item.rga || 'SEM_RGA') + ':' + item.reason + ':' + (item.situacao || '');
+      }).join(' | ')
+    });
+  }
+
+  if (opts.processOutbox === false) {
+    return {
+      ok: true,
+      period: ctx,
+      queuedCount: queued.length,
+      duplicateCount: duplicates,
+      deferredCount: deferred,
+      skippedCount: skipped.length,
+      queued: queued,
+      skipped: skipped
+    };
+  }
+
+  return {
+    ok: true,
+    period: ctx,
+    queuedCount: queued.length,
+    duplicateCount: duplicates,
+    deferredCount: deferred,
+    skippedCount: skipped.length,
+    queued: queued,
+    skipped: skipped,
+    outbox: queued.length ? GEAPA_CORE.coreMailProcessOutbox() : { ok: true, skipped: true, reason: 'no_queued_messages' }
+  };
+}
+
 function atividades_shouldLogDisciplinaryTransition_(previousSituacao, nextSituacao) {
   var previous = String(previousSituacao || '').trim();
   var next = String(nextSituacao || '').trim();
