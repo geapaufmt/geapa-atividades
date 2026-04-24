@@ -387,6 +387,57 @@ function atividades_writeJustificativaDecisionFields_(sheet, rowNumber, fields) 
   });
 }
 
+function atividades_registrarAnaliseJustificativaSemAplicacao_(state, rowEntry, opts) {
+  opts = opts || {};
+  var record = rowEntry && rowEntry.record ? rowEntry.record : {};
+  var analysisDate = opts.analysisDate || record.DATA_ANALISE || new Date();
+  var analyzedBy = String(opts.analyzedBy || record.ANALISADO_POR || '').trim() || Session.getActiveUser().getEmail();
+  var note = 'ANALISE_SEM_APLICACAO_AUTOMATICA:' + String(opts.reason || 'motivo_nao_informado').trim();
+  var currentValue = String(opts.currentValue || '').trim();
+
+  if (currentValue) {
+    note += ' | valor_atual=' + currentValue;
+  }
+
+  var fields = {
+    DATA_ANALISE: analysisDate,
+    ANALISADO_POR: analyzedBy,
+    DECISAO_APLICADA_NA_PRESENCA: String(record.DECISAO_APLICADA_NA_PRESENCA || '').trim() || ATIVIDADES_CFG.JUSTIFICATIVAS.DEFAULT_DECISION_STATUS,
+    OBSERVACOES: atividades_mergeObservationText_([
+      record.OBSERVACOES || '',
+      note
+    ])
+  };
+
+  if (currentValue) {
+    fields.VALOR_ANTES = String(record.VALOR_ANTES || '').trim() || currentValue;
+    fields.VALOR_DEPOIS = String(record.VALOR_DEPOIS || '').trim() || currentValue;
+  }
+
+  atividades_writeJustificativaDecisionFields_(state.sheet, rowEntry.rowNumber, fields);
+  Object.keys(fields).forEach(function(headerName) {
+    record[headerName] = fields[headerName];
+  });
+
+  atividades_logEvento_({
+    TIPO_EVENTO_LOG: ATIVIDADES_CFG.JUSTIFICATIVAS_LOG_TYPES.APLICACAO_JUSTIFICATIVA,
+    STATUS: 'OK',
+    ACAO_EXECUTADA: 'Registrar analise sem reflexo automatico na presenca',
+    RESULTADO: String(record.ID_JUSTIFICATIVA || '').trim(),
+    OBSERVACOES: 'RGA=' + record.RGA + ' | CODIGO_ATIVIDADE=' + record.CODIGO_ATIVIDADE + ' | motivo=' + String(opts.reason || 'motivo_nao_informado').trim() +
+      (currentValue ? ' | valor_atual=' + currentValue : '')
+  });
+
+  return {
+    ok: true,
+    applied: false,
+    analysisRecorded: true,
+    rowNumber: rowEntry.rowNumber,
+    reason: String(opts.reason || 'motivo_nao_informado').trim(),
+    currentValue: currentValue || ''
+  };
+}
+
 function atividades_sortJustificativasChronologically_(rows) {
   return (rows || []).slice().sort(function(a, b) {
     var aData = atividades_parseDateOrNull_(a.record.DATA_ATIVIDADE) || atividades_parseDateOrNull_(a.record.DATA_ENVIO);
@@ -488,27 +539,46 @@ function atividades_aplicarDecisaoJustificativaRow_(rowNumber, opts) {
   }
 
   var activityLookup = atividades_buildCurrentPeriodActivityLookup_();
+  var analysisDate = record.DATA_ANALISE || new Date();
+  var analyzedBy = String(record.ANALISADO_POR || '').trim() || Session.getActiveUser().getEmail();
+
   if (String(record.PERIODO || '').trim() !== activityLookup.ctx.code) {
-    return { ok: true, applied: false, reason: 'outside_current_period' };
+    return atividades_registrarAnaliseJustificativaSemAplicacao_(state, rowEntry, {
+      reason: 'outside_current_period',
+      analysisDate: analysisDate,
+      analyzedBy: analyzedBy
+    });
   }
 
   var presenceState = atividades_buildCurrentPresenceState_();
   var target = atividades_locatePresenceTargetForJustificativa_(record, activityLookup, presenceState);
   if (!target.ok) {
-    return { ok: true, applied: false, reason: target.reason };
+    return atividades_registrarAnaliseJustificativaSemAplicacao_(state, rowEntry, {
+      reason: target.reason,
+      analysisDate: analysisDate,
+      analyzedBy: analyzedBy
+    });
   }
 
   if (!atividades_isMemberApplicableForActivityDate_(target.presenceRecord, record.DATA_ATIVIDADE)) {
-    return { ok: true, applied: false, reason: 'member_not_applicable_to_activity_date' };
+    return atividades_registrarAnaliseJustificativaSemAplicacao_(state, rowEntry, {
+      reason: 'member_not_applicable_to_activity_date',
+      analysisDate: analysisDate,
+      analyzedBy: analyzedBy,
+      currentValue: target.currentValue
+    });
   }
 
   var currentValue = target.currentValue;
-  var analysisDate = record.DATA_ANALISE || new Date();
-  var analyzedBy = String(record.ANALISADO_POR || '').trim() || Session.getActiveUser().getEmail();
 
   if (statusAnalise === ATIVIDADES_CFG.JUSTIFICATIVAS_STATUS_FINAIS.INDEFERIDA) {
     if (currentValue !== 'F') {
-      return { ok: true, applied: false, reason: 'presence_value_not_f_for_indeferida', currentValue: currentValue };
+      return atividades_registrarAnaliseJustificativaSemAplicacao_(state, rowEntry, {
+        reason: 'presence_value_not_f_for_indeferida',
+        analysisDate: analysisDate,
+        analyzedBy: analyzedBy,
+        currentValue: currentValue
+      });
     }
 
     atividades_writeJustificativaDecisionFields_(state.sheet, targetRow, {
@@ -546,7 +616,12 @@ function atividades_aplicarDecisaoJustificativaRow_(rowNumber, opts) {
   }
 
   if (currentValue !== 'F' && currentValue !== 'J' && currentValue !== 'A') {
-    return { ok: true, applied: false, reason: 'presence_value_not_eligible_for_deferida', currentValue: currentValue };
+    return atividades_registrarAnaliseJustificativaSemAplicacao_(state, rowEntry, {
+      reason: 'presence_value_not_eligible_for_deferida',
+      analysisDate: analysisDate,
+      analyzedBy: analyzedBy,
+      currentValue: currentValue
+    });
   }
 
   if (currentValue === 'F') {

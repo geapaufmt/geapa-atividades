@@ -464,6 +464,9 @@ function atividades_buildPresenceRow_(state, headers, dynamicHeaders, activityDa
     if (header === 'DATA_SAIDA_NO_PERIODO') return atividades_formatDateForPresenceCell_(state.exitDate);
     if (header === 'MOTIVO_ALTERACAO_NO_PERIODO') return state.motivo;
     if (header === 'OBS_EVENTO_PERIODO') return state.obsEventoPeriodo;
+    if (header === 'PREVISAO_APRESENTACAO_NO_PERIODO') {
+      return String(state.existing.PREVISAO_APRESENTACAO_NO_PERIODO || '').trim();
+    }
     if (header === 'CARGO_FUNCAO_ATUAL') return state.cargo;
     if (dynamicHeaders.indexOf(header) >= 0) return atividades_resolvePresenceCellValue_(state, header, activityDatesByHeader, ctx);
     if (ATIVIDADES_CFG.PRESENCAS.DISCIPLINARY_HEADERS.indexOf(header) >= 0) return state.existing[header] || '';

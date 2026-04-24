@@ -96,6 +96,26 @@ function atividades_buildResultadoJustificativaPayload_(record) {
   };
 }
 
+function atividades_justificativaAindaNoPrazo_(activityInfo, refDate) {
+  var deadline = atividades_calculateJustificativaDeadline_(activityInfo);
+  if (!deadline) return false;
+  var now = atividades_parseDateOrNull_(refDate) || new Date();
+  return now.getTime() <= deadline.getTime();
+}
+
+function atividades_buildAvisosFaltaJaRegistradosSet_() {
+  var set = Object.create(null);
+  GEAPA_CORE.coreReadSheetRecords(atividades_getLogSheet_(), {
+    headerRow: 1
+  }).forEach(function(record) {
+    if (String(record.TIPO_EVENTO_LOG || '').trim() !== ATIVIDADES_CFG.JUSTIFICATIVAS_LOG_TYPES.AVISO_FALTA) return;
+    var key = String(record.RESULTADO || '').trim();
+    if (!key) return;
+    set[key] = true;
+  });
+  return set;
+}
+
 function atividades_notificarResultadoJustificativa_(record, opts) {
   opts = opts || {};
   var statusAnalise = atividades_normalizeTextUpper_(record.STATUS_ANALISE);
@@ -163,6 +183,7 @@ function atividades_notificarFaltasPendentes_() {
   var activityLookup = atividades_buildCurrentPeriodActivityLookup_();
   var presenceState = atividades_buildCurrentPresenceState_();
   var justificativasState = atividades_readJustificativasState_();
+  var avisosJaRegistrados = atividades_buildAvisosFaltaJaRegistradosSet_();
   var queued = [];
   var duplicates = 0;
   var skipped = [];
@@ -170,6 +191,9 @@ function atividades_notificarFaltasPendentes_() {
   Object.keys(activityLookup.byCode).sort().forEach(function(codigoAtividade) {
     var activityInfo = activityLookup.byCode[codigoAtividade];
     if (!activityInfo || !activityInfo.contaFalta || !activityInfo.colunaPresenca) return;
+    if (!atividades_justificativaAindaNoPrazo_(activityInfo, new Date())) {
+      return;
+    }
 
     Object.keys(presenceState.byRga).sort().forEach(function(rga) {
       var presenceItem = presenceState.byRga[rga];
@@ -192,6 +216,10 @@ function atividades_notificarFaltasPendentes_() {
       }
 
       var correlationKey = atividades_buildFaltaNotificationCorrelationKey_(activityLookup.ctx.code, codigoAtividade, rga);
+      if (avisosJaRegistrados[correlationKey]) {
+        skipped.push({ rga: rga, codigoAtividade: codigoAtividade, reason: 'aviso_ja_registrado' });
+        return;
+      }
       var queueResult = GEAPA_CORE.coreMailQueueOutgoing({
         moduleName: ATIVIDADES_CFG.MODULE_CODE,
         templateKey: 'GEAPA_OPERACIONAL',
@@ -232,6 +260,7 @@ function atividades_notificarFaltasPendentes_() {
           RESULTADO: correlationKey,
           OBSERVACOES: 'RGA=' + rga + ' | CODIGO_ATIVIDADE=' + codigoAtividade + ' | saidaId=' + (queueResult.saidaId || '')
         });
+        avisosJaRegistrados[correlationKey] = true;
       }
     });
   });

@@ -36,6 +36,7 @@ function atividades_buildDropdownRules_() {
 
     Atividades_Apresentacoes: {
       STATUS_APRESENTACAO: { values: ATIVIDADES_CFG.ENUMS.STATUS_APRESENTACAO, helpText: 'Estado operacional da apresentacao.' },
+      NOTIFICACAO_AGENDAMENTO_ENVIADA: { values: ATIVIDADES_CFG.ENUMS.SIM_NAO, helpText: 'Controle de notificacao de agendamento ao membro.' },
       NOTIFICACAO_SECRETARIOS_ENVIADA: { values: ATIVIDADES_CFG.ENUMS.SIM_NAO, helpText: 'Controle de aviso aos secretarios.' },
       CONVITE_PROFESSORES_ENVIADO: { values: ATIVIDADES_CFG.ENUMS.SIM_NAO, helpText: 'Controle de convite a professores.' },
       LEMBRETE_MEMBROS_ENVIADO: { values: ATIVIDADES_CFG.ENUMS.SIM_NAO, helpText: 'Controle de lembrete aos membros.' },
@@ -93,6 +94,43 @@ function atividades_buildDropdownRules_() {
         values: ATIVIDADES_CFG.ENUMS.SIM_NAO,
         helpText: 'Indica se o membro informou documento comprobatorio.'
       }
+    },
+
+    Eixos: {
+      ATIVO: {
+        values: ATIVIDADES_CFG.ENUMS.SIM_NAO,
+        helpText: 'Se NAO, o eixo deixa de ser considerado pelas automacoes e validacoes.'
+      }
+    },
+
+    'Participantes Externos': {
+      CATEGORIA_PUBLICO: {
+        values: ATIVIDADES_CFG.ENUMS.CATEGORIA_PUBLICO_EXTERNO,
+        helpText: 'Classifica o tipo de publico externo ao qual a pessoa pertence.'
+      },
+      RELACAO_COM_GEAPA: {
+        values: ATIVIDADES_CFG.ENUMS.RELACAO_COM_GEAPA,
+        helpText: 'Descreve como essa pessoa se relaciona hoje com o GEAPA.'
+      },
+      RECEBE_COMUNICADOS_GERAIS: { values: ATIVIDADES_CFG.ENUMS.SIM_NAO, helpText: 'Indica se recebe comunicados gerais do GEAPA.' },
+      RECEBE_REUNIOES_ABERTAS: { values: ATIVIDADES_CFG.ENUMS.SIM_NAO, helpText: 'Indica se deseja receber avisos de reunioes abertas.' },
+      RECEBE_APRESENTACOES_ALUNOS: { values: ATIVIDADES_CFG.ENUMS.SIM_NAO, helpText: 'Indica se deseja receber convites de apresentacoes de membros.' },
+      ATIVO: { values: ATIVIDADES_CFG.ENUMS.SIM_NAO, helpText: 'Se NAO, o cadastro nao deve ser usado nas automacoes.' }
+    },
+
+    Participantes_Externos: {
+      CATEGORIA_PUBLICO: {
+        values: ATIVIDADES_CFG.ENUMS.CATEGORIA_PUBLICO_EXTERNO,
+        helpText: 'Classifica o tipo de publico externo ao qual a pessoa pertence.'
+      },
+      RELACAO_COM_GEAPA: {
+        values: ATIVIDADES_CFG.ENUMS.RELACAO_COM_GEAPA,
+        helpText: 'Descreve como essa pessoa se relaciona hoje com o GEAPA.'
+      },
+      RECEBE_COMUNICADOS_GERAIS: { values: ATIVIDADES_CFG.ENUMS.SIM_NAO, helpText: 'Indica se recebe comunicados gerais do GEAPA.' },
+      RECEBE_REUNIOES_ABERTAS: { values: ATIVIDADES_CFG.ENUMS.SIM_NAO, helpText: 'Indica se deseja receber avisos de reunioes abertas.' },
+      RECEBE_APRESENTACOES_ALUNOS: { values: ATIVIDADES_CFG.ENUMS.SIM_NAO, helpText: 'Indica se deseja receber convites de apresentacoes de membros.' },
+      ATIVO: { values: ATIVIDADES_CFG.ENUMS.SIM_NAO, helpText: 'Se NAO, o cadastro nao deve ser usado nas automacoes.' }
     }
   };
 }
@@ -120,7 +158,15 @@ function atividades_buildHeaderNotes_() {
       ID_APRESENTACAO: 'Identificador unico do registro de apresentacao.',
       ID_ATIVIDADE: 'Referencia para a atividade principal em Atividades.',
       RGA: 'Identificador oficial do membro apresentador.',
+      PERIODO_REFERENCIA: 'Espelho do periodo de referencia da atividade geral.',
+      DATA_ATIVIDADE: 'Espelho da data prevista/definida da atividade geral.',
+      HORARIO_INICIO: 'Espelho do horario inicial da atividade geral.',
+      HORARIO_FIM: 'Espelho do horario final da atividade geral.',
+      LOCAL: 'Espelho do local da atividade geral.',
+      FORMATO: 'Espelho do formato da atividade geral.',
       STATUS_APRESENTACAO: 'Estado operacional da apresentacao.',
+      NOTIFICACAO_AGENDAMENTO_ENVIADA: 'Indica se o membro ja recebeu a notificacao de agendamento.',
+      DATA_NOTIFICACAO_AGENDAMENTO: 'Data/hora em que a notificacao de agendamento foi registrada.',
       STATUS_ENVIO_ARQUIVO: 'Estado do recebimento do arquivo.'
     },
     Atividade_Convidados: {
@@ -180,6 +226,7 @@ function atividades_buildHeaderNotes_() {
       DATA_SAIDA_NO_PERIODO: 'Data a partir da qual o membro deixa de contar presenca/falta no periodo.',
       MOTIVO_ALTERACAO_NO_PERIODO: 'Motivo historico da entrada, desligamento, suspensao ou retorno no periodo.',
       OBS_EVENTO_PERIODO: 'Observacoes livres sobre o evento historico do periodo.',
+      PREVISAO_APRESENTACAO_NO_PERIODO: 'Campo manual para indicar se o membro esta previsto para apresentar no periodo. O modulo preserva esse valor nas sincronizacoes.',
       TOTAL_PRESENCAS: 'Total de marcacoes P e R no periodo.',
       TOTAL_FALTAS: 'Total de faltas plenas mantidas como F no periodo.',
       TOTAL_JUSTIFICADAS: 'Total de marcacoes J e A no periodo.',
@@ -189,6 +236,77 @@ function atividades_buildHeaderNotes_() {
       FALTAS_LIQUIDAS: 'Total disciplinar de faltas liquidas, contando F e J e ignorando A.',
       PERCENTUAL_USO_LIMITE: 'Percentual de uso do limite oficial de faltas no periodo.',
       SITUACAO_DISCIPLINAR: 'Faixa disciplinar automatica do membro no periodo.'
+    },
+    Eixos: {
+      ATIVO: 'Define se o eixo continua valido para uso nas automacoes e formulários.',
+      ORDEM: 'Ordem oficial de exibicao e prioridade do eixo na interface e nas automacoes.',
+      CODIGO_EIXO: 'Codigo tecnico estavel do eixo, recomendado para integracoes e mapeamentos internos.',
+      NUMERAL_ROMANO: 'Numeral romano oficial do eixo, usado em exibicoes e interpretacao de respostas.',
+      NOME_OFICIAL: 'Nome completo oficial do eixo, conforme a base institucional vigente.',
+      NOME_CURTO: 'Versao resumida do nome, util para listas, chips e exibicoes compactas.',
+      ROTULO_FORMULARIO: 'Rotulo canonico que deve aparecer em formularios, listas e mensagens ao usuario.',
+      DESCRICAO_RESUMIDA: 'Resumo curto do escopo do eixo para automacoes, validacoes e ajuda contextual.',
+      PALAVRAS_CHAVE: 'Palavras-chave separadas por ponto e virgula para busca, interpretacao e classificacao automatica.',
+      DISCIPLINAS_RELACIONADAS: 'Disciplinas associadas ao eixo, em texto unico separado por ponto e virgula.',
+      EXEMPLOS_TEMAS: 'Exemplos de temas compativeis com o eixo, em texto unico separado por ponto e virgula.',
+      OBSERVACOES: 'Campo livre para observacoes operacionais ou institucionais sobre o eixo.',
+      ATUALIZADO_EM: 'Data e hora da ultima atualizacao manual do registro.'
+    },
+    'Participantes Externos': {
+      ID_PARTICIPANTE_EXTERNO: 'Identificador unico do participante externo.',
+      NOME: 'Nome completo da pessoa cadastrada.',
+      EMAIL: 'Email principal usado para comunicacao e convites.',
+      TELEFONE: 'Telefone principal para contato, se houver.',
+      INSTITUICAO: 'Instituicao, empresa ou organizacao vinculada.',
+      CURSO_OU_AREA: 'Curso, area de atuacao ou campo principal de interesse.',
+      CATEGORIA_PUBLICO: 'Classifica o publico externo em termos de perfil institucional ou profissional.',
+      RELACAO_COM_GEAPA: 'Indica o tipo de relacao atual ou desejada com o GEAPA.',
+      CIDADE: 'Cidade principal da pessoa.',
+      UF: 'Unidade federativa principal.',
+      ORIGEM_CONTATO: 'Canal pelo qual esse contato chegou ao GEAPA.',
+      RECEBE_COMUNICADOS_GERAIS: 'Se SIM, pode receber comunicacoes gerais do GEAPA.',
+      RECEBE_REUNIOES_ABERTAS: 'Se SIM, pode receber avisos de reunioes abertas.',
+      RECEBE_APRESENTACOES_ALUNOS: 'Se SIM, entra no universo de interesse para convites de apresentacoes.',
+      INTERESSE_EIXO_I: 'Interesse declarado no eixo I.',
+      INTERESSE_EIXO_II: 'Interesse declarado no eixo II.',
+      INTERESSE_EIXO_III: 'Interesse declarado no eixo III.',
+      INTERESSE_EIXO_IV: 'Interesse declarado no eixo IV.',
+      INTERESSE_EIXO_V: 'Interesse declarado no eixo V.',
+      INTERESSE_EIXO_VI: 'Interesse declarado no eixo VI.',
+      INTERESSE_EIXO_VII: 'Interesse declarado no eixo VII.',
+      INTERESSE_EIXO_VIII: 'Interesse declarado no eixo VIII.',
+      ATIVO: 'Se NAO, o cadastro nao deve ser usado pelas automacoes.',
+      OBSERVACOES: 'Campo livre para observacoes operacionais.',
+      CRIADO_EM: 'Data e hora de criacao do cadastro.',
+      ATUALIZADO_EM: 'Data e hora da ultima atualizacao do cadastro.'
+    },
+    Participantes_Externos: {
+      ID_PARTICIPANTE_EXTERNO: 'Identificador unico do participante externo.',
+      NOME: 'Nome completo da pessoa cadastrada.',
+      EMAIL: 'Email principal usado para comunicacao e convites.',
+      TELEFONE: 'Telefone principal para contato, se houver.',
+      INSTITUICAO: 'Instituicao, empresa ou organizacao vinculada.',
+      CURSO_OU_AREA: 'Curso, area de atuacao ou campo principal de interesse.',
+      CATEGORIA_PUBLICO: 'Classifica o publico externo em termos de perfil institucional ou profissional.',
+      RELACAO_COM_GEAPA: 'Indica o tipo de relacao atual ou desejada com o GEAPA.',
+      CIDADE: 'Cidade principal da pessoa.',
+      UF: 'Unidade federativa principal.',
+      ORIGEM_CONTATO: 'Canal pelo qual esse contato chegou ao GEAPA.',
+      RECEBE_COMUNICADOS_GERAIS: 'Se SIM, pode receber comunicacoes gerais do GEAPA.',
+      RECEBE_REUNIOES_ABERTAS: 'Se SIM, pode receber avisos de reunioes abertas.',
+      RECEBE_APRESENTACOES_ALUNOS: 'Se SIM, entra no universo de interesse para convites de apresentacoes.',
+      INTERESSE_EIXO_I: 'Interesse declarado no eixo I.',
+      INTERESSE_EIXO_II: 'Interesse declarado no eixo II.',
+      INTERESSE_EIXO_III: 'Interesse declarado no eixo III.',
+      INTERESSE_EIXO_IV: 'Interesse declarado no eixo IV.',
+      INTERESSE_EIXO_V: 'Interesse declarado no eixo V.',
+      INTERESSE_EIXO_VI: 'Interesse declarado no eixo VI.',
+      INTERESSE_EIXO_VII: 'Interesse declarado no eixo VII.',
+      INTERESSE_EIXO_VIII: 'Interesse declarado no eixo VIII.',
+      ATIVO: 'Se NAO, o cadastro nao deve ser usado pelas automacoes.',
+      OBSERVACOES: 'Campo livre para observacoes operacionais.',
+      CRIADO_EM: 'Data e hora de criacao do cadastro.',
+      ATUALIZADO_EM: 'Data e hora da ultima atualizacao do cadastro.'
     }
   };
 }
@@ -203,7 +321,8 @@ function atividades_buildHeaderColors_() {
     ],
     Atividades_Apresentacoes: [
       { color: '#d9ead3', headers: ['ID_APRESENTACAO', 'ID_ATIVIDADE', 'RGA', 'NOME_MEMBRO', 'EMAIL_MEMBRO', 'STATUS_APRESENTACAO'] },
-      { color: '#fff2cc', headers: ['NOTIFICACAO_SECRETARIOS_ENVIADA', 'CONVITE_PROFESSORES_ENVIADO', 'LEMBRETE_MEMBROS_ENVIADO', 'STATUS_ENVIO_ARQUIVO', 'SYNC_HISTORICO_PUBLICO'] }
+      { color: '#d0e0e3', headers: ['PERIODO_REFERENCIA', 'DATA_ATIVIDADE', 'HORARIO_INICIO', 'HORARIO_FIM', 'LOCAL', 'FORMATO', 'SEMESTRE_APRESENTACAO', 'DATA_NOTIFICACAO_AGENDAMENTO'] },
+      { color: '#fff2cc', headers: ['NOTIFICACAO_AGENDAMENTO_ENVIADA', 'NOTIFICACAO_SECRETARIOS_ENVIADA', 'CONVITE_PROFESSORES_ENVIADO', 'LEMBRETE_MEMBROS_ENVIADO', 'STATUS_ENVIO_ARQUIVO', 'SYNC_HISTORICO_PUBLICO'] }
     ],
     Atividade_Convidados: [
       { color: '#d9ead3', headers: ['ID_CONVITE_ATIVIDADE', 'ID_ATIVIDADE', 'TIPO_VINCULO_PESSOA', 'ID_REFERENCIA'] },
@@ -234,6 +353,24 @@ function atividades_buildHeaderColors_() {
       { color: '#d9ead3', headers: ['RGA', 'NOME_MEMBRO', 'EMAIL', 'CARGO_FUNCAO_ATUAL', 'STATUS_CADASTRAL', 'STATUS_NO_PERIODO'] },
       { color: '#d0e0e3', headers: ['DATA_ENTRADA_NO_PERIODO', 'DATA_SAIDA_NO_PERIODO', 'MOTIVO_ALTERACAO_NO_PERIODO', 'OBS_EVENTO_PERIODO'] },
       { color: '#fff2cc', headers: ['TOTAL_ATIVIDADES_QUE_CONTAM_FALTA', 'LIMITE_FALTAS_PERIODO', 'FALTAS_LIQUIDAS', 'PERCENTUAL_USO_LIMITE', 'SITUACAO_DISCIPLINAR'] }
+    ],
+    Eixos: [
+      { color: '#d9ead3', headers: ['ATIVO', 'ORDEM', 'CODIGO_EIXO', 'NUMERAL_ROMANO'] },
+      { color: '#d0e0e3', headers: ['NOME_OFICIAL', 'NOME_CURTO', 'ROTULO_FORMULARIO'] },
+      { color: '#fff2cc', headers: ['DESCRICAO_RESUMIDA', 'PALAVRAS_CHAVE', 'DISCIPLINAS_RELACIONADAS', 'EXEMPLOS_TEMAS'] },
+      { color: '#fce5cd', headers: ['OBSERVACOES', 'ATUALIZADO_EM'] }
+    ],
+    'Participantes Externos': [
+      { color: '#d9ead3', headers: ['ID_PARTICIPANTE_EXTERNO', 'NOME', 'EMAIL', 'TELEFONE'] },
+      { color: '#d0e0e3', headers: ['INSTITUICAO', 'CURSO_OU_AREA', 'CATEGORIA_PUBLICO', 'RELACAO_COM_GEAPA', 'CIDADE', 'UF', 'ORIGEM_CONTATO'] },
+      { color: '#fff2cc', headers: ['RECEBE_COMUNICADOS_GERAIS', 'RECEBE_REUNIOES_ABERTAS', 'RECEBE_APRESENTACOES_ALUNOS', 'INTERESSE_EIXO_I', 'INTERESSE_EIXO_II', 'INTERESSE_EIXO_III', 'INTERESSE_EIXO_IV', 'INTERESSE_EIXO_V', 'INTERESSE_EIXO_VI', 'INTERESSE_EIXO_VII', 'INTERESSE_EIXO_VIII', 'ATIVO'] },
+      { color: '#fce5cd', headers: ['OBSERVACOES', 'CRIADO_EM', 'ATUALIZADO_EM'] }
+    ],
+    Participantes_Externos: [
+      { color: '#d9ead3', headers: ['ID_PARTICIPANTE_EXTERNO', 'NOME', 'EMAIL', 'TELEFONE'] },
+      { color: '#d0e0e3', headers: ['INSTITUICAO', 'CURSO_OU_AREA', 'CATEGORIA_PUBLICO', 'RELACAO_COM_GEAPA', 'CIDADE', 'UF', 'ORIGEM_CONTATO'] },
+      { color: '#fff2cc', headers: ['RECEBE_COMUNICADOS_GERAIS', 'RECEBE_REUNIOES_ABERTAS', 'RECEBE_APRESENTACOES_ALUNOS', 'INTERESSE_EIXO_I', 'INTERESSE_EIXO_II', 'INTERESSE_EIXO_III', 'INTERESSE_EIXO_IV', 'INTERESSE_EIXO_V', 'INTERESSE_EIXO_VI', 'INTERESSE_EIXO_VII', 'INTERESSE_EIXO_VIII', 'ATIVO'] },
+      { color: '#fce5cd', headers: ['OBSERVACOES', 'CRIADO_EM', 'ATUALIZADO_EM'] }
     ]
   };
 }
@@ -256,6 +393,10 @@ function atividades_applyPresenceMetadataValidation_(sheet) {
     MOTIVO_ALTERACAO_NO_PERIODO: {
       values: ATIVIDADES_CFG.ENUMS.MOTIVO_ALTERACAO_NO_PERIODO,
       helpText: 'Motivo historico da alteracao do vinculo no periodo.'
+    },
+    PREVISAO_APRESENTACAO_NO_PERIODO: {
+      values: ATIVIDADES_CFG.ENUMS.SIM_NAO,
+      helpText: 'Preencha manualmente com SIM ou NAO para indicar se o membro esta previsto para apresentar no periodo.'
     }
   };
 
@@ -297,6 +438,229 @@ function atividades_applyPresenceDynamicValidation_(sheet) {
   return totalDynamicCols;
 }
 
+function atividades_applySheetAlignment_(sheet) {
+  if (!sheet) return;
+  var maxRows = Math.max(sheet.getMaxRows(), 1);
+  var maxCols = Math.max(sheet.getMaxColumns(), 1);
+  sheet.getRange(1, 1, maxRows, maxCols)
+    .setHorizontalAlignment('center')
+    .setVerticalAlignment('middle');
+}
+
+function atividades_getThematicAxesHeaders_() {
+  return [
+    'ATIVO',
+    'ORDEM',
+    'CODIGO_EIXO',
+    'NUMERAL_ROMANO',
+    'NOME_OFICIAL',
+    'NOME_CURTO',
+    'ROTULO_FORMULARIO',
+    'DESCRICAO_RESUMIDA',
+    'PALAVRAS_CHAVE',
+    'DISCIPLINAS_RELACIONADAS',
+    'EXEMPLOS_TEMAS',
+    'OBSERVACOES',
+    'ATUALIZADO_EM'
+  ];
+}
+
+function atividades_ensureThematicAxesHeaders_(sheet) {
+  if (!sheet) return [];
+
+  var headers = atividades_getThematicAxesHeaders_();
+  var requiredCols = headers.length;
+
+  if (sheet.getMaxColumns() < requiredCols) {
+    sheet.insertColumnsAfter(sheet.getMaxColumns(), requiredCols - sheet.getMaxColumns());
+  }
+
+  sheet.getRange(1, 1, 1, requiredCols).setValues([headers]);
+  return headers.slice();
+}
+
+function atividades_applyThematicAxesLayout_(sheet) {
+  if (!sheet) return;
+
+  var headerMap = GEAPA_CORE.coreHeaderMap(sheet, 1);
+  var maxRows = Math.max(sheet.getMaxRows(), 2);
+  var maxCols = Math.max(sheet.getMaxColumns(), 1);
+  var lastRow = Math.max(sheet.getLastRow(), 2);
+
+  var leftAlignedHeaders = [
+    'NOME_OFICIAL',
+    'NOME_CURTO',
+    'ROTULO_FORMULARIO',
+    'DESCRICAO_RESUMIDA',
+    'PALAVRAS_CHAVE',
+    'DISCIPLINAS_RELACIONADAS',
+    'EXEMPLOS_TEMAS',
+    'OBSERVACOES'
+  ];
+  var wrappedHeaders = [
+    'NOME_OFICIAL',
+    'NOME_CURTO',
+    'ROTULO_FORMULARIO',
+    'DESCRICAO_RESUMIDA',
+    'PALAVRAS_CHAVE',
+    'DISCIPLINAS_RELACIONADAS',
+    'EXEMPLOS_TEMAS',
+    'OBSERVACOES'
+  ];
+  var widthsByHeader = {
+    ATIVO: 80,
+    ORDEM: 70,
+    CODIGO_EIXO: 120,
+    NUMERAL_ROMANO: 120,
+    NOME_OFICIAL: 280,
+    NOME_CURTO: 180,
+    ROTULO_FORMULARIO: 300,
+    DESCRICAO_RESUMIDA: 260,
+    PALAVRAS_CHAVE: 280,
+    DISCIPLINAS_RELACIONADAS: 300,
+    EXEMPLOS_TEMAS: 320,
+    OBSERVACOES: 260,
+    ATUALIZADO_EM: 170
+  };
+
+  sheet.getRange(1, 1, maxRows, maxCols)
+    .setVerticalAlignment('top');
+  sheet.getRange(1, 1, 1, maxCols)
+    .setFontWeight('bold')
+    .setHorizontalAlignment('center')
+    .setVerticalAlignment('middle');
+
+  ['ATIVO', 'ORDEM', 'CODIGO_EIXO', 'NUMERAL_ROMANO', 'ATUALIZADO_EM'].forEach(function(header) {
+    var col = GEAPA_CORE.coreGetCol(headerMap, header);
+    if (!col) return;
+    sheet.getRange(2, col, maxRows - 1, 1).setHorizontalAlignment('center');
+  });
+
+  leftAlignedHeaders.forEach(function(header) {
+    var col = GEAPA_CORE.coreGetCol(headerMap, header);
+    if (!col) return;
+    sheet.getRange(2, col, maxRows - 1, 1).setHorizontalAlignment('left');
+  });
+
+  wrappedHeaders.forEach(function(header) {
+    var col = GEAPA_CORE.coreGetCol(headerMap, header);
+    if (!col) return;
+    sheet.getRange(1, col, maxRows, 1).setWrap(true);
+  });
+
+  Object.keys(widthsByHeader).forEach(function(header) {
+    var col = GEAPA_CORE.coreGetCol(headerMap, header);
+    if (!col) return;
+    sheet.setColumnWidth(col, widthsByHeader[header]);
+  });
+
+  if (GEAPA_CORE.coreGetCol(headerMap, 'ATUALIZADO_EM')) {
+    sheet.getRange(2, GEAPA_CORE.coreGetCol(headerMap, 'ATUALIZADO_EM'), maxRows - 1, 1)
+      .setNumberFormat('dd/MM/yyyy HH:mm');
+  }
+
+  if (lastRow > 1) {
+    sheet.getRange(2, 1, lastRow - 1, maxCols).setBorder(true, true, true, true, true, true, '#d9d9d9', SpreadsheetApp.BorderStyle.SOLID);
+  }
+}
+
+function atividades_applyApresentacoesThematicAxesValidation_(sheet) {
+  if (!sheet || !atividades_getRegistryEntryByKey_(ATIVIDADES_CFG.STABLE_KEYS.THEMATIC_AXES)) return {
+    ok: true,
+    skipped: true,
+    reason: 'thematic_axes_registry_missing'
+  };
+
+  var axisLabels = atividades_listRotulosEixosApresentacoes_();
+  if (!axisLabels.length) return {
+    ok: true,
+    skipped: true,
+    reason: 'no_thematic_axes_labels'
+  };
+
+  var headerMap = GEAPA_CORE.coreHeaderMap(sheet, 1);
+  var targetHeaders = ['EIXO_TEMATICO_PRINCIPAL', 'EIXO_TEMATICO_SECUNDARIO'];
+  var totalRows = Math.max(sheet.getMaxRows() - 1, 1);
+  var validation = SpreadsheetApp.newDataValidation()
+    .requireValueInList(axisLabels, true)
+    .setAllowInvalid(true)
+    .setHelpText('Selecione um eixo tematico oficial da base institucional de eixos.')
+    .build();
+
+  targetHeaders.forEach(function(header) {
+    var col = GEAPA_CORE.coreGetCol(headerMap, header);
+    if (!col) return;
+    sheet.getRange(2, col, totalRows, 1).setDataValidation(validation);
+    sheet.getRange(1, col).setNote(
+      'Use apenas eixos tematicos oficiais da base institucional. ' +
+      'Os convites e validacoes passam a depender desta selecao.'
+    );
+  });
+
+  return {
+    ok: true,
+    appliedHeaders: targetHeaders
+  };
+}
+
+function atividades_applyHistoricoPublicoThematicAxesValidation_(sheet) {
+  if (!sheet || !atividades_getRegistryEntryByKey_(ATIVIDADES_CFG.STABLE_KEYS.THEMATIC_AXES)) return {
+    ok: true,
+    skipped: true,
+    reason: 'thematic_axes_registry_missing'
+  };
+
+  var axisLabels = atividades_listRotulosEixosApresentacoes_();
+  if (!axisLabels.length) return {
+    ok: true,
+    skipped: true,
+    reason: 'no_thematic_axes_labels'
+  };
+
+  var headerMap = GEAPA_CORE.coreHeaderMap(sheet, 1);
+  var targetHeader = '';
+  Object.keys(headerMap || {}).some(function(header) {
+    var normalized = GEAPA_CORE.coreNormalizeHeader(header);
+    if (normalized === GEAPA_CORE.coreNormalizeHeader('Eixo Temático') ||
+        normalized === GEAPA_CORE.coreNormalizeHeader('Eixo Tematico')) {
+      targetHeader = header;
+      return true;
+    }
+    return false;
+  });
+
+  if (!targetHeader) return {
+    ok: true,
+    skipped: true,
+    reason: 'historico_axis_header_missing'
+  };
+
+  var totalRows = Math.max(sheet.getMaxRows() - 1, 1);
+  var col = GEAPA_CORE.coreGetCol(headerMap, targetHeader);
+  if (!col) return {
+    ok: true,
+    skipped: true,
+    reason: 'historico_axis_column_missing'
+  };
+
+  var validation = SpreadsheetApp.newDataValidation()
+    .requireValueInList(axisLabels, true)
+    .setAllowInvalid(true)
+    .setHelpText('Selecione um eixo tematico oficial da base institucional de eixos.')
+    .build();
+
+  sheet.getRange(2, col, totalRows, 1).setDataValidation(validation);
+  sheet.getRange(1, col).setNote(
+    'Use apenas eixos tematicos oficiais da base institucional. ' +
+    'O historico publico e os resumos de apresentacoes dependem desta padronizacao.'
+  );
+
+  return {
+    ok: true,
+    appliedHeaders: [targetHeader]
+  };
+}
+
 function atividades_applySheetUx_(sheet, logicalName) {
   var notesBySheet = atividades_buildHeaderNotes_();
   var colorsBySheet = atividades_buildHeaderColors_();
@@ -310,12 +674,85 @@ function atividades_applySheetUx_(sheet, logicalName) {
     defaultColor: '#f3f3f3'
   });
   GEAPA_CORE.coreApplyDropdownValidationByHeader(sheet, rulesBySheet[currentLogicalName] || {}, 1, {});
+  atividades_applySheetAlignment_(sheet);
 
   if (currentLogicalName === ATIVIDADES_CFG.DYNAMIC_SHEET_PROFILES.PERIODO_PRESENCAS ||
       sheet.getName().indexOf(ATIVIDADES_CFG.DYNAMIC_SHEET_PREFIXES.PERIODO_PRESENCAS) === 0) {
     atividades_applyPresenceMetadataValidation_(sheet);
     atividades_applyPresenceDynamicValidation_(sheet);
   }
+
+  if (currentLogicalName === 'Eixos') {
+    atividades_applyThematicAxesLayout_(sheet);
+  }
+
+  if (currentLogicalName === 'Atividades_Apresentacoes') {
+    atividades_applyApresentacoesThematicAxesValidation_(sheet);
+  }
+}
+
+function atividades_aplicarUxBaseEixosTematicos_() {
+  var sheet = atividades_getEixosTematicosConfigSheet_();
+  var headers = atividades_ensureThematicAxesHeaders_(sheet);
+  atividades_applySheetUx_(sheet, 'Eixos');
+
+  return {
+    ok: true,
+    key: ATIVIDADES_CFG.STABLE_KEYS.THEMATIC_AXES,
+    sheetName: sheet.getName(),
+    spreadsheetId: sheet.getParent().getId(),
+    headers: headers
+  };
+}
+
+function atividades_migrarCabecalhosBaseExternos_(sheet) {
+  if (!sheet) return { renamed: false, addedRelation: false };
+
+  var lastColumn = Math.max(sheet.getLastColumn(), 1);
+  var headers = sheet.getRange(1, 1, 1, lastColumn).getValues()[0].map(function(header) {
+    return String(header || '').trim();
+  });
+  var categoriaLegacyIndex = headers.indexOf('CATEGORIA_PARTICIPANTE');
+  var categoriaPublicoIndex = headers.indexOf('CATEGORIA_PUBLICO');
+  var relacaoIndex = headers.indexOf('RELACAO_COM_GEAPA');
+  var renamed = false;
+  var addedRelation = false;
+
+  if (categoriaLegacyIndex >= 0 && categoriaPublicoIndex === -1) {
+    sheet.getRange(1, categoriaLegacyIndex + 1).setValue('CATEGORIA_PUBLICO');
+    renamed = true;
+  }
+
+  if (relacaoIndex === -1) {
+    atividades_ensureHeadersOnSheet_(sheet, ['RELACAO_COM_GEAPA']);
+    addedRelation = true;
+  }
+
+  atividades_ensureHeadersOnSheet_(sheet, ATIVIDADES_SCHEMA.EXTERNOS_BASE);
+
+  return {
+    renamed: renamed,
+    addedRelation: addedRelation
+  };
+}
+
+function atividades_aplicarUxBaseExternos_() {
+  var sheet = atividades_getExternosBaseSheet_();
+  if (!sheet) {
+    return {
+      ok: true,
+      skipped: true,
+      reason: 'Base de pessoas externas nao encontrada.'
+    };
+  }
+
+  return {
+    ok: true,
+    skipped: true,
+    sheetName: sheet.getName(),
+    spreadsheetId: sheet.getParent().getId(),
+    reason: 'UX da base de pessoas externas delegada ao modulo geapa-membros.'
+  };
 }
 
 function atividades_aplicarUxPlanilhas_() {
@@ -334,6 +771,9 @@ function atividades_aplicarUxPlanilhas_() {
     atividades_applySheetUx_(entry.sheet, entry.logicalName);
   });
 
+  var thematicAxes = atividades_aplicarUxBaseEixosTematicos_();
+  var externosBase = atividades_aplicarUxBaseExternos_();
+
   var ctx = atividades_getCurrentPeriodContext_();
   var operational = atividades_getOperationalHolder_().spreadsheet;
   var dynamicAtividades = atividades_findSheetByName_(operational, ctx.activitySheetName);
@@ -350,6 +790,8 @@ function atividades_aplicarUxPlanilhas_() {
   return {
     ok: true,
     periodCode: ctx.code,
+    thematicAxes: thematicAxes,
+    externosBase: externosBase,
     dynamicSheets: {
       atividades: !!dynamicAtividades,
       presencas: !!dynamicPresencas

@@ -11,13 +11,26 @@ function atividades_jobPlanejamentoNormativo_() {
   };
 }
 
+function onEditAtividades(e) {
+  atividades_onEditConfigInheritance_(e);
+  atividades_onEditPeriodoSync_(e);
+  atividades_onEditApresentacoes_(e);
+  atividades_onEditJustificativas_(e);
+  atividades_onEditPresencas_(e);
+}
+
+function atividades_jobApresentacoesWrapper_() {
+  return atividades_jobApresentacoes_();
+}
+
 function atividades_removerTriggers_() {
   var deleted = [];
   ScriptApp.getProjectTriggers().forEach(function(trigger) {
     var handler = String(trigger.getHandlerFunction() || '').trim();
     if (
       handler === 'onEditAtividades' ||
-      handler === 'atividades_jobPlanejamentoNormativo_'
+      handler === 'atividades_jobPlanejamentoNormativo_' ||
+      handler === 'atividades_jobApresentacoesWrapper_'
     ) {
       ScriptApp.deleteTrigger(trigger);
       deleted.push(handler);
@@ -47,6 +60,12 @@ function atividades_instalarTriggers_() {
     .everyHours(1)
     .create();
   created.push('atividades_jobPlanejamentoNormativo_');
+
+  ScriptApp.newTrigger('atividades_jobApresentacoesWrapper_')
+    .timeBased()
+    .everyHours(1)
+    .create();
+  created.push('atividades_jobApresentacoesWrapper_');
 
   return {
     ok: true,

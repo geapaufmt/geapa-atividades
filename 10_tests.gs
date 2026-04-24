@@ -74,6 +74,156 @@ function test_atividades_instalar_triggers() {
   return result;
 }
 
+function test_atividades_job_apresentacoes() {
+  var result = atividades_jobApresentacoes();
+  Logger.log(JSON.stringify(result, null, 2));
+  return result;
+}
+
+function test_atividades_enviar_cobrancas_titulo_eixo_apresentacoes() {
+  var result = atividades_enviarCobrancasTituloEixoApresentacoes();
+  Logger.log(JSON.stringify(result, null, 2));
+  return result;
+}
+
+function test_atividades_processar_inbox_titulo_eixo_apresentacoes() {
+  var result = atividades_processarInboxTituloEixoApresentacoes();
+  Logger.log(JSON.stringify(result, null, 2));
+  return result;
+}
+
+function test_atividades_listar_eixos_tematicos() {
+  var result = atividades_getMapaEixosApresentacoes_();
+  Logger.log(JSON.stringify(result, null, 2));
+  return result;
+}
+
+function test_atividades_aplicar_ux_base_eixos_tematicos() {
+  var result = atividades_aplicarUxBaseEixosTematicos();
+  Logger.log(JSON.stringify(result, null, 2));
+  return result;
+}
+
+function test_atividades_aplicar_ux_base_externos() {
+  var result = atividades_aplicarUxBaseExternos();
+  Logger.log(JSON.stringify(result, null, 2));
+  return result;
+}
+
+function test_atividades_notificar_secretarios_apresentacoes() {
+  var result = atividades_notificarSecretariosApresentacoes();
+  Logger.log(JSON.stringify(result, null, 2));
+  return result;
+}
+
+function test_atividades_preencher_identificacao_apresentacao_linha_2() {
+  var result = atividades_preencherIdentificacaoApresentacaoLinha(2);
+  Logger.log(JSON.stringify(result, null, 2));
+  return result;
+}
+
+function test_atividades_vincular_professores_apresentacoes() {
+  var result = atividades_vincularProfessoresApresentacoes();
+  Logger.log(JSON.stringify(result, null, 2));
+  return result;
+}
+
+function test_atividades_enviar_convites_professores_apresentacoes() {
+  var result = atividades_enviarConvitesProfessoresApresentacoes();
+  Logger.log(JSON.stringify(result, null, 2));
+  return result;
+}
+
+function test_atividades_vincular_externos_apresentacoes() {
+  var result = atividades_vincularExternosApresentacoes();
+  Logger.log(JSON.stringify(result, null, 2));
+  return result;
+}
+
+function test_atividades_enviar_convites_externos_apresentacoes() {
+  var result = atividades_enviarConvitesExternosApresentacoes();
+  Logger.log(JSON.stringify(result, null, 2));
+  return result;
+}
+
+function test_atividades_enviar_lembretes_membros_apresentacoes() {
+  var result = atividades_enviarLembretesMembrosApresentacoes();
+  Logger.log(JSON.stringify(result, null, 2));
+  return result;
+}
+
+function test_atividades_marcar_apresentacoes_realizadas_automaticamente() {
+  var result = atividades_marcarApresentacoesRealizadasAutomaticamente();
+  Logger.log(JSON.stringify(result, null, 2));
+  return result;
+}
+
+function test_atividades_enviar_cobrancas_arquivo_apresentacoes() {
+  var result = atividades_enviarCobrancasArquivoApresentacoes();
+  Logger.log(JSON.stringify(result, null, 2));
+  return result;
+}
+
+function test_atividades_enviar_cobrancas_arquivo_apresentacoes_forcado() {
+  var result = atividades_enviarCobrancasArquivoApresentacoesForcado();
+  Logger.log(JSON.stringify(result, null, 2));
+  return result;
+}
+
+function test_atividades_processar_inbox_arquivo_apresentacoes() {
+  var result = atividades_processarInboxArquivoApresentacoes();
+  Logger.log(JSON.stringify(result, null, 2));
+  return result;
+}
+
+function test_atividades_processar_fotos_pendentes_apresentacoes() {
+  var result = atividades_processarFotosPendentesApresentacoes();
+  Logger.log(JSON.stringify(result, null, 2));
+  return result;
+}
+
+function test_atividades_autofill_identificacao_apresentacoes() {
+  var result = atividades_autofillIdentificacaoApresentacoes();
+  Logger.log(JSON.stringify(result, null, 2));
+  return result;
+}
+
+function test_atividades_sincronizar_historico_publico_apresentacoes() {
+  var result = atividades_sincronizarHistoricoPublicoApresentacoes();
+  Logger.log(JSON.stringify(result, null, 2));
+  return result;
+}
+
+function test_atividades_job_apresentacoes_base() {
+  var result = atividades_jobApresentacoesBase();
+  Logger.log(JSON.stringify(result, null, 2));
+  return result;
+}
+
+function test_atividades_job_apresentacoes_convites() {
+  var result = atividades_jobApresentacoesConvites();
+  Logger.log(JSON.stringify(result, null, 2));
+  return result;
+}
+
+function test_atividades_job_apresentacoes_pos_evento() {
+  var result = atividades_jobApresentacoesPosEvento();
+  Logger.log(JSON.stringify(result, null, 2));
+  return result;
+}
+
+function test_atividades_sincronizar_resumo_apresentacoes_em_members_atuais() {
+  var result = atividades_sincronizarResumoApresentacoesEmMembersAtuais();
+  Logger.log(JSON.stringify(result, null, 2));
+  return result;
+}
+
+function test_atividades_aplicar_ux_historico_publico_apresentacoes() {
+  var result = atividades_aplicarUxHistoricoPublicoApresentacoes();
+  Logger.log(JSON.stringify(result, null, 2));
+  return result;
+}
+
 function test_atividades_remover_triggers() {
   var result = atividades_removerTriggers();
   Logger.log(JSON.stringify(result, null, 2));

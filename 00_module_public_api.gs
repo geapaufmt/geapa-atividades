@@ -54,8 +54,104 @@ function atividades_removerTriggers() {
   return atividades_removerTriggers_();
 }
 
+function atividades_jobApresentacoes() {
+  return atividades_jobApresentacoes_();
+}
+
+function atividades_jobApresentacoesBase() {
+  return atividades_jobApresentacoes_({ phase: 'BASE' });
+}
+
+function atividades_jobApresentacoesConvites() {
+  return atividades_jobApresentacoes_({ phase: 'CONVITES' });
+}
+
+function atividades_jobApresentacoesPosEvento() {
+  return atividades_jobApresentacoes_({ phase: 'POS_EVENTO' });
+}
+
+function atividades_enviarCobrancasTituloEixoApresentacoes() {
+  return atividades_enviarCobrancasTituloEixoApresentacoes_();
+}
+
+function atividades_processarInboxTituloEixoApresentacoes() {
+  return atividades_processarInboxTituloEixoApresentacoes_();
+}
+
+function atividades_notificarSecretariosApresentacoes() {
+  return atividades_notificarSecretariosTituloEixoPendentes_();
+}
+
+function atividades_preencherIdentificacaoApresentacaoLinha(rowNumber) {
+  return atividades_preencherIdentificacaoApresentacaoLinha_(rowNumber);
+}
+
+function atividades_autofillIdentificacaoApresentacoes() {
+  return atividades_autofillIdentificacaoApresentacoesEmLote_();
+}
+
+function atividades_vincularProfessoresApresentacoes() {
+  return atividades_upsertProfessoresApresentacao_();
+}
+
+function atividades_enviarConvitesProfessoresApresentacoes() {
+  return atividades_enviarConvitesProfessoresApresentacoes_();
+}
+
+function atividades_vincularExternosApresentacoes() {
+  return atividades_upsertExternosApresentacao_();
+}
+
+function atividades_enviarConvitesExternosApresentacoes() {
+  return atividades_enviarConvitesExternosApresentacoes_();
+}
+
+function atividades_enviarLembretesMembrosApresentacoes() {
+  return atividades_enviarLembretesMembrosApresentacoes_();
+}
+
+function atividades_marcarApresentacoesRealizadasAutomaticamente() {
+  return atividades_tryAutoMarkApresentacoesRealizadas_();
+}
+
+function atividades_enviarCobrancasArquivoApresentacoes() {
+  return atividades_enviarCobrancasArquivoApresentacoes_();
+}
+
+function atividades_enviarCobrancasArquivoApresentacoesForcado() {
+  return atividades_enviarCobrancasArquivoApresentacoes_({ force: true });
+}
+
+function atividades_processarInboxArquivoApresentacoes() {
+  return atividades_processarInboxArquivoApresentacoes_();
+}
+
+function atividades_processarFotosPendentesApresentacoes() {
+  return atividades_processarFotosPendentesApresentacoes_();
+}
+
+function atividades_sincronizarHistoricoPublicoApresentacoes() {
+  return atividades_sincronizarHistoricoPublicoApresentacoes_();
+}
+
+function atividades_sincronizarResumoApresentacoesEmMembersAtuais() {
+  return atividades_sincronizarResumoApresentacoesEmMembersAtuais_();
+}
+
+function atividades_aplicarUxHistoricoPublicoApresentacoes() {
+  return atividades_aplicarUxHistoricoPublicoApresentacoes_();
+}
+
 function atividades_aplicarUxPlanilhas() {
   return atividades_aplicarUxPlanilhas_();
+}
+
+function atividades_aplicarUxBaseEixosTematicos() {
+  return atividades_aplicarUxBaseEixosTematicos_();
+}
+
+function atividades_aplicarUxBaseExternos() {
+  return atividades_aplicarUxBaseExternos_();
 }
 
 function atividades_aplicarConfigLinhaAtividade(rowNumber) {

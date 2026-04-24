@@ -124,7 +124,7 @@ Na V1, a estrategia padrao de seguranca e:
 - membros continuam usando `RGA` como identificador oficial;
 - o modulo nao cria `ID_MEMBRO`;
 - `ID_ATIVIDADE` usa o padrao estavel `ATV-0001`, `ATV-0002`, ...;
-- `ID_ATIVIDADE` e criado apenas quando a celula estiver vazia e a linha tiver ao menos `TIPO_ATIVIDADE` e `DATA_ATIVIDADE`;
+- `ID_ATIVIDADE` e criado automaticamente por rotina periodica, apenas quando a celula estiver vazia e a linha tiver ao menos `TIPO_ATIVIDADE` e `DATA_ATIVIDADE` ou `PERIODO_REFERENCIA`;
 - `COLUNA_PRESENCA` e derivada como `ID_ATIVIDADE_YYYYMMDD`, por exemplo `ATV-0001_20260407`;
 - externos nao entram na presenca oficial dos membros;
 - `Atividades_Apresentacoes` continua separada para preservar o fluxo especifico.
@@ -149,6 +149,7 @@ Preferencias atuais:
 - `MEMBERS_ATUAIS`
 - `VIGENCIA_SEMESTRES`
 - `MEMBER_EVENTOS_VINCULO` para historico institucional de ingresso, desligamento e suspensao
+- `PESSOAS_EXTERNAS_BASE` (com fallback legado para `PARTICIPANTES_EXTERNOS_BASE`), apontando para a aba `Participantes Externos` da planilha de pessoas
 
 ### Estrutura preferencial de periodo
 
@@ -179,6 +180,20 @@ Se nenhuma ancora de historico existir no `Registry`, essa e a unica adicao real
 - `atividades_gerarEventosDesligamentoPorFaltasPeriodoVigente()`
 - `atividades_instalarTriggers()`
 - `atividades_removerTriggers()`
+- `atividades_jobApresentacoes()`
+- `atividades_jobApresentacoesBase()`
+- `atividades_jobApresentacoesConvites()`
+- `atividades_jobApresentacoesPosEvento()`
+- `atividades_enviarCobrancasTituloEixoApresentacoes()`
+- `atividades_processarInboxTituloEixoApresentacoes()`
+- `atividades_notificarSecretariosApresentacoes()`
+- `atividades_preencherIdentificacaoApresentacaoLinha(rowNumber)`
+- `atividades_vincularProfessoresApresentacoes()`
+- `atividades_enviarConvitesProfessoresApresentacoes()`
+- `atividades_vincularExternosApresentacoes()`
+- `atividades_enviarConvitesExternosApresentacoes()`
+- `atividades_sincronizarHistoricoPublicoApresentacoes()`
+- `atividades_sincronizarResumoApresentacoesEmMembersAtuais()`
 - `atividades_aplicarUxPlanilhas()`
 - `atividades_aplicarConfigLinhaAtividade(rowNumber)`
 - `atividades_fillMissingActivityIds()`
@@ -386,11 +401,165 @@ Instalador automatico:
 Esse instalador cria:
 
 - trigger instalavel de edicao para `onEditAtividades`;
-- trigger horario para `atividades_jobPlanejamentoNormativo_`, que atualiza a data-limite, tenta congelar o snapshot quando a hora chegar e recalcula o bloco disciplinar.
+- trigger horario para `atividades_jobPlanejamentoNormativo_`, que atualiza a data-limite, tenta congelar o snapshot quando a hora chegar e recalcula o bloco disciplinar;
+- trigger horario para `atividades_jobApresentacoes_`, que agora roda em fases ciclicas para reduzir carga e limite de execucoes do Apps Script:
+  - `BASE`: garante `ID_ATIVIDADE`, faz upsert de `APRESENTACAO_MEMBRO`, reflete `STATUS_APRESENTACAO` e, quando esse reflexo altera `Atividades.STATUS`, ressincroniza automaticamente `Atividades_Periodo_<PERIODO>` e `Presencas_<PERIODO>` antes de seguir para agendamento, cobranca e inbox de titulo/eixo e aviso a secretaria;
+  - `CONVITES`: upsert de professores e externos, convites e lembretes aos membros;
+  - `POS_EVENTO`: cobranca/inbox de arquivo, sincronizacao do historico publico e resumo em `MEMBERS_ATUAIS`.
+
+## Integracao com Atividades_Apresentacoes
+
+O modulo passou a reconciliar periodicamente:
+
+- `Atividades`
+- `Atividades_Apresentacoes`
+
+Regras atuais:
+
+- `ID_ATIVIDADE` continua geral e pode ser gerado para qualquer atividade elegivel;
+- apenas linhas com `SUBTIPO_ATIVIDADE = APRESENTACAO_MEMBRO` entram no upsert especializado;
+- o elo principal entre as abas e `ID_ATIVIDADE`;
+- o job especializado preserva a operacao humana da aba `Atividades_Apresentacoes`, preenchendo apenas os campos espelho minimos:
+  - `ID_ATIVIDADE`
+  - `PERIODO_REFERENCIA`
+  - `DATA_ATIVIDADE`
+  - `HORARIO_INICIO`
+  - `HORARIO_FIM`
+  - `LOCAL`
+  - `FORMATO`
+  - `SEMESTRE_APRESENTACAO`
+
+Mapeamento atual de status:
+
+- `STATUS_APRESENTACAO = PLANEJADA` -> `Atividades.STATUS = PLANEJADA`
+- `STATUS_APRESENTACAO = AGENDADA` -> `Atividades.STATUS = PLANEJADA`
+- `STATUS_APRESENTACAO = CONFIRMADA` -> `Atividades.STATUS = PLANEJADA`
+- `STATUS_APRESENTACAO = APROVADA` -> `Atividades.STATUS = CONFIRMADA`
+- `STATUS_APRESENTACAO = REALIZADA` -> `Atividades.STATUS = REALIZADA`
+- `STATUS_APRESENTACAO = CANCELADA` -> `Atividades.STATUS = CANCELADA`
+
+Notificacao ao membro:
+
+- a notificacao de agendamento e disparada pela aba especializada, nao pela aba geral;
+- o marco explicito usado na V1 e `STATUS_APRESENTACAO = AGENDADA`;
+- os controles de idempotencia ficam em:
+  - `NOTIFICACAO_AGENDAMENTO_ENVIADA`
+  - `DATA_NOTIFICACAO_AGENDAMENTO`
+- o texto do e-mail foi revisado para uso institucional em portugues, preservando o comportamento do fluxo antigo de apresentacoes.
+
+Fluxo atual entre `AGENDADA`, `CONFIRMADA` e `APROVADA`:
+
+- `AGENDADA` significa apenas que a data foi marcada e o membro deve ser avisado;
+- entre 1 e 4 dias antes da apresentacao, se ainda nao houver titulo/eixo confirmados, o sistema envia cobranca de titulo/eixo;
+- quando a resposta valida e recebida, o sistema grava `TITULO_APRESENTACAO`, `EIXO_TEMATICO_PRINCIPAL`, `EIXO_TEMATICO_SECUNDARIO` e `DATA_CONFIRMACAO_TITULO_EIXO`, alem de mudar `STATUS_APRESENTACAO` para `CONFIRMADA`;
+- em seguida, o sistema envia aviso automatico para a secretaria revisar o material;
+- somente depois da analise humana e da mudanca manual para `STATUS_APRESENTACAO = APROVADA` e que a atividade geral passa para `CONFIRMADA` e os convites amplos ficam liberados.
+
+Base oficial de eixos tematicos:
+
+- a key institucional esperada e `EIXOS_TEMATICOS_OFICIAIS`;
+- os campos `EIXO_TEMATICO_PRINCIPAL` e `EIXO_TEMATICO_SECUNDARIO` em `Atividades_Apresentacoes` passam a usar dropdown dinamico derivado dessa base;
+- a mesma base oficial tambem e usada para:
+  - interpretar a resposta do membro na cobranca de titulo/eixo;
+  - casar professores por eixo;
+  - casar participantes externos por eixo.
+
+Professores por eixo tematico:
+
+- os convites a professores sao liberados apenas quando `STATUS_APRESENTACAO = APROVADA`;
+- a base institucional usada e `PROFS_BASE`;
+- o modulo tenta ler:
+  - `Nome` ou `NOME`
+  - `E-mail`, `EMAIL` ou `Email`
+  - `Eixo tematico 1` / `EIXO_TEMATICO_1`
+  - `Eixo tematico 2` / `EIXO_TEMATICO_2`
+- os professores elegiveis sao vinculados primeiro em `Atividade_Convidados`, mantendo trilha auditavel por pessoa;
+- o envio e idempotente e usa o controle `CONVITE_ENVIADO` da aba `Atividade_Convidados`.
+
+Lembretes aos membros:
+
+- os lembretes aos membros ativos sao liberados apenas quando `STATUS_APRESENTACAO = APROVADA`;
+- a base institucional usada e `MEMBERS_ATUAIS`;
+- o modulo considera elegiveis os membros com `STATUS`/`STATUS_CADASTRAL = ATIVO` e e-mail valido;
+- o envio e registrado diretamente na aba `Atividades_Apresentacoes` por:
+  - `LEMBRETE_MEMBROS_ENVIADO`
+  - `DATA_ENVIO_LEMBRETE_MEMBROS`
+- o job de apresentacoes tenta reenfileirar automaticamente no proximo ciclo caso a fila central de e-mails esteja ocupada.
+
+Pós-apresentação:
+
+- quando a apresentação está `APROVADA`, o modulo pode marcá-la automaticamente como `REALIZADA` se houver evidência concreta de execução na aba `Presencas_<PERIODO>`;
+- a evidência usada nesta V1 é:
+  - a data/horário da apresentação já terem passado;
+  - a atividade já existir no mapa do período;
+  - a coluna correspondente em presenças já ter ao menos um lançamento real (`P`, `R`, `F`, `J` ou `A`);
+- quando `STATUS_APRESENTACAO = REALIZADA`, o modulo passa a cobrar o envio do arquivo da apresentacao em PDF;
+- a primeira cobranca ocorre a partir das 22h do dia da apresentacao;
+- a janela de cobranca fica aberta por 72 horas a partir da apresentacao;
+- o envio e registrado diretamente na aba `Atividades_Apresentacoes` por:
+  - `DATA_SOLICITACAO_ARQUIVO`
+  - `DATA_COBRANCA_ARQUIVO`
+  - `QTD_COBRANCAS_ARQUIVO`
+  - `STATUS_ENVIO_ARQUIVO`
+- o inbox procura respostas com o assunto `GEAPA | Envio do arquivo da apresentação em PDF`;
+- apenas anexos em PDF sao aceitos;
+- quando o PDF e recebido corretamente, o modulo grava:
+  - `STATUS_ENVIO_ARQUIVO = RECEBIDO`
+  - `DATA_RECEBIMENTO_ARQUIVO`
+  - `LINK_ARQUIVO_DRIVE`
+- para salvar os arquivos, o Registry precisa conter a key de pasta raiz em uma destas formas:
+  - `APRESENTACOES_PASTA_RAIZ`
+  - `PASTA_RAIZ_APRESENTACOES`
+
+Autofill de identificacao:
+
+- o preenchimento automatico de `RGA`, `NOME_MEMBRO` e `EMAIL_MEMBRO` acontece por `onEdit`, mas apenas na aba `Atividades_Apresentacoes`;
+- a origem do autofill e `MEMBERS_ATUAIS`, via `GEAPA-CORE`;
+- esse `onEdit` nao envia e-mails, nao cria apresentacoes e nao altera status: ele apenas resolve a identidade do membro.
+
+Participantes externos por eixo tematico:
+
+- a fonte oficial e a aba `Participantes Externos` da planilha de pessoas, via `PESSOAS_EXTERNAS_BASE` com fallback legado para `PARTICIPANTES_EXTERNOS_BASE`;
+- o matching dos interesses usa a base oficial `EIXOS_TEMATICOS_OFICIAIS` para transformar os eixos selecionados na apresentacao em chaves institucionais estaveis;
+- o modulo usa essa base para localizar externos com:
+  - `ATIVO = SIM`
+  - `RECEBE_APRESENTACOES_ALUNOS = SIM`
+  - interesse em `EIXO_TEMATICO_PRINCIPAL` e/ou `EIXO_TEMATICO_SECUNDARIO`
+- os externos elegiveis sao vinculados primeiro em `Atividade_Convidados`, mantendo trilha auditavel por pessoa;
+- o envio e idempotente e usa o controle `CONVITE_ENVIADO` da aba `Atividade_Convidados`;
+- a apresentacao precisa estar em status `APROVADA`;
+- a atividade geral precisa ser aberta a externos, isto e, `CLASSIFICACAO_ACESSO = ABERTA`.
+
+Usabilidade visual:
+
+- a rotina de UX do modulo agora aplica centralizacao horizontal e vertical como padrao nas abas operacionais.
 
 Para limpar e reinstalar:
 
 - `atividades_removerTriggers()`
+
+## Operacao do job de apresentacoes
+
+O job horario de apresentacoes permanece unico no instalador, mas internamente ele nao tenta mais executar todo o fluxo de uma vez.
+
+Agora o modulo alterna automaticamente entre tres fases:
+
+1. `BASE`
+2. `CONVITES`
+3. `POS_EVENTO`
+
+Cada execucao avanca para a fase seguinte. Isso reduz risco de timeout, limite de chamadas e o erro de "funcao executada muitas vezes em curto espaco de tempo".
+
+Para teste manual, voce pode rodar cada fase isoladamente:
+
+- `atividades_jobApresentacoesBase()`
+- `atividades_jobApresentacoesConvites()`
+- `atividades_jobApresentacoesPosEvento()`
+
+Para depuracao mais objetiva de historico e membros, estas funcoes continuam disponiveis de forma independente:
+
+- `atividades_sincronizarHistoricoPublicoApresentacoes()`
+- `atividades_sincronizarResumoApresentacoesEmMembersAtuais()`
 
 ## Fluxo de virada de periodo
 

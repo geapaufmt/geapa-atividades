@@ -40,6 +40,7 @@ function atividades_garantirEstruturasFixasV1_() {
   var atividadesSheet = atividades_getAtividadesSheet_();
 
   atividades_ensureHeadersOnSheet_(atividadesSheet, ['PERIODO_REFERENCIA', 'BASE_PLANEJAMENTO_INICIAL']);
+  atividades_ensureHeadersOnSheet_(atividades_getApresentacoesSheet_(), ATIVIDADES_SCHEMA.APRESENTACOES);
 
   if (!atividades_findSheetByName_(operational, targetName)) {
     atividades_createSheetWithHeaders_(

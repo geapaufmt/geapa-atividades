@@ -4,7 +4,53 @@ function atividades_parseDateOrNull_(value) {
     return value;
   }
 
-  var parsed = new Date(value);
+  if (typeof value === 'number' && isFinite(value)) {
+    if (value > 100000000000) {
+      var fromTimestamp = new Date(value);
+      return isNaN(fromTimestamp) ? null : fromTimestamp;
+    }
+    if (value > 20000 && value < 60000) {
+      var fromSerial = new Date(Math.round((value - 25569) * 86400 * 1000));
+      return isNaN(fromSerial) ? null : fromSerial;
+    }
+  }
+
+  var text = String(value || '').trim();
+  if (!text) return null;
+
+  var brMatch = text.match(
+    /^(\d{1,2})\/(\d{1,2})\/(\d{4})(?:[ T](\d{1,2})(?::(\d{1,2})(?::(\d{1,2}))?)?)?$/
+  );
+  if (brMatch) {
+    var brDate = new Date(
+      Number(brMatch[3]),
+      Number(brMatch[2]) - 1,
+      Number(brMatch[1]),
+      Number(brMatch[4] || 0),
+      Number(brMatch[5] || 0),
+      Number(brMatch[6] || 0),
+      0
+    );
+    return isNaN(brDate) ? null : brDate;
+  }
+
+  var isoMatch = text.match(
+    /^(\d{4})-(\d{1,2})-(\d{1,2})(?:[ T](\d{1,2})(?::(\d{1,2})(?::(\d{1,2}))?)?)?$/
+  );
+  if (isoMatch) {
+    var isoDate = new Date(
+      Number(isoMatch[1]),
+      Number(isoMatch[2]) - 1,
+      Number(isoMatch[3]),
+      Number(isoMatch[4] || 0),
+      Number(isoMatch[5] || 0),
+      Number(isoMatch[6] || 0),
+      0
+    );
+    return isNaN(isoDate) ? null : isoDate;
+  }
+
+  var parsed = new Date(text);
   return isNaN(parsed) ? null : parsed;
 }
 
@@ -85,6 +131,31 @@ function atividades_listSemesterRecords_() {
   return GEAPA_CORE.coreReadRecordsByKey(semesterKey, {
     headerRow: ATIVIDADES_CFG.HEADER_ROW
   });
+}
+
+function atividades_resolverSemestrePorData_(refDate) {
+  var targetDate = atividades_parseDateOrNull_(refDate);
+  if (!targetDate) return null;
+
+  var aliases = ATIVIDADES_CFG.SEMESTER_HEADER_ALIASES;
+  var semesters = atividades_listSemesterRecords_();
+  var matches = semesters.map(function(record) {
+    return {
+      id: String(atividades_pickRecordField_(record, aliases.id) || '').trim(),
+      periodId: String(atividades_pickRecordField_(record, aliases.periodId) || '').trim(),
+      startDate: atividades_parseDateOrNull_(atividades_pickRecordField_(record, aliases.start)),
+      endDate: atividades_parseDateOrNull_(atividades_pickRecordField_(record, aliases.end)),
+      raw: record
+    };
+  }).filter(function(item) {
+    return !!(item.id && item.startDate);
+  }).filter(function(item) {
+    return atividades_isDateInsideRange_(targetDate, item.startDate, item.endDate);
+  }).sort(function(a, b) {
+    return a.startDate.getTime() - b.startDate.getTime();
+  });
+
+  return matches.length ? matches[0] : null;
 }
 
 function atividades_buildPeriodRangeFromSemesters_(periodId) {

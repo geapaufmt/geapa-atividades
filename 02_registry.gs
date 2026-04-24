@@ -4,7 +4,8 @@ var ATIVIDADES_RUNTIME_CACHE = {
   spreadsheetsById: {},
   foldersById: {},
   fixedSheetEntries: {},
-  holders: {}
+  holders: {},
+  thematicAxes: null
 };
 
 function atividades_assertCoreLibrary_() {
@@ -31,8 +32,10 @@ function atividades_assertCoreLibrary_() {
     'coreApplyHeaderColors',
     'coreApplyDropdownValidationByHeader',
     'coreGetCurrentSemester',
+    'coreGetCurrentEmailsByEmailGroup',
     'coreFormatDate',
     'coreIsValidEmail',
+    'coreSearchThreads',
     'coreMailQueueOutgoing',
     'coreMailProcessOutbox',
     'coreRunId',
@@ -299,6 +302,36 @@ function atividades_getHistoryFolder_() {
   });
 }
 
+function atividades_getPublicHistoryHolder_() {
+  var entry = atividades_findHolderEntry_('HISTORY_PUBLIC', {
+    preferredKeys: ATIVIDADES_CFG.HISTORY_PUBLIC_DISCOVERY.preferredKeys,
+    sheetNames: ATIVIDADES_CFG.HISTORY_PUBLIC_DISCOVERY.sheetNames,
+    keyTokens: ATIVIDADES_CFG.HISTORY_PUBLIC_DISCOVERY.keyTokens
+  });
+
+  return Object.freeze({
+    entry: entry,
+    spreadsheet: atividades_openSpreadsheetByIdCached_(entry.id)
+  });
+}
+
+function atividades_getPublicHistorySheet_() {
+  var holder = atividades_getPublicHistoryHolder_();
+  var entry = holder.entry;
+  var byRealName = atividades_findSheetByName_(holder.spreadsheet, entry.sheet);
+  if (byRealName) return byRealName;
+
+  var byPreferredName = atividades_findSheetByNameTokens_(
+    holder.spreadsheet,
+    ATIVIDADES_CFG.HISTORY_PUBLIC_DISCOVERY.sheetNames
+  );
+  if (byPreferredName) return byPreferredName;
+
+  throw new Error(
+    'Nao foi possivel localizar a aba de historico publico das apresentacoes na planilha informada pelo Registry.'
+  );
+}
+
 function atividades_findSheetByName_(spreadsheet, sheetName) {
   var name = String(sheetName || '').trim();
   if (!name) throw new Error('sheetName obrigatorio.');
@@ -374,4 +407,12 @@ function atividades_getJustificativasFaltasSheet_() {
 
 function atividades_getJustificativasFormSheet_() {
   return atividades_getFixedSheetByLogicalName_('JUSTIFICATIVAS_FORM');
+}
+
+function atividades_getEixosTematicosSheet_() {
+  return atividades_getSheetByKeyCached_(ATIVIDADES_CFG.STABLE_KEYS.THEMATIC_AXES);
+}
+
+function atividades_getExternosBaseSheet_() {
+  return atividades_getFixedSheetByLogicalName_('EXTERNOS_BASE');
 }

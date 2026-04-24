@@ -36,6 +36,10 @@ function atividades_validateRegistryDiscovery_() {
     issues.push('KEY recomendada nao encontrada no Registry: ' + ATIVIDADES_CFG.STABLE_KEYS.MEMBER_LIFECYCLE_EVENTS);
   }
 
+  if (!atividades_getRegistryEntryByKey_(ATIVIDADES_CFG.STABLE_KEYS.THEMATIC_AXES)) {
+    issues.push('KEY obrigatoria nao encontrada no Registry: ' + ATIVIDADES_CFG.STABLE_KEYS.THEMATIC_AXES);
+  }
+
   try {
     atividades_getHistoryFolder_();
   } catch (err) {
@@ -115,18 +119,51 @@ function atividades_validateCurrentPeriod_() {
   }
 }
 
+function atividades_validateThematicAxesBase_() {
+  try {
+    var sheet = atividades_getEixosTematicosConfigSheet_();
+    var headers = atividades_validateSheetHeaders_(
+      sheet,
+      [
+        'ATIVO',
+        'ORDEM',
+        'CODIGO_EIXO',
+        'NUMERAL_ROMANO',
+        'NOME_OFICIAL',
+        'NOME_CURTO',
+        'ROTULO_FORMULARIO'
+      ],
+      'Eixos'
+    );
+    var records = atividades_getMapaEixosApresentacoes_();
+
+    return {
+      ok: headers.ok && records.length > 0,
+      headers: headers,
+      totalAtivos: records.length
+    };
+  } catch (err) {
+    return {
+      ok: false,
+      issues: [err.message || String(err)]
+    };
+  }
+}
+
 function atividades_validarModulo_() {
   var core = atividades_validateCoreLibrary_();
   var registry = core.ok ? atividades_validateRegistryDiscovery_() : { ok: false, issues: ['Library GEAPA_CORE indisponivel.'] };
   var fixedSheets = core.ok && registry.ok ? atividades_validateFixedSheets_() : { ok: false, checks: [] };
+  var thematicAxes = core.ok && registry.ok ? atividades_validateThematicAxesBase_() : { ok: false, issues: [] };
   var currentPeriod = core.ok && registry.ok ? atividades_validateCurrentPeriod_() : { ok: false, issues: [] };
 
   return {
-    ok: core.ok && registry.ok && fixedSheets.ok && currentPeriod.ok,
+    ok: core.ok && registry.ok && fixedSheets.ok && thematicAxes.ok && currentPeriod.ok,
     checks: {
       core: core,
       registry: registry,
       fixedSheets: fixedSheets,
+      thematicAxes: thematicAxes,
       currentPeriod: currentPeriod
     }
   };
