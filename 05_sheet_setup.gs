@@ -219,7 +219,9 @@ function atividades_buildHeaderNotes_() {
       RGA: 'Identificador oficial do membro.',
       NOME_MEMBRO: 'Nome do membro.',
       EMAIL: 'Email institucional ou principal do membro.',
-      CARGO_FUNCAO_ATUAL: 'Cargo ou funcao atual do membro no momento da sincronizacao.',
+      CARGO_FUNCAO_ATUAL: 'Ocupacao atual do membro no momento da sincronizacao.',
+      OCUPACAO_ATUAL: 'Ocupacao atual do membro no momento da sincronizacao.',
+      OCUPACAO: 'Ocupacao atual do membro no momento da sincronizacao.',
       STATUS_CADASTRAL: 'Status atual do vinculo institucional do membro.',
       STATUS_NO_PERIODO: 'Situacao historica do membro dentro do periodo especifico.',
       DATA_ENTRADA_NO_PERIODO: 'Data a partir da qual o membro passa a contar presenca/falta no periodo.',
@@ -350,7 +352,7 @@ function atividades_buildHeaderColors_() {
       { color: '#d9ead3', headers: ['COD_ATIVIDADE_PERIODO', 'COLUNA_PRESENCA', 'ID_ATIVIDADE', 'CLASSIFICACAO_REUNIAO'] }
     ],
     PERIODO_Presencas: [
-      { color: '#d9ead3', headers: ['RGA', 'NOME_MEMBRO', 'EMAIL', 'CARGO_FUNCAO_ATUAL', 'STATUS_CADASTRAL', 'STATUS_NO_PERIODO'] },
+      { color: '#d9ead3', headers: ['RGA', 'NOME_MEMBRO', 'EMAIL', 'CARGO_FUNCAO_ATUAL', 'OCUPACAO_ATUAL', 'OCUPACAO', 'STATUS_CADASTRAL', 'STATUS_NO_PERIODO'] },
       { color: '#d0e0e3', headers: ['DATA_ENTRADA_NO_PERIODO', 'DATA_SAIDA_NO_PERIODO', 'MOTIVO_ALTERACAO_NO_PERIODO', 'OBS_EVENTO_PERIODO'] },
       { color: '#fff2cc', headers: ['TOTAL_ATIVIDADES_QUE_CONTAM_FALTA', 'LIMITE_FALTAS_PERIODO', 'FALTAS_LIQUIDAS', 'PERCENTUAL_USO_LIMITE', 'SITUACAO_DISCIPLINAR'] }
     ],

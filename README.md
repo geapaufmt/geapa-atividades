@@ -129,6 +129,21 @@ Na V1, a estrategia padrao de seguranca e:
 - externos nao entram na presenca oficial dos membros;
 - `Atividades_Apresentacoes` continua separada para preservar o fluxo especifico.
 
+Compatibilidade semantica atual:
+
+- o modulo passou a tratar `Ocupação` como termo preferencial de negocio;
+- nesta fase, as abas oficiais continuam podendo manter o cabecalho legado `Cargo/Função`/`Cargo/Funcao`;
+- nas leituras de bases e snapshots, o modulo aceita:
+  - `Ocupação`
+  - `Ocupacao`
+  - `Ocupação atual`
+  - `Ocupacao atual`
+  - `Cargo/Função`
+  - `Cargo/Funcao`
+  - `Cargo/Função atual`
+  - `Cargo/Funcao atual`
+- nas escritas e sincronizacoes de `Presencas_<PERIODO>`, o cabecalho fisico legado continua preservado nesta etapa para evitar quebra retroativa.
+
 ## Descoberta de planilhas e keys
 
 O modulo prioriza as KEYS institucionais mais provaveis, mas tambem tenta se adaptar ao `Registry` por nome de aba e por padroes de chave, para reduzir acoplamento desnecessario.
@@ -421,6 +436,7 @@ Esse instalador cria:
   - `BASE`: garante `ID_ATIVIDADE`, faz upsert de `APRESENTACAO_MEMBRO`, reflete `STATUS_APRESENTACAO` e, quando esse reflexo altera `Atividades.STATUS`, ressincroniza automaticamente `Atividades_Periodo_<PERIODO>` e `Presencas_<PERIODO>` antes de seguir para agendamento, cobranca e inbox de titulo/eixo e aviso a secretaria;
   - `CONVITES`: upsert de professores e externos, convites e lembretes aos membros;
   - `POS_EVENTO`: cobranca/inbox de arquivo, sincronizacao do historico publico e resumo em `MEMBERS_ATUAIS`.
+- no wrapper horario, mesmo quando a fase executada for `BASE` ou `CONVITES`, o modulo faz um pass final de sincronizacao de historico publico e resumo de apresentacoes em `MEMBERS_ATUAIS`, para nao depender exclusivamente da rodada `POS_EVENTO`.
 
 ## Integracao com Atividades_Apresentacoes
 
@@ -518,7 +534,8 @@ Pós-apresentação:
   - `STATUS_ENVIO_ARQUIVO`
 - o inbox procura respostas com o assunto `GEAPA | Envio do arquivo da apresentação em PDF`;
 - apenas anexos em PDF sao aceitos;
-- o trigger automatico do `POS_EVENTO` usa a central de mensagens como caminho principal e nao cai mais no fallback direto de Gmail quando nao houver evento pendente, para preservar a cota diaria do Gmail;
+- o trigger automatico do `POS_EVENTO` agora faz primeiro uma ingestao dirigida e economica da inbox pela central de mensagens, filtrando por assunto e anexo apenas quando houver apresentacoes pendentes de arquivo;
+- depois dessa ingestao, ele usa a central como caminho principal e nao cai no fallback direto de Gmail quando nao houver evento pendente, para preservar a cota diaria do Gmail;
 - a funcao publica manual `atividades_processarInboxArquivoApresentacoes()` continua permitindo o fallback direto no Gmail para depuracao e recuperacao operacional;
 - quando o PDF e recebido corretamente, o modulo grava:
   - `STATUS_ENVIO_ARQUIVO = RECEBIDO`
@@ -567,7 +584,9 @@ Agora o modulo alterna automaticamente entre tres fases:
 
 Cada execucao avanca para a fase seguinte. Isso reduz risco de timeout, limite de chamadas e o erro de "funcao executada muitas vezes em curto espaco de tempo".
 
-No `POS_EVENTO`, a etapa de inbox de arquivo roda em modo `central_only` quando chamada pelo trigger automatico. O fallback direto ao Gmail fica reservado para execucao manual, evitando estourar a cota diaria do servico `gmail`.
+No `POS_EVENTO`, a etapa de inbox de arquivo roda em modo `central_only` quando chamada pelo trigger automatico, mas antes faz uma ingestao dirigida da inbox pela central com busca estreita por assunto e anexo. O fallback direto ao Gmail fica reservado para execucao manual, evitando estourar a cota diaria do servico `gmail`.
+
+No trigger horario, o wrapper tambem garante ao final da execucao uma sincronizacao de historico publico e de resumo em `MEMBERS_ATUAIS` quando a fase rodada nao for `POS_EVENTO`. Assim, o historico nao fica aguardando necessariamente a proxima volta completa do ciclo.
 
 Para teste manual, voce pode rodar cada fase isoladamente:
 

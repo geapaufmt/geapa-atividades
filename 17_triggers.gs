@@ -29,7 +29,20 @@ function onEditAtividades(e) {
 }
 
 function atividades_jobApresentacoesWrapper_() {
-  return atividades_jobApresentacoes_();
+  var job = atividades_jobApresentacoes_();
+  if (job && job.phaseExecuted === 'POS_EVENTO') {
+    return job;
+  }
+
+  var historicoPublico = atividades_sincronizarHistoricoPublicoApresentacoes_();
+  var resumoMembers = atividades_sincronizarResumoApresentacoesEmMembersAtuais_();
+
+  job = job || { ok: true };
+  job.postRunSync = {
+    historicoPublico: historicoPublico,
+    resumoMembers: resumoMembers
+  };
+  return job;
 }
 
 function atividades_removerTriggers_() {

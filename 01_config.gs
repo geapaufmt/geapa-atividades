@@ -294,6 +294,23 @@ var ATIVIDADES_CFG = Object.freeze({
   }),
 
   PRESENCAS: Object.freeze({
+    OCCUPATION_LEGACY_HEADER: 'CARGO_FUNCAO_ATUAL',
+    OCCUPATION_COMPAT_HEADERS: Object.freeze([
+      'Ocupação atual',
+      'Ocupacao atual',
+      'Ocupação',
+      'Ocupacao',
+      'OCUPACAO_ATUAL',
+      'OCUPACAO',
+      'Cargo/Função atual',
+      'Cargo/Funcao atual',
+      'Cargo/funcao atual',
+      'Cargo/Funçao atual',
+      'Cargo/Função',
+      'Cargo/Funcao',
+      'Cargo/funcao',
+      'CARGO_FUNCAO_ATUAL'
+    ]),
     BASE_HEADERS: Object.freeze([
       'RGA',
       'NOME_MEMBRO',
@@ -381,6 +398,9 @@ var ATIVIDADES_CFG = Object.freeze({
   APRESENTACOES_POS_EVENTO: Object.freeze({
     STATUS_COBRAR_ARQUIVO: 'REALIZADA',
     ARQUIVO_INBOX_SUBJECT: 'GEAPA | Envio do arquivo da apresentação em PDF',
+    INBOX_INGEST_DAYS: 15,
+    INBOX_INGEST_MAX_THREADS: 12,
+    INBOX_INGEST_MAX_MESSAGES_PER_THREAD: 6,
     JANELA_COBRANCA_HORAS: 72,
     PRIMEIRA_COBRANCA_HORA: 22,
     PRIMEIRA_COBRANCA_MINUTO: 0,

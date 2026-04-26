@@ -2,6 +2,21 @@ function atividades_pickFirstFieldValue_(record, aliases) {
   return atividades_pickRecordField_(record, aliases);
 }
 
+function atividades_getOccupationCompatHeaders_() {
+  return (ATIVIDADES_CFG.PRESENCAS && ATIVIDADES_CFG.PRESENCAS.OCCUPATION_COMPAT_HEADERS) || [];
+}
+
+function atividades_getOccupationValue_(record) {
+  return String(atividades_pickFirstFieldValue_(record, atividades_getOccupationCompatHeaders_()) || '').trim();
+}
+
+function atividades_isOccupationHeader_(header) {
+  var normalized = atividades_normalizeTextUpper_(header);
+  return atividades_getOccupationCompatHeaders_().some(function(candidate) {
+    return atividades_normalizeTextUpper_(candidate) === normalized;
+  });
+}
+
 function atividades_getLifecycleEventRecords_() {
   try {
     return GEAPA_CORE.coreReadRecordsByKey(ATIVIDADES_CFG.STABLE_KEYS.MEMBER_LIFECYCLE_EVENTS, {
@@ -175,7 +190,7 @@ function atividades_getMembersSnapshot_() {
       nome: String(atividades_pickFirstFieldValue_(record, ['Membro', 'MEMBRO', 'NOME_MEMBRO', 'Nome']) || '').trim(),
       email: String(atividades_pickFirstFieldValue_(record, ['Email', 'E-mail', 'EMAIL']) || '').trim(),
       status: String(atividades_pickFirstFieldValue_(record, ['Status', 'STATUS_CADASTRAL']) || '').trim(),
-      cargo: String(atividades_pickFirstFieldValue_(record, ['Cargo/FunÃ§Ã£o atual', 'Cargo/FunÃ§ao atual', 'Cargo/Funcao atual', 'Cargo/funcao atual', 'CARGO_FUNCAO_ATUAL']) || '').trim(),
+      ocupacao: atividades_getOccupationValue_(record),
       entryDate: atividades_parseDateOrNull_(atividades_pickFirstFieldValue_(record, [
         'DATA_INTEGRACAO',
         'Data integração',
@@ -394,7 +409,7 @@ function atividades_resolvePeriodMemberState_(ctx, currentMember, existing, life
       rga: currentMember.rga,
       nome: currentMember.nome,
       email: currentMember.email,
-      cargo: currentMember.cargo || String(existing.CARGO_FUNCAO_ATUAL || '').trim(),
+      ocupacao: currentMember.ocupacao || atividades_getOccupationValue_(existing),
       statusCadastral: currentStatusCadastral,
       statusNoPeriodo: statusNoPeriodo,
       entryDate: entryDate,
@@ -420,7 +435,7 @@ function atividades_resolvePeriodMemberState_(ctx, currentMember, existing, life
     rga: String(existing.RGA || '').trim(),
     nome: String(existing.NOME_MEMBRO || '').trim(),
     email: String(existing.EMAIL || '').trim(),
-    cargo: String(existing.CARGO_FUNCAO_ATUAL || '').trim(),
+    ocupacao: atividades_getOccupationValue_(existing),
     statusCadastral: fallbackStatusCadastral,
     statusNoPeriodo: lifecycleWindow.statusNoPeriodo || (
       normalizedFallback.indexOf('SUSPENS') >= 0 ? 'SUSPENSO_NO_PERIODO' : 'DESLIGADO_NO_PERIODO'
@@ -467,7 +482,7 @@ function atividades_buildPresenceRow_(state, headers, dynamicHeaders, activityDa
     if (header === 'PREVISAO_APRESENTACAO_NO_PERIODO') {
       return String(state.existing.PREVISAO_APRESENTACAO_NO_PERIODO || '').trim();
     }
-    if (header === 'CARGO_FUNCAO_ATUAL') return state.cargo;
+    if (atividades_isOccupationHeader_(header)) return state.ocupacao;
     if (dynamicHeaders.indexOf(header) >= 0) return atividades_resolvePresenceCellValue_(state, header, activityDatesByHeader, ctx);
     if (ATIVIDADES_CFG.PRESENCAS.DISCIPLINARY_HEADERS.indexOf(header) >= 0) return state.existing[header] || '';
     if (header === 'OBSERVACOES') return String(state.existing.OBSERVACOES || '').trim();

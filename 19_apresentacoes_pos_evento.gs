@@ -428,11 +428,12 @@ function atividades_buildAttachmentContextFromCore_(attachmentRecord) {
 }
 
 function atividades_listarEventosPendentesArquivoApresentacoes_() {
-  var attachments = GEAPA_CORE.coreMailListPendingAttachments({
-    moduleName: ATIVIDADES_CFG.MODULE_CODE,
-    flowStep: 'ARQ_PDF',
-    limit: 200
-  }) || [];
+  var attachments = (GEAPA_CORE.coreMailListPendingAttachments({
+    limit: 300
+  }) || []).filter(function(record) {
+    if (!record) return false;
+    return !!atividades_parseArquivoCorrelationKey_(record.correlationKey || '');
+  });
 
   var grouped = Object.create(null);
   attachments.forEach(function(record) {
@@ -533,6 +534,65 @@ function atividades_buscarThreadsArquivoApresentacoes_() {
     0,
     100
   ) || [];
+}
+
+function atividades_listApresentacoesPendentesArquivo_() {
+  return atividades_listApresentacaoRowsWithNumbers_().filter(function(item) {
+    var record = item.record || {};
+    if (atividades_arquivoJaRecebidoApresentacao_(record)) return false;
+    if (!atividades_parseDateOrNull_(record.DATA_SOLICITACAO_ARQUIVO)) return false;
+    if (!atividades_isStatusApresentacao_(record.STATUS_APRESENTACAO, ATIVIDADES_CFG.APRESENTACOES_POS_EVENTO.STATUS_COBRAR_ARQUIVO)) return false;
+    return true;
+  });
+}
+
+function atividades_hasApresentacoesPendentesArquivo_() {
+  return atividades_listApresentacoesPendentesArquivo_().length > 0;
+}
+
+function atividades_isMailHubInboxIngestLockError_(err) {
+  var message = err && err.message ? err.message : String(err || '');
+  return message.indexOf('CORE_MAIL_HUB_INGEST_INBOX') >= 0 &&
+    (message.indexOf('Lock não obtido') >= 0 || message.indexOf('Lock nao obtido') >= 0);
+}
+
+function atividades_ingestirInboxArquivoApresentacoes_(opts) {
+  opts = opts || {};
+  if (!atividades_hasApresentacoesPendentesArquivo_()) {
+    return {
+      ok: true,
+      skipped: true,
+      reason: 'sem_apresentacoes_pendentes'
+    };
+  }
+
+  var days = Number(ATIVIDADES_CFG.APRESENTACOES_POS_EVENTO.INBOX_INGEST_DAYS || 15);
+  var query = [
+    'newer_than:' + days + 'd',
+    '-in:trash',
+    '-in:spam',
+    'has:attachment',
+    'subject:"' + ATIVIDADES_CFG.APRESENTACOES_POS_EVENTO.ARQUIVO_INBOX_SUBJECT + '"'
+  ].join(' ');
+
+  try {
+    return GEAPA_CORE.coreMailIngestInbox({
+      query: query,
+      start: 0,
+      maxThreads: Number(ATIVIDADES_CFG.APRESENTACOES_POS_EVENTO.INBOX_INGEST_MAX_THREADS || 12),
+      maxMessagesPerThread: Number(ATIVIDADES_CFG.APRESENTACOES_POS_EVENTO.INBOX_INGEST_MAX_MESSAGES_PER_THREAD || 6)
+    });
+  } catch (err) {
+    if (atividades_isMailHubInboxIngestLockError_(err)) {
+      return {
+        ok: false,
+        skipped: true,
+        reason: 'ingest_locked',
+        message: err && err.message ? err.message : String(err)
+      };
+    }
+    throw err;
+  }
 }
 
 function atividades_encontrarLinhaPendenteArquivoPorEmail_(senderEmail) {
@@ -1341,10 +1401,21 @@ function atividades_processarThreadArquivoApresentacoes_(thread) {
 function atividades_processarInboxArquivoApresentacoes_(opts) {
   opts = opts || {};
   var allowGmailFallback = opts.allowGmailFallback === true;
+  var ingestBeforeRead = opts.ingestBeforeRead !== false;
   var processed = [];
   var skipped = 0;
   var errors = [];
   var modeUsed = 'central';
+  var ingestResult = null;
+
+  if (ingestBeforeRead) {
+    try {
+      ingestResult = atividades_ingestirInboxArquivoApresentacoes_(opts);
+    } catch (err) {
+      errors.push('central_ingest_failed: ' + (err && err.message ? err.message : String(err)));
+      ingestResult = null;
+    }
+  }
 
   var eventosPendentes = [];
   try {
@@ -1423,6 +1494,7 @@ function atividades_processarInboxArquivoApresentacoes_(opts) {
 
   return {
     ok: errors.length === 0,
+    ingestResult: ingestResult,
     modeUsed: modeUsed,
     processedCount: processed.length,
     skippedCount: skipped,
