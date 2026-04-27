@@ -329,6 +329,26 @@ function atividades_buildPeriodActivitiesDateMap_(periodRows) {
   return out;
 }
 
+function atividades_buildPeriodActivityMetaByHeader_(periodRows) {
+  var activitiesById = typeof atividades_buildActivityIndexById_ === 'function'
+    ? atividades_buildActivityIndexById_()
+    : {};
+  var out = {};
+
+  (periodRows || []).forEach(function(row) {
+    var header = String(row.COLUNA_PRESENCA || '').trim();
+    var activityId = String(row.ID_ATIVIDADE || '').trim();
+    if (!header) return;
+    out[header] = {
+      activityId: activityId,
+      periodRow: row,
+      activityRecord: activitiesById[activityId] ? activitiesById[activityId].record : null
+    };
+  });
+
+  return out;
+}
+
 function atividades_buildMembersMapByRga_(members) {
   var out = {};
   (members || []).forEach(function(member) {
@@ -454,10 +474,19 @@ function atividades_formatDateForPresenceCell_(dateValue) {
     : '';
 }
 
-function atividades_resolvePresenceCellValue_(state, header, activityDatesByHeader, ctx) {
+function atividades_resolvePresenceCellValue_(state, header, activityDatesByHeader, ctx, activityMetaByHeader) {
   var existingValue = String(state.existing[header] || '').trim();
   var activityDate = activityDatesByHeader[header];
+  var activityMeta = activityMetaByHeader && activityMetaByHeader[header] ? activityMetaByHeader[header] : null;
   if (!activityDate) return existingValue;
+
+  if (
+    activityMeta &&
+    atividades_isDiretoriaAdministrativeActivity_(activityMeta.activityRecord || activityMeta.periodRow || {}) &&
+    !atividades_isDirectorMemberLike_(state)
+  ) {
+    return 'N/A';
+  }
 
   var effectiveStart = state.entryDate || ctx.startDate || null;
   if (effectiveStart && activityDate < effectiveStart) return 'N/A';
@@ -468,7 +497,7 @@ function atividades_resolvePresenceCellValue_(state, header, activityDatesByHead
   return existingValue;
 }
 
-function atividades_buildPresenceRow_(state, headers, dynamicHeaders, activityDatesByHeader, ctx) {
+function atividades_buildPresenceRow_(state, headers, dynamicHeaders, activityDatesByHeader, ctx, activityMetaByHeader) {
   return headers.map(function(header) {
     if (header === 'RGA') return state.rga;
     if (header === 'NOME_MEMBRO') return state.nome;
@@ -483,7 +512,7 @@ function atividades_buildPresenceRow_(state, headers, dynamicHeaders, activityDa
       return String(state.existing.PREVISAO_APRESENTACAO_NO_PERIODO || '').trim();
     }
     if (atividades_isOccupationHeader_(header)) return state.ocupacao;
-    if (dynamicHeaders.indexOf(header) >= 0) return atividades_resolvePresenceCellValue_(state, header, activityDatesByHeader, ctx);
+    if (dynamicHeaders.indexOf(header) >= 0) return atividades_resolvePresenceCellValue_(state, header, activityDatesByHeader, ctx, activityMetaByHeader);
     if (ATIVIDADES_CFG.PRESENCAS.DISCIPLINARY_HEADERS.indexOf(header) >= 0) return state.existing[header] || '';
     if (header === 'OBSERVACOES') return String(state.existing.OBSERVACOES || '').trim();
     return '';
@@ -1000,6 +1029,7 @@ function atividades_sincronizarPresencasPeriodoVigente_() {
   var periodRows = atividades_getCurrentPeriodActivitiesMap_();
   var existingSnapshot = atividades_readExistingPresenceSnapshot_(sheet);
   var activityDatesByHeader = atividades_buildPeriodActivitiesDateMap_(periodRows);
+  var activityMetaByHeader = atividades_buildPeriodActivityMetaByHeader_(periodRows);
   var lifecycleEventsByRga = atividades_buildLifecycleEventsByRga_();
   var roster = atividades_buildPresenceRosterOrder_(members, existingSnapshot);
   var currentMembersMap = atividades_buildMembersMapByRga_(members);
@@ -1024,7 +1054,7 @@ function atividades_sincronizarPresencasPeriodoVigente_() {
       item.existing || {},
       lifecycleEventsByRga[item.rga] || []
     );
-    return atividades_buildPresenceRow_(state, headers, dynamicHeaders, activityDatesByHeader, ctx);
+    return atividades_buildPresenceRow_(state, headers, dynamicHeaders, activityDatesByHeader, ctx, activityMetaByHeader);
   });
 
   atividades_writeTabularPayload_(sheet, headers, rows);

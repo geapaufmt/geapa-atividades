@@ -74,6 +74,26 @@ function atividades_jobApresentacoesPosEvento() {
   return atividades_jobApresentacoes_({ phase: 'POS_EVENTO' });
 }
 
+function atividades_jobAtividadesGerais() {
+  return atividades_jobAtividadesGerais_();
+}
+
+function atividades_enviarConvocacoesAtividadesGerais() {
+  return atividades_enviarConvocacoesAtividadesGerais_();
+}
+
+function atividades_enviarLembretesAtividadesGerais() {
+  return atividades_enviarLembretesAtividadesGerais_();
+}
+
+function atividades_marcarAtividadesGeraisRealizadas() {
+  return atividades_marcarAtividadesGeraisRealizadas_();
+}
+
+function atividades_notificarPendenciasAtaMaterialAtividadesGerais() {
+  return atividades_notificarPendenciasAtaMaterialAtividadesGerais_();
+}
+
 function atividades_enviarCobrancasTituloEixoApresentacoes() {
   return atividades_enviarCobrancasTituloEixoApresentacoes_();
 }

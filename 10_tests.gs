@@ -218,6 +218,36 @@ function test_atividades_job_apresentacoes_pos_evento() {
   return result;
 }
 
+function test_atividades_job_atividades_gerais() {
+  var result = atividades_jobAtividadesGerais();
+  Logger.log(JSON.stringify(result, null, 2));
+  return result;
+}
+
+function test_atividades_enviar_convocacoes_atividades_gerais() {
+  var result = atividades_enviarConvocacoesAtividadesGerais();
+  Logger.log(JSON.stringify(result, null, 2));
+  return result;
+}
+
+function test_atividades_enviar_lembretes_atividades_gerais() {
+  var result = atividades_enviarLembretesAtividadesGerais();
+  Logger.log(JSON.stringify(result, null, 2));
+  return result;
+}
+
+function test_atividades_marcar_atividades_gerais_realizadas() {
+  var result = atividades_marcarAtividadesGeraisRealizadas();
+  Logger.log(JSON.stringify(result, null, 2));
+  return result;
+}
+
+function test_atividades_notificar_pendencias_ata_material_atividades_gerais() {
+  var result = atividades_notificarPendenciasAtaMaterialAtividadesGerais();
+  Logger.log(JSON.stringify(result, null, 2));
+  return result;
+}
+
 function test_atividades_sincronizar_resumo_apresentacoes_em_members_atuais() {
   var result = atividades_sincronizarResumoApresentacoesEmMembersAtuais();
   Logger.log(JSON.stringify(result, null, 2));

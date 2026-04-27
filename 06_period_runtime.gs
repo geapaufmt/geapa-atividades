@@ -549,7 +549,7 @@ function atividades_sincronizarPeriodoVigente_() {
       String(record.TIPO_ATIVIDADE || '').trim(),
       String(record.SUBTIPO_ATIVIDADE || '').trim(),
       String(record.CONTA_PRESENCA || '').trim(),
-      String(record.CONTA_FALTA || '').trim(),
+      atividades_getEffectiveContaFaltaForActivity_(record),
       record.CARGA_HORARIA || atividades_calculateCargaHorariaFromTimes_(record.HORARIO_INICIO, record.HORARIO_FIM) || '',
       String(record.OBSERVACOES || '').trim()
     ];

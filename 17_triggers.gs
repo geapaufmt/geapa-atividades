@@ -45,6 +45,10 @@ function atividades_jobApresentacoesWrapper_() {
   return job;
 }
 
+function atividades_jobAtividadesGeraisWrapper_() {
+  return atividades_jobAtividadesGerais_();
+}
+
 function atividades_removerTriggers_() {
   var deleted = [];
   ScriptApp.getProjectTriggers().forEach(function(trigger) {
@@ -52,7 +56,8 @@ function atividades_removerTriggers_() {
     if (
       handler === 'onEditAtividades' ||
       handler === 'atividades_jobPlanejamentoNormativo_' ||
-      handler === 'atividades_jobApresentacoesWrapper_'
+      handler === 'atividades_jobApresentacoesWrapper_' ||
+      handler === 'atividades_jobAtividadesGeraisWrapper_'
     ) {
       ScriptApp.deleteTrigger(trigger);
       deleted.push(handler);
@@ -88,6 +93,12 @@ function atividades_instalarTriggers_() {
     .everyHours(1)
     .create();
   created.push('atividades_jobApresentacoesWrapper_');
+
+  ScriptApp.newTrigger('atividades_jobAtividadesGeraisWrapper_')
+    .timeBased()
+    .everyHours(1)
+    .create();
+  created.push('atividades_jobAtividadesGeraisWrapper_');
 
   return {
     ok: true,

@@ -196,6 +196,11 @@ Se nenhuma ancora de historico existir no `Registry`, essa e a unica adicao real
 - `atividades_gerarEventosDesligamentoPorFaltasPeriodoVigente()`
 - `atividades_instalarTriggers()`
 - `atividades_removerTriggers()`
+- `atividades_jobAtividadesGerais()`
+- `atividades_enviarConvocacoesAtividadesGerais()`
+- `atividades_enviarLembretesAtividadesGerais()`
+- `atividades_marcarAtividadesGeraisRealizadas()`
+- `atividades_notificarPendenciasAtaMaterialAtividadesGerais()`
 - `atividades_jobApresentacoes()`
 - `atividades_jobApresentacoesBase()`
 - `atividades_jobApresentacoesConvites()`
@@ -432,6 +437,7 @@ Esse instalador cria:
 - trigger instalavel de edicao para `onEditAtividades`;
 - trigger horario para `atividades_jobPlanejamentoNormativo_`, que atualiza a data-limite, tenta congelar o snapshot quando a hora chegar e recalcula o bloco disciplinar;
 - no mesmo job normativo, apos o recalculo disciplinar, o modulo tenta enfileirar automaticamente os avisos de `ALERTA_60` e `ALERTA_80` quando houver transicao real de faixa;
+- trigger horario para `atividades_jobAtividadesGeraisWrapper_`, responsavel pela V1 do fluxo geral da aba `Atividades` para tudo o que nao seja `SUBTIPO_ATIVIDADE = APRESENTACAO_MEMBRO`;
 - trigger horario para `atividades_jobApresentacoes_`, que agora roda em fases ciclicas para reduzir carga e limite de execucoes do Apps Script:
   - `BASE`: garante `ID_ATIVIDADE`, faz upsert de `APRESENTACAO_MEMBRO`, reflete `STATUS_APRESENTACAO` e, quando esse reflexo altera `Atividades.STATUS`, ressincroniza automaticamente `Atividades_Periodo_<PERIODO>` e `Presencas_<PERIODO>` antes de seguir para agendamento, cobranca e inbox de titulo/eixo e aviso a secretaria;
   - `CONVITES`: upsert de professores e externos, convites e lembretes aos membros;
@@ -598,6 +604,42 @@ Para depuracao mais objetiva de historico e membros, estas funcoes continuam dis
 
 - `atividades_sincronizarHistoricoPublicoApresentacoes()`
 - `atividades_sincronizarResumoApresentacoesEmMembersAtuais()`
+
+## Motor de atividades gerais
+
+O modulo agora separa explicitamente dois fluxos:
+
+- fluxo geral de atividades:
+  - trabalha diretamente na aba `Atividades`;
+  - trata convocacoes, lembretes, auto-realizacao e pendencias administrativas;
+  - ignora qualquer linha com `SUBTIPO_ATIVIDADE = APRESENTACAO_MEMBRO`.
+- fluxo especializado de apresentacoes:
+  - continua baseado em `Atividades_Apresentacoes`;
+  - mantem a semantica propria de apresentacoes, titulo/eixo, convites, PDF, fotos e historico publico.
+
+Funcoes publicas do fluxo geral:
+
+- `atividades_jobAtividadesGerais()`
+- `atividades_enviarConvocacoesAtividadesGerais()`
+- `atividades_enviarLembretesAtividadesGerais()`
+- `atividades_marcarAtividadesGeraisRealizadas()`
+- `atividades_notificarPendenciasAtaMaterialAtividadesGerais()`
+
+Regras de status e idempotencia da V1:
+
+- `STATUS = PLANEJADA` nao dispara e-mails;
+- `STATUS = CONFIRMADA` libera convocacao, lembrete e a presenca operacional;
+- `STATUS = REALIZADA` pode ser marcado automaticamente quando houver evidencia real em `Presencas_<PERIODO>`;
+- `STATUS = CANCELADA` e `STATUS = ARQUIVADA` sao sempre ignorados;
+- convocacoes e lembretes usam `correlationKey` estavel e carimbo nas colunas `DATA_CONVOCACAO` e `DATA_LEMBRETE`;
+- pendencias de ata e material usam `correlationKey` estavel e log em `Atividades_Log` para evitar duplicidade.
+
+Reunioes de diretoria na V1:
+
+- atividades com `CLASSIFICACAO_REUNIAO = DIRETORIA` e `CLASSIFICACAO_ACESSO = RESTRITA_DIRETORIA` podem registrar presenca;
+- para essas atividades, o modulo trata `CONTA_FALTA` de forma efetiva como `NAO`, mantendo o fluxo fora do motor disciplinar geral;
+- membros que nao sao diretores recebem `N/A` nessa coluna em `Presencas_<PERIODO>`;
+- diretores podem receber `P`, `R`, `F`, `J` ou `A`, mas esses valores ficam restritos ao historico administrativo nesta V1.
 
 ## Fluxo de virada de periodo
 

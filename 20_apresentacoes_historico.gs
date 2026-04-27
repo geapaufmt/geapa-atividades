@@ -208,6 +208,7 @@ function atividades_setHistoricoPublicoLinkCell_(sheet, rowNumber, ctx, hist) {
   if (/^https?:\/\//i.test(url)) {
     var textStyle = SpreadsheetApp.newTextStyle()
       .setForegroundColor('#1155cc')
+      .setBold(true)
       .setUnderline(true)
       .build();
     range.setRichTextValue(
@@ -221,6 +222,32 @@ function atividades_setHistoricoPublicoLinkCell_(sheet, rowNumber, ctx, hist) {
   }
 
   range.setValue(url);
+}
+
+function atividades_applyHistoricoPublicoRowStyles_(sheet, rowNumber, ctx) {
+  var lastCol = Math.max(sheet.getLastColumn(), 1);
+  sheet.getRange(rowNumber, 1, 1, lastCol)
+    .setHorizontalAlignment('center')
+    .setVerticalAlignment('middle');
+
+  var titleCol = GEAPA_CORE.coreGetCol(ctx.headerMap, ctx.resolvedHeaders.TITULO);
+  if (titleCol) {
+    sheet.getRange(rowNumber, titleCol).setFontWeight('normal');
+  }
+
+  var eixoCol = GEAPA_CORE.coreGetCol(ctx.headerMap, ctx.resolvedHeaders.EIXO_TEMATICO);
+  if (eixoCol) {
+    sheet.getRange(rowNumber, eixoCol).setFontWeight('bold');
+  }
+
+  var linkCol = GEAPA_CORE.coreGetCol(ctx.headerMap, ctx.resolvedHeaders.LINK);
+  if (linkCol) {
+    sheet.getRange(rowNumber, linkCol)
+      .setBackground('#fff2cc')
+      .setFontWeight('bold')
+      .setHorizontalAlignment('center')
+      .setVerticalAlignment('middle');
+  }
 }
 
 function atividades_enriquecerHistoricoPublicoExistente_(ctx) {
@@ -409,6 +436,7 @@ function atividades_writeHistoricoPublicoRow_(sheet, rowNumber, ctx, hist) {
   GEAPA_CORE.coreWriteCellByHeader(sheet, rowNumber, ctx.headerMap, ctx.resolvedHeaders.SEMESTRE, hist.semestre, { oneBased: true });
   GEAPA_CORE.coreWriteCellByHeader(sheet, rowNumber, ctx.headerMap, ctx.resolvedHeaders.PERIODO_APRESENTACAO, hist.periodoApresentacao, { oneBased: true });
   atividades_setHistoricoPublicoLinkCell_(sheet, rowNumber, ctx, hist);
+  atividades_applyHistoricoPublicoRowStyles_(sheet, rowNumber, ctx);
 }
 
 function atividades_appendHistoricoPublicoRow_(ctx, hist) {
@@ -693,10 +721,27 @@ function atividades_aplicarUxHistoricoPublicoApresentacoes_() {
     sheet.getRange(2, dataCol, lastRow - 1, 1).setNumberFormat(ATIVIDADES_CFG.DATE_FORMAT);
   }
 
+  var titleCol = GEAPA_CORE.coreGetCol(headerMap, ctx.resolvedHeaders.TITULO);
+  if (titleCol && lastRow > 1) {
+    sheet.getRange(2, titleCol, lastRow - 1, 1).setFontWeight('normal');
+  }
+
+  var eixoCol = GEAPA_CORE.coreGetCol(headerMap, ctx.resolvedHeaders.EIXO_TEMATICO);
+  if (eixoCol && lastRow > 1) {
+    sheet.getRange(2, eixoCol, lastRow - 1, 1).setFontWeight('bold');
+  }
+
   var fileHeader = ctx.resolvedHeaders.LINK;
   var fileCol = GEAPA_CORE.coreGetCol(headerMap, fileHeader);
   if (fileCol) {
     sheet.setColumnWidth(fileCol, 240);
+    if (lastRow > 1) {
+      sheet.getRange(2, fileCol, lastRow - 1, 1)
+        .setBackground('#fff2cc')
+        .setFontWeight('bold')
+        .setHorizontalAlignment('center')
+        .setVerticalAlignment('middle');
+    }
   }
 
   return {
@@ -795,7 +840,7 @@ function atividades_sincronizarHistoricoPublicoApresentacoes_(opts) {
           key: key
         });
       } else {
-        if (atividades_isSimNao_(item.record.SYNC_HISTORICO_PUBLICO, 'SIM')) {
+        if (atividades_isTruthySim_(item.record.SYNC_HISTORICO_PUBLICO)) {
           skipped++;
           skippedReasons.sync_ja_marcado_sem_match = (skippedReasons.sync_ja_marcado_sem_match || 0) + 1;
           return;
