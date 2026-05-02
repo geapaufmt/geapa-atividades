@@ -126,6 +126,8 @@ function atividades_onEditApresentacoes_(e) {
 
   if (statusCol && e.range.getColumn() === statusCol) {
     var statusAtual = atividades_normalizeTextUpper_(String(e.range.getDisplayValue() || '').trim());
+    var statusSync = atividades_refletirStatusApresentacoesEmAtividades_();
+    atividades_ressincronizarPeriodoEPresencasAposReflexoStatusApresentacoes_(statusSync);
     if (statusAtual === 'CONFIRMADA') {
       atividades_enfileirarAvisoSecretariaApresentacaoLinha_(e.range.getRow());
       return;
@@ -180,4 +182,16 @@ function atividades_onEditPresencas_(e) {
     rowNumbers: [e.range.getRow()],
     logTransitions: true
   });
+
+  if (!isDynamicCol) return;
+
+  var autoRealizadas = atividades_tryAutoMarkApresentacoesRealizadas_({
+    ctx: ctx,
+    presenceSheet: sheet,
+    presenceHeaderMap: headerMap
+  });
+  if (!autoRealizadas || !Number(autoRealizadas.updatedCount || 0)) return;
+
+  var statusSync = atividades_refletirStatusApresentacoesEmAtividades_();
+  atividades_ressincronizarPeriodoEPresencasAposReflexoStatusApresentacoes_(statusSync);
 }

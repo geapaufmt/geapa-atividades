@@ -226,6 +226,47 @@ Se nenhuma ancora de historico existir no `Registry`, essa e a unica adicao real
 - `atividades_recalcularAbonosPeriodoVigente()`
 - `atividades_notificarFaltasPendentes()`
 
+## Controle operacional e observabilidade via GEAPA-CORE
+
+Antes de executar seus entrypoints publicos e wrappers de trigger, o modulo consulta `MODULOS_CONFIG` e registra observabilidade em `MODULOS_STATUS`, ambas as camadas expostas pelo `GEAPA-CORE`.
+
+A consulta usa sempre `MODULO = ATIVIDADES` e o `FLUXO` operacional correspondente. A resolucao do fallback fica no CORE: primeiro `ATIVIDADES + FLUXO` e, se nao houver linha aplicavel para o ambiente atual, `ATIVIDADES + GERAL`.
+
+Fluxos integrados nesta fase:
+
+- `GERAL`: diagnostico, validacao, `onEditAtividades` e administracao de triggers.
+- `SETUP_V1`: setup, seed/config padrao e UX de planilhas/base.
+- `PERIODO_VIGENTE`: garantia do periodo, sincronizacao de atividades/presencas, IDs e carga operacional do periodo.
+- `JUSTIFICATIVAS_FALTAS`: importacao, aplicacao de decisoes, abonos e avisos de faltas.
+- `MOTOR_DISCIPLINAR`: snapshot normativo, recalculo disciplinar, alertas e eventos de desligamento por faltas.
+- `ATIVIDADES_GERAIS`: job ciclico e rotinas de convocacao, lembrete, realizacao automatica e pendencias.
+- `APRESENTACOES_INTEGRADAS`: job ciclico, inbox, e-mails, convites, arquivos, fotos e historico publico de apresentacoes no modulo ATIVIDADES.
+- `ARQUIVAMENTO_PERIODOS`: arquivamento de abas dinamicas antigas em planilhas historicas.
+
+Capabilities exigidas por fluxo:
+
+- `GERAL`: `SYNC`; para administracao ou execucao por trigger, `TRIGGER`
+- `SETUP_V1`: `SYNC`, `DRIVE`
+- `PERIODO_VIGENTE`: `SYNC`
+- `JUSTIFICATIVAS_FALTAS`: `SYNC`, `EMAIL`
+- `MOTOR_DISCIPLINAR`: `SYNC`, `EMAIL`
+- `ATIVIDADES_GERAIS`: `SYNC`, `EMAIL`
+- `APRESENTACOES_INTEGRADAS`: `EMAIL`, `INBOX`, `SYNC`, `DRIVE`
+- `ARQUIVAMENTO_PERIODOS`: `SYNC`, `DRIVE`
+
+Em execucoes por trigger, o modulo tambem exige `PERMITE_TRIGGER`. Se o CORE bloquear o fluxo, a funcao retorna um resultado limpo com `skipped: true` e `blocked: true`, registra `Logger.log` e tenta registrar o bloqueio em `Atividades_Log` sem interromper por erro de log.
+
+Observabilidade em `MODULOS_STATUS`:
+
+- antes da rotina operacional: `coreModuleStatusMarkExecution(...)`;
+- em sucesso: `coreModuleStatusMarkSuccess(...)`;
+- em erro: `coreModuleStatusMarkError(...)`, preservando o erro original;
+- em bloqueio por `MODULOS_CONFIG`: `coreModuleStatusMarkBlocked(...)`.
+
+As marcacoes usam `MODULO = ATIVIDADES`, o mesmo `FLUXO` checado na configuracao e uma capability representativa do fluxo. Para jobs disparados por trigger, `PERMITE_TRIGGER` tambem e validado, mas a capability registrada prioriza a capacidade operacional do fluxo.
+
+O modulo legado `APRESENTACOES` pode permanecer cadastrado no ecossistema como fallback operacional, mas a rotina principal integrada passa a ser controlada por `ATIVIDADES + APRESENTACOES_INTEGRADAS`.
+
 ## Fluxo V1 de justificativas de faltas
 
 Estruturas usadas:

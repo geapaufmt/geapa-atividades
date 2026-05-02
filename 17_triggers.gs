@@ -1,52 +1,80 @@
 function atividades_jobPlanejamentoNormativo_() {
-  var preview = atividades_atualizarPreviewFechamentoPlanejamentoPeriodoVigente_();
-  var autoFreeze = atividades_tryAutoFreezeSnapshotNormativoPeriodoVigente_();
-  var disciplinar = atividades_recalcularMotorDisciplinarPeriodoVigente_();
-  var alertasDisciplinares = atividades_notificarAlertasDisciplinaresPeriodoVigente_({
-    rowNumbers: (disciplinar.transitions || []).filter(function(item) {
-      var next = String(item && item.to || '').trim();
-      return next === 'ALERTA_60' || next === 'ALERTA_80';
-    }).map(function(item) {
-      return Number(item.rowNumber || 0);
-    })
-  });
+  return atividades_runWithOperationalGuard_('MOTOR_DISCIPLINAR', null, function() {
+    var preview = atividades_atualizarPreviewFechamentoPlanejamentoPeriodoVigente_();
+    var autoFreeze = atividades_tryAutoFreezeSnapshotNormativoPeriodoVigente_();
+    var disciplinar = atividades_recalcularMotorDisciplinarPeriodoVigente_();
+    var alertasDisciplinares = atividades_notificarAlertasDisciplinaresPeriodoVigente_({
+      rowNumbers: (disciplinar.transitions || []).filter(function(item) {
+        var next = String(item && item.to || '').trim();
+        return next === 'ALERTA_60' || next === 'ALERTA_80';
+      }).map(function(item) {
+        return Number(item.rowNumber || 0);
+      })
+    });
 
-  return {
-    ok: true,
-    preview: preview,
-    autoFreeze: autoFreeze,
-    disciplinar: disciplinar,
-    alertasDisciplinares: alertasDisciplinares
-  };
+    return {
+      ok: true,
+      preview: preview,
+      autoFreeze: autoFreeze,
+      disciplinar: disciplinar,
+      alertasDisciplinares: alertasDisciplinares
+    };
+  }, { entrypoint: 'atividades_jobPlanejamentoNormativo_', executionType: 'TRIGGER' });
 }
 
 function onEditAtividades(e) {
-  atividades_onEditConfigInheritance_(e);
-  atividades_onEditPeriodoSync_(e);
-  atividades_onEditApresentacoes_(e);
-  atividades_onEditJustificativas_(e);
-  atividades_onEditPresencas_(e);
+  return atividades_runWithOperationalGuard_('GERAL', null, function() {
+    atividades_onEditConfigInheritance_(e);
+    atividades_onEditPeriodoSync_(e);
+    atividades_onEditApresentacoes_(e);
+    atividades_onEditJustificativas_(e);
+    atividades_onEditPresencas_(e);
+  }, { entrypoint: 'onEditAtividades', executionType: 'TRIGGER' });
 }
 
 function atividades_jobApresentacoesWrapper_() {
-  var job = atividades_jobApresentacoes_();
-  if (job && job.phaseExecuted === 'POS_EVENTO') {
+  return atividades_runWithOperationalGuard_('APRESENTACOES_INTEGRADAS', null, function() {
+    var job = atividades_jobApresentacoes_();
+    if (job && job.phaseExecuted === 'POS_EVENTO') {
+      return job;
+    }
+
+    var autoRealizadasLite = atividades_tryAutoMarkApresentacoesRealizadas_();
+    var statusSyncLite = autoRealizadasLite && Number(autoRealizadasLite.updatedCount || 0)
+      ? atividades_refletirStatusApresentacoesEmAtividades_()
+      : { ok: true, updatedCount: 0, updated: [] };
+    var periodResyncLite = atividades_ressincronizarPeriodoEPresencasAposReflexoStatusApresentacoes_(statusSyncLite);
+    var cobrancasArquivoLite = atividades_enviarCobrancasArquivoApresentacoes_({
+      processOutbox: false
+    });
+    var inboxArquivoLite = atividades_processarInboxArquivoApresentacoes_({
+      processOutbox: false,
+      allowGmailFallback: false
+    });
+    var historicoPublico = atividades_sincronizarHistoricoPublicoApresentacoes_();
+    var resumoMembers = atividades_sincronizarResumoApresentacoesEmMembersAtuais_();
+
+    job = job || { ok: true };
+    job.postRunSync = {
+      autoRealizadasLite: autoRealizadasLite,
+      statusSyncLite: statusSyncLite,
+      periodResyncLite: periodResyncLite,
+      cobrancasArquivoLite: cobrancasArquivoLite,
+      inboxArquivoLite: inboxArquivoLite,
+      historicoPublico: historicoPublico,
+      resumoMembers: resumoMembers,
+      outboxLite: atividades_processOutboxIfNeeded_([
+        cobrancasArquivoLite
+      ])
+    };
     return job;
-  }
-
-  var historicoPublico = atividades_sincronizarHistoricoPublicoApresentacoes_();
-  var resumoMembers = atividades_sincronizarResumoApresentacoesEmMembersAtuais_();
-
-  job = job || { ok: true };
-  job.postRunSync = {
-    historicoPublico: historicoPublico,
-    resumoMembers: resumoMembers
-  };
-  return job;
+  }, { entrypoint: 'atividades_jobApresentacoesWrapper_', executionType: 'TRIGGER' });
 }
 
 function atividades_jobAtividadesGeraisWrapper_() {
-  return atividades_jobAtividadesGerais_();
+  return atividades_runWithOperationalGuard_('ATIVIDADES_GERAIS', null, function() {
+    return atividades_jobAtividadesGerais_();
+  }, { entrypoint: 'atividades_jobAtividadesGeraisWrapper_', executionType: 'TRIGGER' });
 }
 
 function atividades_removerTriggers_() {

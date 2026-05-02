@@ -1,15 +1,26 @@
-function atividades_getDataHoraApresentacaoPosEvento_(record) {
+function atividades_parseHorarioApresentacaoPosEvento_(value) {
+  var raw = String(value || '').trim();
+  if (!raw) return null;
+  var match = raw.match(/^(\d{1,2})(?:\s*[hH:]\s*(\d{1,2}))?$/);
+  if (!match) return null;
+  return {
+    hora: parseInt(match[1], 10),
+    minuto: match[2] !== undefined ? parseInt(match[2], 10) : 0
+  };
+}
+
+function atividades_getDataHoraApresentacaoPosEvento_(record, opts) {
+  opts = opts || {};
   var data = atividades_parseDateOrNull_(record.DATA_ATIVIDADE);
   if (!data) return null;
 
-  var hora = 18;
-  var minuto = 30;
-  var horario = String(record.HORARIO_INICIO || '').trim();
-  var match = horario.match(/^(\d{1,2})(?:\s*[hH:]\s*(\d{1,2}))?$/);
-  if (match) {
-    hora = parseInt(match[1], 10);
-    minuto = match[2] !== undefined ? parseInt(match[2], 10) : 0;
-  }
+  var preferEndTime = opts.preferEndTime === true;
+  var horarioPreferido = preferEndTime ? record.HORARIO_FIM : record.HORARIO_INICIO;
+  var horarioFallback = preferEndTime ? record.HORARIO_INICIO : record.HORARIO_FIM;
+  var parsed = atividades_parseHorarioApresentacaoPosEvento_(horarioPreferido) ||
+    atividades_parseHorarioApresentacaoPosEvento_(horarioFallback);
+  var hora = parsed ? parsed.hora : 18;
+  var minuto = parsed ? parsed.minuto : 30;
 
   return new Date(
     data.getFullYear(),
@@ -24,6 +35,12 @@ function atividades_getDataHoraApresentacaoPosEvento_(record) {
 
 function atividades_getHorarioInicioApresentacaoPosEvento_(record) {
   return atividades_getDataHoraApresentacaoPosEvento_(record);
+}
+
+function atividades_getHorarioFimApresentacaoPosEvento_(record) {
+  return atividades_getDataHoraApresentacaoPosEvento_(record, {
+    preferEndTime: true
+  });
 }
 
 function atividades_buildCurrentPeriodActivityIndexById_(periodRows) {
@@ -50,8 +67,8 @@ function atividades_temEvidenciaExecucaoApresentacao_(record, opts) {
   var activityId = String(record.ID_ATIVIDADE || '').trim();
   if (!activityId) return false;
 
-  var inicio = atividades_getHorarioInicioApresentacaoPosEvento_(record);
-  if (!inicio || new Date().getTime() < inicio.getTime()) return false;
+  var fim = atividades_getHorarioFimApresentacaoPosEvento_(record);
+  if (!fim || new Date().getTime() < fim.getTime()) return false;
 
   var ctx;
   try {
@@ -183,11 +200,11 @@ function atividades_isStatusApresentacaoArquivo_(value, expected) {
   return atividades_normalizeTextUpper_(value) === atividades_normalizeTextUpper_(expected);
 }
 
-function atividades_jaCobrouArquivoHoje_(record) {
-  var hoje = atividades_toStartOfDayApresentacoes_(new Date());
-  var ultima = atividades_toStartOfDayApresentacoes_(record.DATA_COBRANCA_ARQUIVO || record.DATA_SOLICITACAO_ARQUIVO);
-  if (!hoje || !ultima) return false;
-  return hoje.getTime() === ultima.getTime();
+function atividades_passouIntervaloMinimoDesdeCobrancaArquivo_(record) {
+  var ultima = atividades_parseDateOrNull_(record.DATA_COBRANCA_ARQUIVO || record.DATA_SOLICITACAO_ARQUIVO);
+  if (!ultima) return true;
+  var intervaloHoras = Number(ATIVIDADES_CFG.APRESENTACOES_POS_EVENTO.COBRANCA_ARQUIVO_INTERVALO_HORAS || 24);
+  return (new Date().getTime() - ultima.getTime()) >= (intervaloHoras * 60 * 60 * 1000);
 }
 
 function atividades_deveCobrarArquivoHoje_(record) {
@@ -202,7 +219,7 @@ function atividades_deveCobrarArquivoHoje_(record) {
   if (!inicio || !fim) return false;
   if (agora.getTime() < inicio.getTime()) return false;
   if (agora.getTime() > fim.getTime()) return false;
-  if (atividades_jaCobrouArquivoHoje_(record)) return false;
+  if (!atividades_passouIntervaloMinimoDesdeCobrancaArquivo_(record)) return false;
 
   return true;
 }

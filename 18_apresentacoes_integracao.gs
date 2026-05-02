@@ -512,11 +512,11 @@ function atividades_temTituloEixoConfirmadosApresentacao_(record) {
   );
 }
 
-function atividades_jaCobrouTituloEixoHoje_(record) {
-  var hoje = atividades_toStartOfDayApresentacoes_(new Date());
-  var ultima = atividades_toStartOfDayApresentacoes_(record.DATA_COBRANCA_TITULO_EIXO);
-  if (!hoje || !ultima) return false;
-  return hoje.getTime() === ultima.getTime();
+function atividades_passouIntervaloMinimoDesdeTituloEixo_(record) {
+  var ultima = atividades_parseDateOrNull_(record.DATA_COBRANCA_TITULO_EIXO);
+  if (!ultima) return true;
+  var intervaloHoras = Number(ATIVIDADES_CFG.APRESENTACOES_JOB.COBRANCA_TITULO_EIXO_INTERVALO_HORAS || 24);
+  return (new Date().getTime() - ultima.getTime()) >= (intervaloHoras * 60 * 60 * 1000);
 }
 
 function atividades_deveEnviarCobrancaTituloEixo_(record) {
@@ -527,7 +527,7 @@ function atividades_deveEnviarCobrancaTituloEixo_(record) {
   if (diff === null) return false;
   if (diff < ATIVIDADES_CFG.APRESENTACOES_JOB.TITULO_EIXO_DIAS_ANTES_MIN) return false;
   if (diff > ATIVIDADES_CFG.APRESENTACOES_JOB.TITULO_EIXO_DIAS_ANTES_MAX) return false;
-  if (atividades_jaCobrouTituloEixoHoje_(record)) return false;
+  if (!atividades_passouIntervaloMinimoDesdeTituloEixo_(record)) return false;
   return true;
 }
 
@@ -2010,11 +2010,14 @@ function atividades_enviarConvitesProfessoresApresentacoes_(opts) {
   opts = opts || {};
   var convidadosSheet = atividades_getConvidadosSheet_();
   var convidadosHeaderMap = GEAPA_CORE.coreHeaderMap(convidadosSheet, 1);
+  var apresentacoesSheet = atividades_getApresentacoesSheet_();
+  var apresentacoesHeaderMap = GEAPA_CORE.coreHeaderMap(apresentacoesSheet, 1);
   var apresentacoesIndex = atividades_buildApresentacoesIndex_(atividades_listApresentacaoRowsWithNumbers_()).byActivityId;
   var activityFilterSet = atividades_buildActivityFilterSet_(opts.activityIds);
   var queued = [];
   var duplicates = 0;
   var deferred = 0;
+  var byActivityOutcome = {};
 
   GEAPA_CORE.coreReadSheetRecords(convidadosSheet, { headerRow: 1 }).forEach(function(record, index) {
     var rowNumber = index + 2;
@@ -2056,10 +2059,14 @@ function atividades_enviarConvitesProfessoresApresentacoes_(opts) {
 
     if (queueResult && queueResult.duplicate) {
       duplicates++;
+      byActivityOutcome[activityId] = byActivityOutcome[activityId] || { queued: 0, duplicate: 0, deferred: 0 };
+      byActivityOutcome[activityId].duplicate++;
     }
 
     if (queueResult && queueResult.locked) {
       deferred++;
+      byActivityOutcome[activityId] = byActivityOutcome[activityId] || { queued: 0, duplicate: 0, deferred: 0 };
+      byActivityOutcome[activityId].deferred++;
       return;
     }
 
@@ -2071,11 +2078,47 @@ function atividades_enviarConvitesProfessoresApresentacoes_(opts) {
     }
 
     if (queueResult && queueResult.queued) {
+      byActivityOutcome[activityId] = byActivityOutcome[activityId] || { queued: 0, duplicate: 0, deferred: 0 };
+      byActivityOutcome[activityId].queued++;
       queued.push({
         rowNumber: rowNumber,
         correlationKey: correlationKey,
         saidaId: queueResult.saidaId || ''
       });
+    }
+  });
+
+  Object.keys(byActivityOutcome).forEach(function(activityId) {
+    var outcome = byActivityOutcome[activityId] || {};
+    var apresentacaoItem = apresentacoesIndex[activityId];
+    if (!apresentacaoItem) return;
+    if (!(outcome.queued > 0 || (outcome.duplicate > 0 && outcome.deferred === 0))) return;
+
+    GEAPA_CORE.coreWriteCellByHeader(
+      apresentacoesSheet,
+      apresentacaoItem.rowNumber,
+      apresentacoesHeaderMap,
+      'CONVITE_PROFESSORES_ENVIADO',
+      'SIM',
+      { oneBased: true }
+    );
+    GEAPA_CORE.coreWriteCellByHeader(
+      apresentacoesSheet,
+      apresentacaoItem.rowNumber,
+      apresentacoesHeaderMap,
+      'DATA_ENVIO_CONVITE_PROFESSORES',
+      new Date(),
+      { oneBased: true }
+    );
+    if (GEAPA_CORE.coreGetCol(apresentacoesHeaderMap, 'ATUALIZADO_EM')) {
+      GEAPA_CORE.coreWriteCellByHeader(
+        apresentacoesSheet,
+        apresentacaoItem.rowNumber,
+        apresentacoesHeaderMap,
+        'ATUALIZADO_EM',
+        new Date(),
+        { oneBased: true }
+      );
     }
   });
 
