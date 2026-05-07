@@ -92,6 +92,12 @@ function atividades_jobApresentacoes() {
   }, { entrypoint: 'atividades_jobApresentacoes' });
 }
 
+function atividades_jobApresentacoesPreEvento() {
+  return atividades_runWithOperationalGuard_('APRESENTACOES_INTEGRADAS', null, function() {
+    return atividades_jobApresentacoesPreEvento_();
+  }, { entrypoint: 'atividades_jobApresentacoesPreEvento' });
+}
+
 function atividades_jobApresentacoesBase() {
   return atividades_runWithOperationalGuard_('APRESENTACOES_INTEGRADAS', null, function() {
     return atividades_jobApresentacoes_({ phase: 'BASE' });
@@ -106,7 +112,7 @@ function atividades_jobApresentacoesConvites() {
 
 function atividades_jobApresentacoesPosEvento() {
   return atividades_runWithOperationalGuard_('APRESENTACOES_INTEGRADAS', null, function() {
-    return atividades_jobApresentacoes_({ phase: 'POS_EVENTO' });
+    return atividades_jobApresentacoesPosEventoIntegrado_();
   }, { entrypoint: 'atividades_jobApresentacoesPosEvento' });
 }
 

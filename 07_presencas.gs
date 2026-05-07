@@ -219,6 +219,54 @@ function atividades_getCurrentPeriodActivitiesMap_() {
   return GEAPA_CORE.coreReadSheetRecords(periodSheet, { headerRow: 1 });
 }
 
+function atividades_isPresentationRealizedInPeriod_(record, ctx) {
+  if (atividades_normalizeTextUpper_(record && record.STATUS_APRESENTACAO) !== 'REALIZADA') return false;
+
+  var dateValue = atividades_parseDateOrNull_(record && record.DATA_ATIVIDADE);
+  if (dateValue) {
+    return atividades_isDateInsideRange_(dateValue, ctx.startDate, ctx.endDate);
+  }
+
+  var periodTokens = atividades_buildPeriodIdentityTokens_(ctx);
+  return atividades_periodTokenMatches_(record && record.PERIODO_REFERENCIA, periodTokens) ||
+    atividades_periodTokenMatches_(record && record.SEMESTRE_APRESENTACAO, periodTokens);
+}
+
+function atividades_buildPresentationRealizationByRgaForPeriod_(ctx) {
+  var byRga = Object.create(null);
+
+  try {
+    GEAPA_CORE.coreReadSheetRecords(atividades_getApresentacoesSheet_(), { headerRow: 1 })
+      .filter(function(record) {
+        return atividades_isPresentationRealizedInPeriod_(record, ctx);
+      })
+      .forEach(function(record) {
+        var rga = String(record.RGA || '').trim();
+        if (!rga) return;
+
+        var dateValue = atividades_parseDateOrNull_(record.DATA_ATIVIDADE);
+        var current = byRga[rga];
+        if (!current || (dateValue && (!current.date || dateValue > current.date))) {
+          byRga[rga] = {
+            date: dateValue,
+            idApresentacao: String(record.ID_APRESENTACAO || '').trim(),
+            idAtividade: String(record.ID_ATIVIDADE || '').trim()
+          };
+        }
+      });
+  } catch (err) {
+    atividades_logEvento_({
+      TIPO_EVENTO_LOG: 'SYNC_PRESENCAS_PERIODO',
+      STATUS: 'ATENCAO',
+      ACAO_EXECUTADA: 'Calcular apresentacoes realizadas no periodo',
+      RESULTADO: ctx && ctx.code ? ctx.code : '',
+      OBSERVACOES: 'Falha ao ler Atividades_Apresentacoes: ' + (err && err.message ? err.message : String(err))
+    });
+  }
+
+  return byRga;
+}
+
 function atividades_sheetColumnToLetter_(column) {
   var current = Number(column || 0);
   var output = '';
@@ -497,7 +545,24 @@ function atividades_resolvePresenceCellValue_(state, header, activityDatesByHead
   return existingValue;
 }
 
-function atividades_buildPresenceRow_(state, headers, dynamicHeaders, activityDatesByHeader, ctx, activityMetaByHeader) {
+function atividades_isStateOutsideWholePeriod_(state, ctx) {
+  if (!state || !ctx) return false;
+  if (state.entryDate && ctx.endDate && state.entryDate > ctx.endDate) return true;
+  if (state.exitDate && ctx.startDate && state.exitDate < ctx.startDate) return true;
+  return false;
+}
+
+function atividades_getPresentationRealizationStatusForState_(state, presentationByRga, ctx) {
+  if (atividades_isStateOutsideWholePeriod_(state, ctx)) return 'N/A';
+  return presentationByRga && presentationByRga[state.rga] ? 'SIM' : 'NAO';
+}
+
+function atividades_getPresentationRealizationDateForState_(state, presentationByRga) {
+  var info = presentationByRga && presentationByRga[state.rga] ? presentationByRga[state.rga] : null;
+  return info && info.date ? atividades_formatDateForPresenceCell_(info.date) : '';
+}
+
+function atividades_buildPresenceRow_(state, headers, dynamicHeaders, activityDatesByHeader, ctx, activityMetaByHeader, presentationByRga) {
   return headers.map(function(header) {
     if (header === 'RGA') return state.rga;
     if (header === 'NOME_MEMBRO') return state.nome;
@@ -510,6 +575,12 @@ function atividades_buildPresenceRow_(state, headers, dynamicHeaders, activityDa
     if (header === 'OBS_EVENTO_PERIODO') return state.obsEventoPeriodo;
     if (header === 'PREVISAO_APRESENTACAO_NO_PERIODO') {
       return String(state.existing.PREVISAO_APRESENTACAO_NO_PERIODO || '').trim();
+    }
+    if (header === 'APRESENTOU_NO_PERIODO') {
+      return atividades_getPresentationRealizationStatusForState_(state, presentationByRga, ctx);
+    }
+    if (header === 'DATA_APRESENTACAO_NO_PERIODO') {
+      return atividades_getPresentationRealizationDateForState_(state, presentationByRga);
     }
     if (atividades_isOccupationHeader_(header)) return state.ocupacao;
     if (dynamicHeaders.indexOf(header) >= 0) return atividades_resolvePresenceCellValue_(state, header, activityDatesByHeader, ctx, activityMetaByHeader);
@@ -1031,6 +1102,7 @@ function atividades_sincronizarPresencasPeriodoVigente_() {
   var activityDatesByHeader = atividades_buildPeriodActivitiesDateMap_(periodRows);
   var activityMetaByHeader = atividades_buildPeriodActivityMetaByHeader_(periodRows);
   var lifecycleEventsByRga = atividades_buildLifecycleEventsByRga_();
+  var presentationByRga = atividades_buildPresentationRealizationByRgaForPeriod_(ctx);
   var roster = atividades_buildPresenceRosterOrder_(members, existingSnapshot);
   var currentMembersMap = atividades_buildMembersMapByRga_(members);
   var dynamicHeaders = periodRows.map(function(row) {
@@ -1054,7 +1126,7 @@ function atividades_sincronizarPresencasPeriodoVigente_() {
       item.existing || {},
       lifecycleEventsByRga[item.rga] || []
     );
-    return atividades_buildPresenceRow_(state, headers, dynamicHeaders, activityDatesByHeader, ctx, activityMetaByHeader);
+    return atividades_buildPresenceRow_(state, headers, dynamicHeaders, activityDatesByHeader, ctx, activityMetaByHeader, presentationByRga);
   });
 
   atividades_writeTabularPayload_(sheet, headers, rows);
@@ -1096,6 +1168,7 @@ function atividades_sincronizarPresencasPeriodoVigente_() {
       ' | entrantes=' + entrantsCount +
       ' | desligados/suspensos=' + inactiveCount +
       ' | membros_com_eventos=' + Object.keys(lifecycleEventsByRga).length +
+      ' | membros_com_apresentacao_realizada=' + Object.keys(presentationByRga).length +
       ' | colunas dinamicas=' + dynamicHeaders.length +
       ' | snapshot_disciplina=' + disciplinar.snapshotSource +
       ' | transicoes_disciplina=' + disciplinar.transitions.length

@@ -263,6 +263,8 @@ function atividades_upsertApresentacoesMembroFromAtividades_(opts) {
         DATA_NOTIFICACAO_SECRETARIOS: '',
         CONVITE_PROFESSORES_ENVIADO: 'NAO',
         DATA_ENVIO_CONVITE_PROFESSORES: '',
+        CONVITE_EXTERNOS_ENVIADO: 'NAO',
+        DATA_ENVIO_CONVITE_EXTERNOS: '',
         LEMBRETE_MEMBROS_ENVIADO: 'NAO',
         DATA_ENVIO_LEMBRETE_MEMBROS: '',
         DATA_SOLICITACAO_ARQUIVO: '',
@@ -313,6 +315,10 @@ function atividades_upsertApresentacoesMembroFromAtividades_(opts) {
     if (!String(existing.record.CONVITE_PROFESSORES_ENVIADO || '').trim()) {
       GEAPA_CORE.coreWriteCellByHeader(appSheet, existing.rowNumber, appHeaderMap, 'CONVITE_PROFESSORES_ENVIADO', 'NAO', { oneBased: true });
       changedHeaders.push('CONVITE_PROFESSORES_ENVIADO');
+    }
+    if (!String(existing.record.CONVITE_EXTERNOS_ENVIADO || '').trim()) {
+      GEAPA_CORE.coreWriteCellByHeader(appSheet, existing.rowNumber, appHeaderMap, 'CONVITE_EXTERNOS_ENVIADO', 'NAO', { oneBased: true });
+      changedHeaders.push('CONVITE_EXTERNOS_ENVIADO');
     }
     if (!String(existing.record.LEMBRETE_MEMBROS_ENVIADO || '').trim()) {
       GEAPA_CORE.coreWriteCellByHeader(appSheet, existing.rowNumber, appHeaderMap, 'LEMBRETE_MEMBROS_ENVIADO', 'NAO', { oneBased: true });
@@ -625,23 +631,6 @@ function atividades_marcarCobrancaTituloEixoEnviada_(rowNumber) {
   }
 }
 
-function atividades_buildTituloEixoProcessedLabel_() {
-  var name = 'GEAPA/Atividades/TituloEixoProcessado';
-  var label = GmailApp.getUserLabelByName(name);
-  return label || GmailApp.createLabel(name);
-}
-
-function atividades_threadJaProcessadaTituloEixo_(thread) {
-  var wanted = 'GEAPA/Atividades/TituloEixoProcessado';
-  return (thread.getLabels() || []).some(function(label) {
-    return String(label.getName() || '').trim() === wanted;
-  });
-}
-
-function atividades_marcarThreadTituloEixoProcessada_(thread) {
-  thread.addLabel(atividades_buildTituloEixoProcessedLabel_());
-}
-
 function atividades_extrairEmailSimplesApresentacoes_(value) {
   var text = String(value || '').trim();
   var match = text.match(/<([^>]+)>/);
@@ -654,15 +643,6 @@ function atividades_normalizarComparacaoApresentacoes_(value) {
     collapseWhitespace: true,
     caseMode: 'lower'
   }).replace(/[–—-]/g, ' ');
-}
-
-function atividades_mensagemPareceRespostaTituloEixo_(message) {
-  var body = atividades_normalizarComparacaoApresentacoes_(message.getPlainBody() || '');
-  return body.indexOf('titulo:') !== -1 && (
-    body.indexOf('eixo:') !== -1 ||
-    body.indexOf('eixo 1:') !== -1 ||
-    body.indexOf('eixo1:') !== -1
-  );
 }
 
 function atividades_extrairCampoDoCorpoApresentacoes_(body, fieldName, singleLine) {
@@ -930,63 +910,8 @@ function atividades_interpretarEixoApresentacoes_(raw) {
   return String(raw || '').trim();
 }
 
-function atividades_extrairDadosTituloEixoDaMensagem_(message) {
-  var body = message.getPlainBody() || '';
-  var titulo =
-    atividades_extrairCampoDoCorpoApresentacoes_(body, 'TÍTULO', true) ||
-    atividades_extrairCampoDoCorpoApresentacoes_(body, 'TITULO', true);
-  var eixoBruto =
-    atividades_extrairCampoDoCorpoApresentacoes_(body, 'EIXO', true) ||
-    atividades_extrairCampoDoCorpoApresentacoes_(body, 'EIXO 1', true) ||
-    atividades_extrairCampoDoCorpoApresentacoes_(body, 'EIXO1', true);
-  var eixo2Bruto =
-    atividades_extrairCampoDoCorpoApresentacoes_(body, 'EIXO 2', true) ||
-    atividades_extrairCampoDoCorpoApresentacoes_(body, 'EIXO2', true);
-  return {
-    titulo: String(titulo || '').trim(),
-    eixo: atividades_interpretarEixoApresentacoes_(eixoBruto),
-    eixo2: atividades_interpretarEixoApresentacoes_(eixo2Bruto)
-  };
-}
-
 function atividades_dadosTituloEixoValidos_(dados) {
   return !!(String(dados.titulo || '').trim() && String(dados.eixo || '').trim());
-}
-
-function atividades_extrairDadosTituloEixoDaMensagem_(message) {
-  var body = message.getPlainBody() || '';
-  var titulo =
-    atividades_extrairCampoDoCorpoApresentacoes_(body, 'TITULO', false) ||
-    atividades_extrairCampoDoCorpoApresentacoes_(body, 'TÍTULO', false);
-  var eixoBruto =
-    atividades_extrairCampoDoCorpoApresentacoes_(body, 'EIXO', true) ||
-    atividades_extrairCampoDoCorpoApresentacoes_(body, 'EIXO 1', true) ||
-    atividades_extrairCampoDoCorpoApresentacoes_(body, 'EIXO1', true);
-  var eixo2Bruto =
-    atividades_extrairCampoDoCorpoApresentacoes_(body, 'EIXO 2', true) ||
-    atividades_extrairCampoDoCorpoApresentacoes_(body, 'EIXO2', true);
-  return {
-    titulo: String(titulo || '').replace(/\s+/g, ' ').trim(),
-    eixo: atividades_interpretarEixoApresentacoes_(eixoBruto),
-    eixo2: atividades_interpretarEixoApresentacoes_(eixo2Bruto)
-  };
-}
-
-function atividades_getMensagemValidaMaisRecenteDaThread_(thread, senderEmail) {
-  var target = atividades_extrairEmailSimplesApresentacoes_(senderEmail);
-  var validas = thread.getMessages().filter(function(message) {
-    if (atividades_extrairEmailSimplesApresentacoes_(message.getFrom()) !== target) return false;
-    if (!atividades_mensagemPareceRespostaTituloEixo_(message)) return false;
-    return atividades_dadosTituloEixoValidos_(
-      atividades_extrairDadosTituloEixoDaMensagem_(message)
-    );
-  });
-
-  if (!validas.length) return null;
-  validas.sort(function(a, b) {
-    return b.getDate().getTime() - a.getDate().getTime();
-  });
-  return validas[0];
 }
 
 function atividades_gravarTituloEixoNaApresentacaoLinha_(rowNumber, dados, confirmedAt) {
@@ -1008,72 +933,260 @@ function atividades_gravarTituloEixoNaApresentacaoLinha_(rowNumber, dados, confi
   }
 }
 
-function atividades_buscarThreadsTituloEixo_() {
-  return GEAPA_CORE.coreSearchThreads(
-    'in:anywhere newer_than:30d subject:"' + ATIVIDADES_CFG.APRESENTACOES_JOB.TITULO_EIXO_INBOX_SUBJECT + '"',
-    0,
-    50
-  );
+function atividades_parseTituloEixoCorrelationKey_(value) {
+  var normalized = String(value || '').trim().toUpperCase().replace(/[\s]+/g, '');
+  if (!normalized) return null;
+  var parts = normalized.split('-');
+  if (parts.length < 4 || parts[0] !== 'ATX') return null;
+  return {
+    prefix: parts[0],
+    activityToken: parts[1] || '',
+    rgaToken: parts[2] || '',
+    dateToken: parts.slice(3).join('-') || ''
+  };
 }
 
-function atividades_processarThreadTituloEixo_(thread) {
-  var messages = thread.getMessages();
-  if (!messages.length) return { ok: false, action: 'skip', reason: 'thread_sem_mensagens' };
-
-  var remetentes = {};
-  messages.forEach(function(message) {
-    var email = atividades_extrairEmailSimplesApresentacoes_(message.getFrom());
-    if (email) remetentes[email] = true;
-  });
-
-  var candidatos = atividades_listApresentacaoRowsWithNumbers_().filter(function(item) {
-    var record = item.record;
-    var email = atividades_extrairEmailSimplesApresentacoes_(record.EMAIL_MEMBRO);
-    if (!email || !remetentes[email]) return false;
+function atividades_listApresentacoesPendentesTituloEixo_() {
+  return atividades_listApresentacaoRowsWithNumbers_().filter(function(item) {
+    var record = item.record || {};
     if (atividades_temTituloEixoConfirmadosApresentacao_(record)) return false;
-    return atividades_isStatusApresentacao_(record.STATUS_APRESENTACAO, ATIVIDADES_CFG.APRESENTACOES_JOB.STATUS_COBRAR_TITULO_EIXO);
+    if (!atividades_isStatusApresentacao_(record.STATUS_APRESENTACAO, ATIVIDADES_CFG.APRESENTACOES_JOB.STATUS_COBRAR_TITULO_EIXO)) return false;
+    if (!String(record.EMAIL_MEMBRO || '').trim()) return false;
+    return true;
   });
+}
 
-  if (!candidatos.length) {
-    return { ok: false, action: 'skip', reason: 'sem_linha_pendente_compativel' };
-  }
+function atividades_isGmailDailyQuotaError_(err) {
+  var message = err && err.message ? err.message : String(err || '');
+  return message.indexOf('Service invoked too many times for one day: gmail') >= 0 ||
+    message.indexOf('Service invoked too many times for one day: Gmail') >= 0;
+}
 
-  candidatos.sort(function(a, b) {
-    var da = atividades_toStartOfDayApresentacoes_(a.record.DATA_ATIVIDADE);
-    var db = atividades_toStartOfDayApresentacoes_(b.record.DATA_ATIVIDADE);
-    if (!da && !db) return 0;
-    if (!da) return 1;
-    if (!db) return -1;
-    return da.getTime() - db.getTime();
-  });
-
-  for (var i = 0; i < candidatos.length; i++) {
-    var item = candidatos[i];
-    var msg = atividades_getMensagemValidaMaisRecenteDaThread_(thread, item.record.EMAIL_MEMBRO);
-    if (!msg) continue;
-    var dados = atividades_extrairDadosTituloEixoDaMensagem_(msg);
-    if (!atividades_dadosTituloEixoValidos_(dados)) continue;
-
-    atividades_gravarTituloEixoNaApresentacaoLinha_(item.rowNumber, dados, msg.getDate());
-    atividades_notificarSecretariosTituloEixoPendentes_({
-      processOutbox: false,
-      activityIds: [String(item.record.ID_ATIVIDADE || '').trim()]
-    });
-    atividades_marcarThreadTituloEixoProcessada_(thread);
-
+function atividades_ingestirInboxTituloEixoApresentacoes_(opts) {
+  opts = opts || {};
+  if (!atividades_listApresentacoesPendentesTituloEixo_().length) {
     return {
       ok: true,
-      action: 'processed',
-      rowNumber: item.rowNumber,
-      idAtividade: String(item.record.ID_ATIVIDADE || '').trim(),
-      rga: String(item.record.RGA || '').trim(),
-      titulo: dados.titulo,
-      eixo: dados.eixo,
-      eixo2: dados.eixo2 || ''
+      skipped: true,
+      reason: 'sem_apresentacoes_pendentes'
     };
   }
 
-  return { ok: false, action: 'skip', reason: 'sem_mensagem_valida' };
+  var days = Number(ATIVIDADES_CFG.APRESENTACOES_JOB.TITULO_EIXO_INBOX_INGEST_DAYS || 15);
+  var query = [
+    'newer_than:' + days + 'd',
+    '-in:trash',
+    '-in:spam',
+    'subject:"' + ATIVIDADES_CFG.APRESENTACOES_JOB.TITULO_EIXO_INBOX_SUBJECT + '"'
+  ].join(' ');
+
+  try {
+    return GEAPA_CORE.coreMailIngestInbox({
+      query: query,
+      start: 0,
+      maxThreads: Number(ATIVIDADES_CFG.APRESENTACOES_JOB.TITULO_EIXO_INBOX_INGEST_MAX_THREADS || 12),
+      maxMessagesPerThread: Number(ATIVIDADES_CFG.APRESENTACOES_JOB.TITULO_EIXO_INBOX_INGEST_MAX_MESSAGES_PER_THREAD || 6),
+      saveFullBody: true
+    });
+  } catch (err) {
+    if (atividades_isMailHubInboxIngestLockError_(err)) {
+      return {
+        ok: false,
+        skipped: true,
+        reason: 'ingest_locked',
+        message: err && err.message ? err.message : String(err)
+      };
+    }
+    if (atividades_isGmailDailyQuotaError_(err)) {
+      return {
+        ok: false,
+        skipped: true,
+        reason: 'gmail_quota_exceeded',
+        message: err && err.message ? err.message : String(err)
+      };
+    }
+    throw err;
+  }
+}
+
+function atividades_listarEventosPendentesTituloEixoApresentacoes_() {
+  var seen = {};
+  var moduleNames = ['APRESENTACOES', ATIVIDADES_CFG.MODULE_CODE || 'ATIVIDADES', 'ATIVIDADES'];
+  var out = [];
+
+  moduleNames.forEach(function(moduleName) {
+    if (!moduleName) return;
+    var normalizedModule = atividades_normalizeTextUpper_(moduleName);
+    if (seen['module:' + normalizedModule]) return;
+    seen['module:' + normalizedModule] = true;
+
+    (GEAPA_CORE.coreMailListPendingByModule(moduleName) || []).forEach(function(eventRecord) {
+      if (!eventRecord || !eventRecord.eventId || seen[eventRecord.eventId]) return;
+      if (atividades_normalizeTextUpper_(eventRecord.direction) !== 'ENTRADA') return;
+      if (!atividades_parseTituloEixoCorrelationKey_(eventRecord.correlationKey)) return;
+      seen[eventRecord.eventId] = true;
+      out.push(eventRecord);
+    });
+  });
+
+  out.sort(function(a, b) {
+    var aDate = atividades_parseDateOrNull_(a.receivedAt || a.ingestedAt);
+    var bDate = atividades_parseDateOrNull_(b.receivedAt || b.ingestedAt);
+    return (bDate ? bDate.getTime() : 0) - (aDate ? aDate.getTime() : 0);
+  });
+
+  return out;
+}
+
+function atividades_textoEventoTituloEixo_(eventRecord) {
+  return String(
+    (eventRecord && eventRecord.plainBody) ||
+    (eventRecord && eventRecord.snippet) ||
+    ''
+  ).trim();
+}
+
+function atividades_textoPareceRespostaTituloEixo_(body) {
+  var normalized = atividades_normalizarComparacaoApresentacoes_(body || '');
+  return normalized.indexOf('titulo:') !== -1 && (
+    normalized.indexOf('eixo:') !== -1 ||
+    normalized.indexOf('eixo 1:') !== -1 ||
+    normalized.indexOf('eixo1:') !== -1
+  );
+}
+
+function atividades_extrairDadosTituloEixoDoCorpo_(body) {
+  var titulo =
+    atividades_extrairCampoDoCorpoApresentacoes_(body, 'TITULO', false) ||
+    atividades_extrairCampoDoCorpoApresentacoes_(body, 'TÍTULO', false);
+  var eixoBruto =
+    atividades_extrairCampoDoCorpoApresentacoes_(body, 'EIXO', true) ||
+    atividades_extrairCampoDoCorpoApresentacoes_(body, 'EIXO 1', true) ||
+    atividades_extrairCampoDoCorpoApresentacoes_(body, 'EIXO1', true);
+  var eixo2Bruto =
+    atividades_extrairCampoDoCorpoApresentacoes_(body, 'EIXO 2', true) ||
+    atividades_extrairCampoDoCorpoApresentacoes_(body, 'EIXO2', true);
+  return {
+    titulo: String(titulo || '').replace(/\s+/g, ' ').trim(),
+    eixo: atividades_interpretarEixoApresentacoes_(eixoBruto),
+    eixo2: atividades_interpretarEixoApresentacoes_(eixo2Bruto)
+  };
+}
+
+function atividades_encontrarLinhaPendenteTituloEixoPorEventoCentral_(eventRecord) {
+  eventRecord = eventRecord || {};
+  var correlation = atividades_parseTituloEixoCorrelationKey_(eventRecord.correlationKey || '');
+  var senderEmail = atividades_extrairEmailSimplesApresentacoes_(eventRecord.fromEmail || '');
+  var receivedAt = atividades_parseDateOrNull_(eventRecord.receivedAt || eventRecord.ingestedAt) || new Date();
+
+  var candidatos = atividades_listApresentacoesPendentesTituloEixo_().filter(function(item) {
+    var record = item.record || {};
+
+    if (correlation) {
+      var activityToken = atividades_normalizeTextUpper_(String(record.ID_ATIVIDADE || '').trim()).replace(/[^\w]+/g, '_');
+      var rgaToken = atividades_normalizeTextUpper_(String(record.RGA || '').trim()).replace(/[^\w]+/g, '_');
+      if (correlation.activityToken && correlation.activityToken !== 'SEM_ID' && activityToken && correlation.activityToken !== activityToken) return false;
+      if (correlation.rgaToken && correlation.rgaToken !== 'SEM_RGA' && rgaToken && correlation.rgaToken !== rgaToken) return false;
+      return true;
+    }
+
+    if (senderEmail && atividades_extrairEmailSimplesApresentacoes_(record.EMAIL_MEMBRO) === senderEmail) {
+      return true;
+    }
+
+    if (String(eventRecord.entityId || '').trim() && String(record.RGA || '').trim() === String(eventRecord.entityId || '').trim()) {
+      return true;
+    }
+
+    return false;
+  });
+
+  if (!candidatos.length) return null;
+
+  candidatos.sort(function(a, b) {
+    var aDate = atividades_toStartOfDayApresentacoes_(a.record.DATA_ATIVIDADE);
+    var bDate = atividades_toStartOfDayApresentacoes_(b.record.DATA_ATIVIDADE);
+    if (!aDate && !bDate) return 0;
+    if (!aDate) return 1;
+    if (!bDate) return -1;
+    return Math.abs(aDate.getTime() - receivedAt.getTime()) - Math.abs(bDate.getTime() - receivedAt.getTime());
+  });
+
+  return candidatos[0];
+}
+
+function atividades_processarEventoCentralTituloEixoApresentacoes_(eventRecord) {
+  var processorName = 'atividades_processarInboxTituloEixoApresentacoes';
+  if (!eventRecord || !eventRecord.eventId) {
+    return { ok: false, action: 'skip', mode: 'central', reason: 'evento_invalido' };
+  }
+
+  var body = atividades_textoEventoTituloEixo_(eventRecord);
+  if (!body) {
+    return {
+      ok: false,
+      action: 'skip',
+      mode: 'central',
+      reason: 'evento_sem_corpo_texto',
+      eventId: eventRecord.eventId
+    };
+  }
+
+  if (!atividades_textoPareceRespostaTituloEixo_(body)) {
+    GEAPA_CORE.coreMailMarkEventProcessed(eventRecord.eventId, processorName);
+    return {
+      ok: false,
+      action: 'skip',
+      mode: 'central',
+      reason: 'corpo_nao_parece_resposta_titulo_eixo',
+      eventId: eventRecord.eventId
+    };
+  }
+
+  var item = atividades_encontrarLinhaPendenteTituloEixoPorEventoCentral_(eventRecord);
+  if (!item) {
+    return {
+      ok: false,
+      action: 'skip',
+      mode: 'central',
+      reason: 'sem_linha_pendente_compativel',
+      eventId: eventRecord.eventId
+    };
+  }
+
+  var dados = atividades_extrairDadosTituloEixoDoCorpo_(body);
+  if (!atividades_dadosTituloEixoValidos_(dados)) {
+    return {
+      ok: false,
+      action: 'skip',
+      mode: 'central',
+      reason: 'dados_titulo_eixo_invalidos',
+      eventId: eventRecord.eventId,
+      rowNumber: item.rowNumber,
+      idAtividade: String(item.record.ID_ATIVIDADE || '').trim()
+    };
+  }
+
+  var confirmedAt = atividades_parseDateOrNull_(eventRecord.receivedAt || eventRecord.ingestedAt) || new Date();
+  atividades_gravarTituloEixoNaApresentacaoLinha_(item.rowNumber, dados, confirmedAt);
+  atividades_notificarSecretariosTituloEixoPendentes_({
+    processOutbox: false,
+    activityIds: [String(item.record.ID_ATIVIDADE || '').trim()]
+  });
+  GEAPA_CORE.coreMailMarkEventProcessed(eventRecord.eventId, processorName);
+
+  return {
+    ok: true,
+    action: 'processed',
+    mode: 'central',
+    eventId: eventRecord.eventId,
+    rowNumber: item.rowNumber,
+    idAtividade: String(item.record.ID_ATIVIDADE || '').trim(),
+    rga: String(item.record.RGA || '').trim(),
+    titulo: dados.titulo,
+    eixo: dados.eixo,
+    eixo2: dados.eixo2 || ''
+  };
 }
 
 function atividades_buildSecretariosTituloEixoCorrelationKey_(record) {
@@ -1247,43 +1360,99 @@ function atividades_enviarCobrancasTituloEixoApresentacoes_(opts) {
 
 function atividades_processarInboxTituloEixoApresentacoes_(opts) {
   opts = opts || {};
-  var threads = atividades_buscarThreadsTituloEixo_();
+  var ingestBeforeRead = opts.ingestBeforeRead !== false;
   var processed = [];
   var skipped = 0;
   var errors = [];
+  var modeUsed = 'central';
+  var ingestResult = null;
+  var pending = atividades_listApresentacoesPendentesTituloEixo_();
 
-  threads.forEach(function(thread) {
+  if (!pending.length) {
+    atividades_logEvento_({
+      TIPO_EVENTO_LOG: ATIVIDADES_CFG.APRESENTACOES_LOG_TYPES.INBOX_TITULO_EIXO_APRESENTACAO,
+      STATUS: 'OK',
+      ACAO_EXECUTADA: 'Verificar respostas de título e eixo das apresentações',
+      RESULTADO: 'mode=skip_no_pending | processed=0 | skipped=0 | errors=0',
+      OBSERVACOES: 'Nenhuma apresentacao pendente de titulo/eixo foi encontrada. Busca Gmail evitada para preservar cota.'
+    });
+    return {
+      ok: true,
+      modeUsed: 'skip_no_pending',
+      processedCount: 0,
+      skippedCount: 0,
+      errorCount: 0,
+      processed: [],
+      errors: []
+    };
+  }
+
+  if (ingestBeforeRead) {
     try {
-      if (atividades_threadJaProcessadaTituloEixo_(thread)) {
-        skipped++;
-        return;
+      ingestResult = atividades_ingestirInboxTituloEixoApresentacoes_(opts);
+      if (ingestResult && ingestResult.reason === 'gmail_quota_exceeded') {
+        modeUsed = 'central_no_ingest_gmail_quota';
       }
+    } catch (err) {
+      errors.push('central_ingest_failed: ' + (err && err.message ? err.message : String(err)));
+      ingestResult = null;
+    }
+  }
 
-      var result = atividades_processarThreadTituloEixo_(thread);
+  var eventosPendentes = [];
+  try {
+    eventosPendentes = atividades_listarEventosPendentesTituloEixoApresentacoes_();
+  } catch (err) {
+    errors.push('central_list_failed: ' + (err && err.message ? err.message : String(err)));
+    eventosPendentes = [];
+  }
+
+  eventosPendentes.forEach(function(eventRecord) {
+    try {
+      var result = atividades_processarEventoCentralTituloEixoApresentacoes_(eventRecord);
       if (result && result.action === 'processed') {
         processed.push(result);
       } else {
         skipped++;
       }
     } catch (err) {
-      errors.push(err && err.message ? err.message : String(err));
+      var eventId = eventRecord && eventRecord.eventId ? String(eventRecord.eventId || '').trim() : '';
+      errors.push((eventId ? (eventId + ': ') : '') + (err && err.message ? err.message : String(err)));
     }
   });
+
+  if (!processed.length && !eventosPendentes.length) {
+    modeUsed = modeUsed === 'central_no_ingest_gmail_quota' ? modeUsed : 'central_only';
+  }
 
   if (processed.length || errors.length) {
     atividades_logEvento_({
       TIPO_EVENTO_LOG: ATIVIDADES_CFG.APRESENTACOES_LOG_TYPES.INBOX_TITULO_EIXO_APRESENTACAO,
       STATUS: errors.length ? 'ATENCAO' : 'OK',
       ACAO_EXECUTADA: 'Processar respostas de título e eixo das apresentações',
-      RESULTADO: 'processed=' + processed.length + ' | skipped=' + skipped + ' | errors=' + errors.length,
+      RESULTADO: 'mode=' + modeUsed + ' | processed=' + processed.length + ' | skipped=' + skipped + ' | errors=' + errors.length,
       OBSERVACOES: processed.slice(0, 10).map(function(item) {
         return item.idAtividade + ':' + item.titulo;
       }).join(' | ')
     });
   }
 
+  if (!processed.length && !errors.length) {
+    atividades_logEvento_({
+      TIPO_EVENTO_LOG: ATIVIDADES_CFG.APRESENTACOES_LOG_TYPES.INBOX_TITULO_EIXO_APRESENTACAO,
+      STATUS: 'OK',
+      ACAO_EXECUTADA: 'Verificar respostas de título e eixo das apresentações',
+      RESULTADO: 'mode=' + modeUsed + ' | processed=0 | skipped=' + skipped + ' | errors=0',
+      OBSERVACOES: modeUsed === 'central_no_ingest_gmail_quota'
+        ? 'Cota Gmail excedida durante ingestao. Nenhum evento central pendente foi encontrado; o processamento sera retomado quando a central ingerir a resposta.'
+        : 'Nenhum evento central pendente de titulo/eixo foi processado nesta execucao.'
+    });
+  }
+
   return {
     ok: errors.length === 0,
+    ingestResult: ingestResult,
+    modeUsed: modeUsed,
     processedCount: processed.length,
     skippedCount: skipped,
     errorCount: errors.length,
@@ -1467,17 +1636,166 @@ function atividades_listExternosBaseRecords_() {
 }
 
 function atividades_buildEixoInterestHeaders_(record) {
-  var tokens = atividades_getCanonicalAxesFromApresentacao_(record).map(function(value) {
+  return atividades_getCanonicalAxesFromApresentacao_(record).map(function(value) {
     var entry = atividades_findEixoMapEntryApresentacoes_(value);
-    return entry ? entry.romano : '';
+    return entry ? {
+      romano: entry.romano,
+      ordem: entry.ordem,
+      codigo: entry.codigo
+    } : null;
   }).filter(Boolean);
+}
+
+function atividades_getExternalRecordValue_(record, candidateHeaders) {
+  for (var i = 0; i < candidateHeaders.length; i++) {
+    var value = String(record[candidateHeaders[i]] || '').trim();
+    if (value) return value;
+  }
+  return '';
+}
+
+function atividades_getExternalRecordId_(record) {
+  return atividades_getExternalRecordValue_(record, [
+    'ID_PARTICIPANTE_EXTERNO',
+    'ID_EXTERNO',
+    'ID_PESSOA',
+    'ID_CONTATO',
+    'CODIGO',
+    'CÓDIGO'
+  ]);
+}
+
+function atividades_getExternalRecordName_(record) {
+  return atividades_getExternalRecordValue_(record, ['NOME', 'Nome', 'NOME_COMPLETO', 'Nome completo']);
+}
+
+function atividades_getExternalRecordEmail_(record) {
+  return atividades_getExternalRecordValue_(record, ['EMAIL', 'Email', 'E-mail', 'E_MAIL']);
+}
+
+function atividades_isExternalRecordActive_(record) {
+  if (atividades_isTruthySim_(record.ATIVO)) return true;
+
+  var status = atividades_normalizeTextUpper_(atividades_getExternalRecordValue_(record, [
+    'STATUS',
+    'STATUS_CONTATO',
+    'STATUS_CADASTRAL',
+    'STATUS_RELACIONAMENTO',
+    'SITUACAO',
+    'SITUAÇÃO'
+  ]));
+  return status === 'ATIVO' || status === 'ATIVA';
+}
+
+function atividades_getExternalInterestValue_(record, axisToken) {
+  axisToken = axisToken || {};
+  var roman = String(axisToken.romano || '').trim().toUpperCase();
+  var ordem = String(axisToken.ordem || '').trim();
+  var codigo = String(axisToken.codigo || '').trim().toUpperCase();
+  var headers = [
+    'INTERESSE_EIXO_' + roman,
+    'INTERESSE_EIXO_' + ordem,
+    'INTERESSE_' + roman,
+    'INTERESSE_' + ordem,
+    'EIXO_' + roman,
+    'EIXO_' + ordem,
+    codigo ? ('INTERESSE_' + codigo) : '',
+    codigo ? ('INTERESSE_EIXO_' + codigo) : ''
+  ].filter(Boolean);
+
+  return atividades_getExternalRecordValue_(record, headers);
+}
+
+function atividades_externalRecordMatchesAnyAxis_(record, axisTokens) {
+  return axisTokens.some(function(axisToken) {
+    return atividades_isTruthySim_(atividades_getExternalInterestValue_(record, axisToken));
+  });
+}
+
+function atividades_diagnosticarExternosElegiveisParaApresentacao_(apresentacaoRecord) {
+  var axisTokens = atividades_buildEixoInterestHeaders_(apresentacaoRecord);
+  var reasons = {};
+  var total = 0;
+
+  function skip(reason) {
+    reasons[reason] = (reasons[reason] || 0) + 1;
+  }
+
+  if (!axisTokens.length) {
+    return {
+      total: 0,
+      eligible: 0,
+      axisTokens: [],
+      reasons: { sem_eixos_interpretaveis: 1 }
+    };
+  }
+
   var seen = {};
-  return tokens.filter(function(token) {
-    if (seen[token]) return false;
-    seen[token] = true;
+  var eligible = 0;
+  atividades_listExternosBaseRecords_().forEach(function(record) {
+    total++;
+    var email = atividades_getExternalRecordEmail_(record);
+    var externoId = atividades_getExternalRecordId_(record);
+    if (!externoId) {
+      skip('externo_sem_id');
+      return;
+    }
+    if (!GEAPA_CORE.coreIsValidEmail(email)) {
+      skip('externo_email_invalido');
+      return;
+    }
+    if (!atividades_isExternalRecordActive_(record)) {
+      skip('externo_inativo');
+      return;
+    }
+    if (!atividades_isTruthySim_(record.RECEBE_APRESENTACOES_ALUNOS)) {
+      skip('nao_recebe_apresentacoes_alunos');
+      return;
+    }
+    if (!atividades_externalRecordMatchesAnyAxis_(record, axisTokens)) {
+      skip('sem_interesse_nos_eixos');
+      return;
+    }
+    if (seen[email]) {
+      skip('email_duplicado');
+      return;
+    }
+    seen[email] = true;
+    eligible++;
+  });
+
+  return {
+    total: total,
+    eligible: eligible,
+    axisTokens: axisTokens.map(function(axisToken) {
+      return axisToken.romano || axisToken.ordem || axisToken.codigo;
+    }),
+    reasons: reasons
+  };
+}
+
+function atividades_listExternosElegiveisParaApresentacao_(apresentacaoRecord) {
+  var axisTokens = atividades_buildEixoInterestHeaders_(apresentacaoRecord);
+  if (!axisTokens.length) return [];
+
+  var seen = {};
+  return atividades_listExternosBaseRecords_().filter(function(record) {
+    var email = atividades_getExternalRecordEmail_(record);
+    var externoId = atividades_getExternalRecordId_(record);
+    if (!externoId || !GEAPA_CORE.coreIsValidEmail(email)) return false;
+    if (!atividades_isExternalRecordActive_(record)) return false;
+    if (!atividades_isTruthySim_(record.RECEBE_APRESENTACOES_ALUNOS)) return false;
+    if (!atividades_externalRecordMatchesAnyAxis_(record, axisTokens)) return false;
+    if (seen[email]) return false;
+    seen[email] = true;
     return true;
-  }).map(function(token) {
-    return 'INTERESSE_EIXO_' + token;
+  }).map(function(record) {
+    return {
+      id: atividades_getExternalRecordId_(record),
+      nome: atividades_getExternalRecordName_(record),
+      email: atividades_getExternalRecordEmail_(record),
+      instituicao: atividades_getExternalRecordValue_(record, ['INSTITUICAO', 'Instituição', 'INSTITUIÇÃO'])
+    };
   });
 }
 
@@ -1506,35 +1824,6 @@ function atividades_isApresentacaoAbertaParaExternos_(apresentacaoRecord, activi
     (activityRecord && activityRecord.CLASSIFICACAO_ACESSO) || apresentacaoRecord.CLASSIFICACAO_ACESSO || ''
   );
   return !acesso || acesso === 'ABERTA';
-}
-
-function atividades_listExternosElegiveisParaApresentacao_(apresentacaoRecord) {
-  var interestHeaders = atividades_buildEixoInterestHeaders_(apresentacaoRecord);
-  if (!interestHeaders.length) return [];
-
-  var seen = {};
-  return atividades_listExternosBaseRecords_().filter(function(record) {
-    var email = String(record.EMAIL || '').trim();
-    var externoId = String(record.ID_PARTICIPANTE_EXTERNO || '').trim();
-    if (!externoId || !GEAPA_CORE.coreIsValidEmail(email)) return false;
-    if (!atividades_isTruthySim_(record.ATIVO)) return false;
-    if (!atividades_isTruthySim_(record.RECEBE_APRESENTACOES_ALUNOS)) return false;
-
-    var matchesInterest = interestHeaders.some(function(header) {
-      return atividades_isTruthySim_(record[header]);
-    });
-    if (!matchesInterest) return false;
-    if (seen[email]) return false;
-    seen[email] = true;
-    return true;
-  }).map(function(record) {
-    return {
-      id: String(record.ID_PARTICIPANTE_EXTERNO || '').trim(),
-      nome: String(record.NOME || '').trim(),
-      email: String(record.EMAIL || '').trim(),
-      instituicao: String(record.INSTITUICAO || '').trim()
-    };
-  });
 }
 
 function atividades_buildConvidadosIndex_() {
@@ -1661,20 +1950,63 @@ function atividades_upsertExternosApresentacao_(opts) {
   var activityIndex = atividades_buildActivityIndexById_();
   var activityFilterSet = atividades_buildActivityFilterSet_(opts.activityIds);
   var created = [];
+  var skippedReasons = {};
+  var diagnostics = [];
+
+  function skip(reason) {
+    skippedReasons[reason] = (skippedReasons[reason] || 0) + 1;
+  }
 
   atividades_listApresentacaoRowsWithNumbers_().forEach(function(item) {
     var record = item.record;
-    if (!atividades_activityPassesFilter_(record.ID_ATIVIDADE, activityFilterSet)) return;
-    if (!atividades_isStatusElegivelConviteExternos_(record.STATUS_APRESENTACAO)) return;
-    if (!String(record.ID_ATIVIDADE || '').trim()) return;
-    if (!String(record.EIXO_TEMATICO_PRINCIPAL || '').trim()) return;
+    if (!atividades_activityPassesFilter_(record.ID_ATIVIDADE, activityFilterSet)) {
+      skip('filtro_activity_ids');
+      return;
+    }
+    if (!atividades_isStatusElegivelConviteExternos_(record.STATUS_APRESENTACAO)) {
+      skip('status_nao_elegivel');
+      return;
+    }
+    if (!String(record.ID_ATIVIDADE || '').trim()) {
+      skip('sem_id_atividade');
+      return;
+    }
+    if (!String(record.EIXO_TEMATICO_PRINCIPAL || '').trim()) {
+      skip('sem_eixo_principal');
+      return;
+    }
 
     var activityItem = activityIndex[String(record.ID_ATIVIDADE || '').trim()];
-    if (activityItem && !atividades_isApresentacaoAbertaParaExternos_(record, activityItem.record)) return;
+    if (!activityItem) {
+      skip('atividade_nao_localizada');
+      return;
+    }
+    if (!atividades_isApresentacaoAbertaParaExternos_(record, activityItem.record)) {
+      skip('acesso_nao_aberto');
+      return;
+    }
 
-    atividades_listExternosElegiveisParaApresentacao_(record).forEach(function(externo) {
+    var externosElegiveis = atividades_listExternosElegiveisParaApresentacao_(record);
+    if (!externosElegiveis.length) {
+      skip('sem_externos_elegiveis_por_eixo');
+      diagnostics.push({
+        idAtividade: String(record.ID_ATIVIDADE || '').trim(),
+        idApresentacao: String(record.ID_APRESENTACAO || '').trim(),
+        eixos: [
+          String(record.EIXO_TEMATICO_PRINCIPAL || '').trim(),
+          String(record.EIXO_TEMATICO_SECUNDARIO || '').trim()
+        ].filter(Boolean),
+        externos: atividades_diagnosticarExternosElegiveisParaApresentacao_(record)
+      });
+      return;
+    }
+
+    externosElegiveis.forEach(function(externo) {
       var key = [record.ID_ATIVIDADE, 'PARTICIPANTE_EXTERNO', externo.id].join('|');
-      if (convidadosIndex[key]) return;
+      if (convidadosIndex[key]) {
+        skip('vinculo_ja_existente');
+        return;
+      }
 
       var payload = {
         ID_CONVITE_ATIVIDADE: 'ACV-' + Utilities.getUuid().slice(0, 8).toUpperCase(),
@@ -1716,7 +2048,9 @@ function atividades_upsertExternosApresentacao_(opts) {
   return {
     ok: true,
     createdCount: created.length,
-    created: created
+    created: created,
+    skippedReasons: skippedReasons,
+    diagnostics: diagnostics.slice(0, 10)
   };
 }
 
@@ -1898,23 +2232,36 @@ function atividades_enviarConvitesExternosApresentacoes_(opts) {
   opts = opts || {};
   var convidadosSheet = atividades_getConvidadosSheet_();
   var convidadosHeaderMap = GEAPA_CORE.coreHeaderMap(convidadosSheet, 1);
+  var apresentacoesSheet = atividades_getApresentacoesSheet_();
+  var apresentacoesHeaderMap = GEAPA_CORE.coreHeaderMap(apresentacoesSheet, 1);
   var apresentacoesIndex = atividades_buildApresentacoesIndex_(atividades_listApresentacaoRowsWithNumbers_()).byActivityId;
   var activityFilterSet = atividades_buildActivityFilterSet_(opts.activityIds);
   var queued = [];
   var duplicates = 0;
   var deferred = 0;
+  var byActivityOutcome = {};
+  var externalInviteStateByActivity = {};
 
   GEAPA_CORE.coreReadSheetRecords(convidadosSheet, { headerRow: 1 }).forEach(function(record, index) {
     var rowNumber = index + 2;
     if (atividades_normalizeTextUpper_(record.TIPO_VINCULO_PESSOA) !== 'PARTICIPANTE_EXTERNO') return;
-    if (atividades_isTruthySim_(record.CONVITE_ENVIADO)) return;
 
     var activityId = String(record.ID_ATIVIDADE || '').trim();
+    if (activityId) {
+      externalInviteStateByActivity[activityId] = externalInviteStateByActivity[activityId] || { total: 0, sent: 0 };
+      externalInviteStateByActivity[activityId].total++;
+      if (atividades_isTruthySim_(record.CONVITE_ENVIADO)) {
+        externalInviteStateByActivity[activityId].sent++;
+      }
+    }
+
+    if (atividades_isTruthySim_(record.CONVITE_ENVIADO)) return;
     if (!atividades_activityPassesFilter_(activityId, activityFilterSet)) return;
     var apresentacaoItem = apresentacoesIndex[activityId];
     if (!apresentacaoItem) return;
     var apresentacaoRecord = apresentacaoItem.record;
     if (!atividades_isStatusElegivelConviteExternos_(apresentacaoRecord.STATUS_APRESENTACAO)) return;
+    if (atividades_isTruthySim_(apresentacaoRecord.CONVITE_EXTERNOS_ENVIADO)) return;
 
     var email = String(record.EMAIL || '').trim();
     if (!GEAPA_CORE.coreIsValidEmail(email)) return;
@@ -1941,26 +2288,76 @@ function atividades_enviarConvitesExternosApresentacoes_(opts) {
 
     if (queueResult && queueResult.duplicate) {
       duplicates++;
+      byActivityOutcome[activityId] = byActivityOutcome[activityId] || { queued: 0, duplicate: 0, deferred: 0 };
+      byActivityOutcome[activityId].duplicate++;
     }
 
     if (queueResult && queueResult.locked) {
       deferred++;
+      byActivityOutcome[activityId] = byActivityOutcome[activityId] || { queued: 0, duplicate: 0, deferred: 0 };
+      byActivityOutcome[activityId].deferred++;
       return;
     }
 
     if (queueResult && (queueResult.queued || queueResult.duplicate)) {
       GEAPA_CORE.coreWriteCellByHeader(convidadosSheet, rowNumber, convidadosHeaderMap, 'CONVITE_ENVIADO', 'SIM', { oneBased: true });
+      if (externalInviteStateByActivity[activityId]) {
+        externalInviteStateByActivity[activityId].sent++;
+      }
       if (GEAPA_CORE.coreGetCol(convidadosHeaderMap, 'ATUALIZADO_EM')) {
         GEAPA_CORE.coreWriteCellByHeader(convidadosSheet, rowNumber, convidadosHeaderMap, 'ATUALIZADO_EM', new Date(), { oneBased: true });
       }
     }
 
     if (queueResult && queueResult.queued) {
+      byActivityOutcome[activityId] = byActivityOutcome[activityId] || { queued: 0, duplicate: 0, deferred: 0 };
+      byActivityOutcome[activityId].queued++;
       queued.push({
         rowNumber: rowNumber,
         correlationKey: correlationKey,
         saidaId: queueResult.saidaId || ''
       });
+    }
+  });
+
+  Object.keys(externalInviteStateByActivity).forEach(function(activityId) {
+    var state = externalInviteStateByActivity[activityId] || {};
+    var outcome = byActivityOutcome[activityId] || {};
+    var apresentacaoItem = apresentacoesIndex[activityId];
+    if (!apresentacaoItem) return;
+    if (!atividades_activityPassesFilter_(activityId, activityFilterSet)) return;
+    if (state.total <= 0 || state.sent < state.total) return;
+    if (outcome.deferred > 0) return;
+    if (
+      atividades_isTruthySim_(apresentacaoItem.record.CONVITE_EXTERNOS_ENVIADO) &&
+      String(apresentacaoItem.record.DATA_ENVIO_CONVITE_EXTERNOS || '').trim()
+    ) return;
+
+    GEAPA_CORE.coreWriteCellByHeader(
+      apresentacoesSheet,
+      apresentacaoItem.rowNumber,
+      apresentacoesHeaderMap,
+      'CONVITE_EXTERNOS_ENVIADO',
+      'SIM',
+      { oneBased: true }
+    );
+    GEAPA_CORE.coreWriteCellByHeader(
+      apresentacoesSheet,
+      apresentacaoItem.rowNumber,
+      apresentacoesHeaderMap,
+      'DATA_ENVIO_CONVITE_EXTERNOS',
+      new Date(),
+      { oneBased: true }
+    );
+    if (GEAPA_CORE.coreGetCol(apresentacoesHeaderMap, 'ATUALIZADO_EM')) {
+      GEAPA_CORE.coreWriteCellByHeader(
+        apresentacoesSheet,
+        apresentacaoItem.rowNumber,
+        apresentacoesHeaderMap,
+        'ATUALIZADO_EM',
+        new Date(),
+        { oneBased: true }
+      );
     }
   });
 
@@ -2431,7 +2828,6 @@ function atividades_processOutboxIfNeeded_(queueLikeResults) {
 
 function atividades_jobApresentacoesPhaseBase_() {
   var upsert = atividades_upsertApresentacoesMembroFromAtividades_();
-  var autoRealizadas = atividades_tryAutoMarkApresentacoesRealizadas_();
   var statusSync = atividades_refletirStatusApresentacoesEmAtividades_();
   var periodResync = atividades_ressincronizarPeriodoEPresencasAposReflexoStatusApresentacoes_(statusSync);
   var notifications = atividades_notificarAgendamentoApresentacoesPendentes_({
@@ -2450,7 +2846,6 @@ function atividades_jobApresentacoesPhaseBase_() {
   return {
     phase: 'BASE',
     upsert: upsert,
-    autoRealizadas: autoRealizadas,
     statusSync: statusSync,
     periodResync: periodResync,
     notifications: notifications,
@@ -2494,6 +2889,11 @@ function atividades_jobApresentacoesPhaseConvites_() {
 }
 
 function atividades_jobApresentacoesPhasePosEvento_() {
+  var autoRealizadas = atividades_tryAutoMarkApresentacoesRealizadas_();
+  var statusSync = autoRealizadas && Number(autoRealizadas.updatedCount || 0)
+    ? atividades_refletirStatusApresentacoesEmAtividades_()
+    : { ok: true, updatedCount: 0, updated: [] };
+  var periodResync = atividades_ressincronizarPeriodoEPresencasAposReflexoStatusApresentacoes_(statusSync);
   var cobrancasArquivo = atividades_enviarCobrancasArquivoApresentacoes_({
     processOutbox: false
   });
@@ -2509,6 +2909,9 @@ function atividades_jobApresentacoesPhasePosEvento_() {
 
   return {
     phase: 'POS_EVENTO',
+    autoRealizadas: autoRealizadas,
+    statusSync: statusSync,
+    periodResync: periodResync,
     cobrancasArquivo: cobrancasArquivo,
     inboxArquivo: inboxArquivo,
     fotosPendentes: fotosPendentes,
@@ -2517,6 +2920,30 @@ function atividades_jobApresentacoesPhasePosEvento_() {
     outbox: atividades_processOutboxIfNeeded_([
       cobrancasArquivo
     ])
+  };
+}
+
+function atividades_jobApresentacoesPreEvento_() {
+  atividades_garantirEstruturasFixasV1_();
+  var base = atividades_jobApresentacoesPhaseBase_();
+  var convites = atividades_jobApresentacoesPhaseConvites_();
+
+  return {
+    ok: true,
+    phaseExecuted: 'PRE_EVENTO',
+    result: {
+      base: base,
+      convites: convites
+    }
+  };
+}
+
+function atividades_jobApresentacoesPosEventoIntegrado_() {
+  atividades_garantirEstruturasFixasV1_();
+  return {
+    ok: true,
+    phaseExecuted: 'POS_EVENTO',
+    result: atividades_jobApresentacoesPhasePosEvento_()
   };
 }
 

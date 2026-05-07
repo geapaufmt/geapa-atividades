@@ -39,6 +39,7 @@ function atividades_buildDropdownRules_() {
       NOTIFICACAO_AGENDAMENTO_ENVIADA: { values: ATIVIDADES_CFG.ENUMS.SIM_NAO, helpText: 'Controle de notificacao de agendamento ao membro.' },
       NOTIFICACAO_SECRETARIOS_ENVIADA: { values: ATIVIDADES_CFG.ENUMS.SIM_NAO, helpText: 'Controle de aviso aos secretarios.' },
       CONVITE_PROFESSORES_ENVIADO: { values: ATIVIDADES_CFG.ENUMS.SIM_NAO, helpText: 'Controle de convite a professores.' },
+      CONVITE_EXTERNOS_ENVIADO: { values: ATIVIDADES_CFG.ENUMS.SIM_NAO, helpText: 'Controle de convite a participantes externos.' },
       LEMBRETE_MEMBROS_ENVIADO: { values: ATIVIDADES_CFG.ENUMS.SIM_NAO, helpText: 'Controle de lembrete aos membros.' },
       STATUS_ENVIO_ARQUIVO: { values: ATIVIDADES_CFG.ENUMS.STATUS_ARQUIVO, helpText: 'Estado de envio do arquivo.' },
       SYNC_HISTORICO_PUBLICO: { values: ATIVIDADES_CFG.ENUMS.SIM_NAO, helpText: 'Indica se ja foi refletido no historico publico.' }
@@ -139,8 +140,8 @@ function atividades_buildHeaderNotes_() {
   return {
     Atividades: {
       ID_ATIVIDADE: 'Identificador unico da atividade no formato ATV-0001. E gerado automaticamente quando a linha fica elegivel.',
-      CLASSIFICACAO_REUNIAO: 'Use apenas para atividades de reuniao: ORDINARIA, EXTRAORDINARIA ou DIRETORIA.',
-      TIPO_ATIVIDADE: 'Tipo institucional principal da atividade: ACADEMICA, ORGANIZACIONAL, ESTRATEGICA, INTERNA, DELIBERATIVA ou OUTRA.',
+      CLASSIFICACAO_REUNIAO: 'Use apenas para atividades de reuniao do grupo: ORDINARIA ou EXTRAORDINARIA.',
+      TIPO_ATIVIDADE: 'Tipo institucional principal da atividade: ACADEMICA, ORGANIZACIONAL, INTERNA ou OUTRA.',
       SUBTIPO_ATIVIDADE: 'Subtipo operacional especifico da atividade, como APRESENTACAO_MEMBRO, PALESTRA, CURSO, ABERTURA_PERIODO, FECHAMENTO_PERIODO ou MARCO_INSTITUCIONAL.',
       CLASSIFICACAO_ACESSO: 'Define se a atividade e aberta ou restrita.',
       TITULO: 'Titulo humano da atividade.',
@@ -229,6 +230,8 @@ function atividades_buildHeaderNotes_() {
       MOTIVO_ALTERACAO_NO_PERIODO: 'Motivo historico da entrada, desligamento, suspensao ou retorno no periodo.',
       OBS_EVENTO_PERIODO: 'Observacoes livres sobre o evento historico do periodo.',
       PREVISAO_APRESENTACAO_NO_PERIODO: 'Campo manual para indicar se o membro esta previsto para apresentar no periodo. O modulo preserva esse valor nas sincronizacoes.',
+      APRESENTOU_NO_PERIODO: 'Campo calculado automaticamente a partir de Atividades_Apresentacoes com STATUS_APRESENTACAO = REALIZADA no periodo.',
+      DATA_APRESENTACAO_NO_PERIODO: 'Data da apresentacao realizada pelo membro no periodo, calculada automaticamente a partir de Atividades_Apresentacoes.',
       TOTAL_PRESENCAS: 'Total de marcacoes P e R no periodo.',
       TOTAL_FALTAS: 'Total de faltas plenas mantidas como F no periodo.',
       TOTAL_JUSTIFICADAS: 'Total de marcacoes J e A no periodo.',
@@ -324,7 +327,7 @@ function atividades_buildHeaderColors_() {
     Atividades_Apresentacoes: [
       { color: '#d9ead3', headers: ['ID_APRESENTACAO', 'ID_ATIVIDADE', 'RGA', 'NOME_MEMBRO', 'EMAIL_MEMBRO', 'STATUS_APRESENTACAO'] },
       { color: '#d0e0e3', headers: ['PERIODO_REFERENCIA', 'DATA_ATIVIDADE', 'HORARIO_INICIO', 'HORARIO_FIM', 'LOCAL', 'FORMATO', 'SEMESTRE_APRESENTACAO', 'DATA_NOTIFICACAO_AGENDAMENTO'] },
-      { color: '#fff2cc', headers: ['NOTIFICACAO_AGENDAMENTO_ENVIADA', 'NOTIFICACAO_SECRETARIOS_ENVIADA', 'CONVITE_PROFESSORES_ENVIADO', 'LEMBRETE_MEMBROS_ENVIADO', 'STATUS_ENVIO_ARQUIVO', 'SYNC_HISTORICO_PUBLICO'] }
+      { color: '#fff2cc', headers: ['NOTIFICACAO_AGENDAMENTO_ENVIADA', 'NOTIFICACAO_SECRETARIOS_ENVIADA', 'CONVITE_PROFESSORES_ENVIADO', 'CONVITE_EXTERNOS_ENVIADO', 'LEMBRETE_MEMBROS_ENVIADO', 'STATUS_ENVIO_ARQUIVO', 'SYNC_HISTORICO_PUBLICO'] }
     ],
     Atividade_Convidados: [
       { color: '#d9ead3', headers: ['ID_CONVITE_ATIVIDADE', 'ID_ATIVIDADE', 'TIPO_VINCULO_PESSOA', 'ID_REFERENCIA'] },
@@ -354,6 +357,7 @@ function atividades_buildHeaderColors_() {
     PERIODO_Presencas: [
       { color: '#d9ead3', headers: ['RGA', 'NOME_MEMBRO', 'EMAIL', 'CARGO_FUNCAO_ATUAL', 'OCUPACAO_ATUAL', 'OCUPACAO', 'STATUS_CADASTRAL', 'STATUS_NO_PERIODO'] },
       { color: '#d0e0e3', headers: ['DATA_ENTRADA_NO_PERIODO', 'DATA_SAIDA_NO_PERIODO', 'MOTIVO_ALTERACAO_NO_PERIODO', 'OBS_EVENTO_PERIODO'] },
+      { color: '#eadcf8', headers: ['PREVISAO_APRESENTACAO_NO_PERIODO', 'APRESENTOU_NO_PERIODO', 'DATA_APRESENTACAO_NO_PERIODO'] },
       { color: '#fff2cc', headers: ['TOTAL_ATIVIDADES_QUE_CONTAM_FALTA', 'LIMITE_FALTAS_PERIODO', 'FALTAS_LIQUIDAS', 'PERCENTUAL_USO_LIMITE', 'SITUACAO_DISCIPLINAR'] }
     ],
     Eixos: [
@@ -399,6 +403,10 @@ function atividades_applyPresenceMetadataValidation_(sheet) {
     PREVISAO_APRESENTACAO_NO_PERIODO: {
       values: ATIVIDADES_CFG.ENUMS.SIM_NAO,
       helpText: 'Preencha manualmente com SIM ou NAO para indicar se o membro esta previsto para apresentar no periodo.'
+    },
+    APRESENTOU_NO_PERIODO: {
+      values: ['SIM', 'NAO', 'N/A'],
+      helpText: 'Campo calculado pelo modulo a partir de apresentacoes realizadas no periodo.'
     }
   };
 
@@ -620,46 +628,62 @@ function atividades_applyHistoricoPublicoThematicAxesValidation_(sheet) {
   };
 
   var headerMap = GEAPA_CORE.coreHeaderMap(sheet, 1);
-  var targetHeader = '';
-  Object.keys(headerMap || {}).some(function(header) {
-    var normalized = GEAPA_CORE.coreNormalizeHeader(header);
-    if (normalized === GEAPA_CORE.coreNormalizeHeader('Eixo Temático') ||
-        normalized === GEAPA_CORE.coreNormalizeHeader('Eixo Tematico')) {
-      targetHeader = header;
-      return true;
-    }
-    return false;
+  var targetHeaders = [];
+  var targetAliases = [
+    'Eixo Temático Principal',
+    'Eixo Tematico Principal',
+    'Eixo Temático',
+    'Eixo Tematico',
+    'Eixo Temático Secundário',
+    'Eixo Tematico Secundario',
+    'Eixo Temático 2',
+    'Eixo Tematico 2',
+    'Eixo 2'
+  ].map(function(alias) {
+    return GEAPA_CORE.coreNormalizeHeader(alias);
   });
 
-  if (!targetHeader) return {
+  Object.keys(headerMap || {}).forEach(function(header) {
+    var normalized = GEAPA_CORE.coreNormalizeHeader(header);
+    if (targetAliases.indexOf(normalized) >= 0) {
+      targetHeaders.push(header);
+    }
+  });
+
+  if (!targetHeaders.length) return {
     ok: true,
     skipped: true,
     reason: 'historico_axis_header_missing'
   };
 
   var totalRows = Math.max(sheet.getMaxRows() - 1, 1);
-  var col = GEAPA_CORE.coreGetCol(headerMap, targetHeader);
-  if (!col) return {
-    ok: true,
-    skipped: true,
-    reason: 'historico_axis_column_missing'
-  };
-
   var validation = SpreadsheetApp.newDataValidation()
     .requireValueInList(axisLabels, true)
     .setAllowInvalid(true)
     .setHelpText('Selecione um eixo tematico oficial da base institucional de eixos.')
     .build();
 
-  sheet.getRange(2, col, totalRows, 1).setDataValidation(validation);
-  sheet.getRange(1, col).setNote(
-    'Use apenas eixos tematicos oficiais da base institucional. ' +
-    'O historico publico e os resumos de apresentacoes dependem desta padronizacao.'
-  );
+  var appliedHeaders = [];
+  targetHeaders.forEach(function(targetHeader) {
+    var col = GEAPA_CORE.coreGetCol(headerMap, targetHeader);
+    if (!col) return;
+    sheet.getRange(2, col, totalRows, 1).setDataValidation(validation);
+    sheet.getRange(1, col).setNote(
+      'Use apenas eixos tematicos oficiais da base institucional. ' +
+      'O historico publico e os resumos de apresentacoes dependem desta padronizacao.'
+    );
+    appliedHeaders.push(targetHeader);
+  });
+
+  if (!appliedHeaders.length) return {
+    ok: true,
+    skipped: true,
+    reason: 'historico_axis_column_missing'
+  };
 
   return {
     ok: true,
-    appliedHeaders: [targetHeader]
+    appliedHeaders: appliedHeaders
   };
 }
 

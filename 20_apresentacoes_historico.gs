@@ -1,7 +1,19 @@
 function atividades_getHistoricoPublicoHeaderAliases_() {
   return Object.freeze({
     TITULO: Object.freeze(['Título', 'Titulo']),
-    EIXO_TEMATICO: Object.freeze(['Eixo Temático', 'Eixo Tematico']),
+    EIXO_TEMATICO: Object.freeze([
+      'Eixo Temático Principal',
+      'Eixo Tematico Principal',
+      'Eixo Temático',
+      'Eixo Tematico'
+    ]),
+    EIXO_TEMATICO_SECUNDARIO: Object.freeze([
+      'Eixo Temático Secundário',
+      'Eixo Tematico Secundario',
+      'Eixo Temático 2',
+      'Eixo Tematico 2',
+      'Eixo 2'
+    ]),
     PALESTRANTE: Object.freeze(['Palestrante']),
     RGA: Object.freeze(['RGA']),
     DATA: Object.freeze(['Data']),
@@ -21,18 +33,35 @@ function atividades_findHistoricoPublicoHeaderName_(headerMap, aliases) {
     return GEAPA_CORE.coreNormalizeHeader(alias);
   });
 
-  for (var i = 0; i < keys.length; i++) {
-    if (wanted.indexOf(GEAPA_CORE.coreNormalizeHeader(keys[i])) >= 0) {
-      return keys[i];
+  for (var i = 0; i < wanted.length; i++) {
+    for (var j = 0; j < keys.length; j++) {
+      if (GEAPA_CORE.coreNormalizeHeader(keys[j]) === wanted[i]) {
+        return keys[j];
+      }
     }
   }
 
   return '';
 }
 
-function atividades_ensureHistoricoPublicoHeader_(sheet, headerMap, aliases, canonicalName) {
+function atividades_ensureHistoricoPublicoHeader_(sheet, headerMap, aliases, canonicalName, opts) {
+  opts = opts || {};
+  if (opts.renameToCanonical) {
+    var canonical = atividades_findHistoricoPublicoHeaderName_(headerMap, [canonicalName]);
+    if (canonical) return canonical;
+  }
+
   var existing = atividades_findHistoricoPublicoHeaderName_(headerMap, aliases);
-  if (existing) return existing;
+  if (existing) {
+    if (opts.renameToCanonical) {
+      var existingCol = GEAPA_CORE.coreGetCol(headerMap, existing);
+      if (existingCol) {
+        sheet.getRange(1, existingCol).setValue(canonicalName);
+        return canonicalName;
+      }
+    }
+    return existing;
+  }
 
   var nextCol = Math.max(1, sheet.getLastColumn() + 1);
   sheet.getRange(1, nextCol).setValue(canonicalName);
@@ -74,6 +103,22 @@ function atividades_buildHistoricoPublicoContext_() {
   atividades_ensureHistoricoPublicoHeader_(
     sheet,
     headerMap,
+    aliases.EIXO_TEMATICO,
+    'Eixo Temático Principal',
+    { renameToCanonical: true }
+  );
+  headerMap = GEAPA_CORE.coreHeaderMap(sheet, 1);
+  atividades_ensureHistoricoPublicoHeader_(
+    sheet,
+    headerMap,
+    aliases.EIXO_TEMATICO_SECUNDARIO,
+    'Eixo Temático Secundário',
+    { renameToCanonical: true }
+  );
+  headerMap = GEAPA_CORE.coreHeaderMap(sheet, 1);
+  atividades_ensureHistoricoPublicoHeader_(
+    sheet,
+    headerMap,
     aliases.LINK,
     'Arquivo'
   );
@@ -88,6 +133,7 @@ function atividades_buildHistoricoPublicoContext_() {
   var resolvedHeaders = {
     TITULO: atividades_findHistoricoPublicoHeaderName_(headerMap, aliases.TITULO),
     EIXO_TEMATICO: atividades_findHistoricoPublicoHeaderName_(headerMap, aliases.EIXO_TEMATICO),
+    EIXO_TEMATICO_SECUNDARIO: atividades_findHistoricoPublicoHeaderName_(headerMap, aliases.EIXO_TEMATICO_SECUNDARIO),
     PALESTRANTE: atividades_findHistoricoPublicoHeaderName_(headerMap, aliases.PALESTRANTE),
     RGA: atividades_findHistoricoPublicoHeaderName_(headerMap, aliases.RGA),
     DATA: atividades_findHistoricoPublicoHeaderName_(headerMap, aliases.DATA),
@@ -125,6 +171,7 @@ function atividades_buildHistoricoPublicoContext_() {
       rowNumber: index + 2,
       titulo: String(row[resolvedHeaders.TITULO] || '').trim(),
       eixoTematico: String(row[resolvedHeaders.EIXO_TEMATICO] || '').trim(),
+      eixoTematicoSecundario: String(row[resolvedHeaders.EIXO_TEMATICO_SECUNDARIO] || '').trim(),
       palestrante: String(row[resolvedHeaders.PALESTRANTE] || '').trim(),
       rga: String(row[resolvedHeaders.RGA] || '').trim(),
       rgaDisplay: String(displayRow[rgaColIndex] || '').trim(),
@@ -240,10 +287,14 @@ function atividades_applyHistoricoPublicoRowStyles_(sheet, rowNumber, ctx) {
     sheet.getRange(rowNumber, eixoCol).setFontWeight('bold');
   }
 
+  var eixoSecundarioCol = GEAPA_CORE.coreGetCol(ctx.headerMap, ctx.resolvedHeaders.EIXO_TEMATICO_SECUNDARIO);
+  if (eixoSecundarioCol) {
+    sheet.getRange(rowNumber, eixoSecundarioCol).setFontWeight('bold');
+  }
+
   var linkCol = GEAPA_CORE.coreGetCol(ctx.headerMap, ctx.resolvedHeaders.LINK);
   if (linkCol) {
     sheet.getRange(rowNumber, linkCol)
-      .setBackground('#fff2cc')
       .setFontWeight('bold')
       .setHorizontalAlignment('center')
       .setVerticalAlignment('middle');
@@ -281,6 +332,20 @@ function atividades_enriquecerHistoricoPublicoExistente_(ctx) {
         { oneBased: true }
       );
       item.eixoTematico = canonicalAxis;
+      changed = true;
+    }
+
+    var canonicalSecondaryAxis = atividades_interpretarEixoApresentacoes_(item.eixoTematicoSecundario);
+    if (canonicalSecondaryAxis && canonicalSecondaryAxis !== String(item.eixoTematicoSecundario || '').trim()) {
+      GEAPA_CORE.coreWriteCellByHeader(
+        ctx.sheet,
+        rowNumber,
+        ctx.headerMap,
+        ctx.resolvedHeaders.EIXO_TEMATICO_SECUNDARIO,
+        canonicalSecondaryAxis,
+        { oneBased: true }
+      );
+      item.eixoTematicoSecundario = canonicalSecondaryAxis;
       changed = true;
     }
 
@@ -373,6 +438,7 @@ function atividades_toHistoricoPublicoObj_(record) {
   return {
     titulo: String(record.TITULO_APRESENTACAO || '').trim(),
     eixoTematico: atividades_interpretarEixoApresentacoes_(record.EIXO_TEMATICO_PRINCIPAL),
+    eixoTematicoSecundario: atividades_interpretarEixoApresentacoes_(record.EIXO_TEMATICO_SECUNDARIO),
     palestrante: String(record.NOME_MEMBRO || '').trim(),
     rga: atividades_normalizeRgaResumoApresentacoes_(record.RGA || ''),
     data: record.DATA_ATIVIDADE || '',
@@ -430,6 +496,7 @@ function atividades_writeHistoricoPublicoRow_(sheet, rowNumber, ctx, hist) {
   hist.periodoApresentacao = atividades_resolverPeriodoHistoricoPublico_(hist);
   GEAPA_CORE.coreWriteCellByHeader(sheet, rowNumber, ctx.headerMap, ctx.resolvedHeaders.TITULO, hist.titulo, { oneBased: true });
   GEAPA_CORE.coreWriteCellByHeader(sheet, rowNumber, ctx.headerMap, ctx.resolvedHeaders.EIXO_TEMATICO, hist.eixoTematico, { oneBased: true });
+  GEAPA_CORE.coreWriteCellByHeader(sheet, rowNumber, ctx.headerMap, ctx.resolvedHeaders.EIXO_TEMATICO_SECUNDARIO, hist.eixoTematicoSecundario || '', { oneBased: true });
   GEAPA_CORE.coreWriteCellByHeader(sheet, rowNumber, ctx.headerMap, ctx.resolvedHeaders.PALESTRANTE, hist.palestrante, { oneBased: true });
   GEAPA_CORE.coreWriteCellByHeader(sheet, rowNumber, ctx.headerMap, ctx.resolvedHeaders.RGA, hist.rga, { oneBased: true });
   GEAPA_CORE.coreWriteCellByHeader(sheet, rowNumber, ctx.headerMap, ctx.resolvedHeaders.DATA, hist.data, { oneBased: true });
@@ -447,6 +514,7 @@ function atividades_appendHistoricoPublicoRow_(ctx, hist) {
     rowNumber: rowNumber,
     titulo: hist.titulo,
     eixoTematico: hist.eixoTematico,
+    eixoTematicoSecundario: hist.eixoTematicoSecundario || '',
     palestrante: hist.palestrante,
     rga: hist.rga,
     data: hist.data,
@@ -695,8 +763,12 @@ function atividades_aplicarUxHistoricoPublicoApresentacoes_() {
   GEAPA_CORE.coreApplyHeaderNotes(sheet, {
     'Título': 'Título oficial da apresentação.',
     'Titulo': 'Título oficial da apresentação.',
-    'Eixo Temático': 'Eixo temático principal da apresentação.',
-    'Eixo Tematico': 'Eixo temático principal da apresentação.',
+    'Eixo Temático Principal': 'Eixo temático principal da apresentação.',
+    'Eixo Tematico Principal': 'Eixo temático principal da apresentação.',
+    'Eixo Temático': 'Eixo temático principal da apresentação. Ao aplicar a UX, este cabecalho legado sera renomeado para Eixo Temático Principal.',
+    'Eixo Tematico': 'Eixo temático principal da apresentação. Ao aplicar a UX, este cabecalho legado sera renomeado para Eixo Tematico Principal.',
+    'Eixo Temático Secundário': 'Eixo temático secundario da apresentação, quando houver.',
+    'Eixo Tematico Secundario': 'Eixo temático secundario da apresentação, quando houver.',
     'Palestrante': 'Nome do membro apresentador.',
     'RGA': 'Identificador oficial do membro apresentador.',
     'Data': 'Data em que a apresentação foi realizada.',
@@ -707,7 +779,16 @@ function atividades_aplicarUxHistoricoPublicoApresentacoes_() {
   }, 1);
 
   GEAPA_CORE.coreApplyHeaderColors(sheet, [
-    { color: '#fce5cd', headers: ['Título', 'Titulo', 'Eixo Temático', 'Eixo Tematico'] },
+    { color: '#fce5cd', headers: [
+      'Título',
+      'Titulo',
+      'Eixo Temático Principal',
+      'Eixo Tematico Principal',
+      'Eixo Temático',
+      'Eixo Tematico',
+      'Eixo Temático Secundário',
+      'Eixo Tematico Secundario'
+    ] },
     { color: '#d9ead3', headers: ['Palestrante', 'RGA'] },
     { color: '#d0e0e3', headers: ['Data', 'Semestre', 'Período da apresentação'] },
     { color: '#fff2cc', headers: ['Arquivo', 'Link'] }
@@ -731,13 +812,17 @@ function atividades_aplicarUxHistoricoPublicoApresentacoes_() {
     sheet.getRange(2, eixoCol, lastRow - 1, 1).setFontWeight('bold');
   }
 
+  var eixoSecundarioCol = GEAPA_CORE.coreGetCol(headerMap, ctx.resolvedHeaders.EIXO_TEMATICO_SECUNDARIO);
+  if (eixoSecundarioCol && lastRow > 1) {
+    sheet.getRange(2, eixoSecundarioCol, lastRow - 1, 1).setFontWeight('bold');
+  }
+
   var fileHeader = ctx.resolvedHeaders.LINK;
   var fileCol = GEAPA_CORE.coreGetCol(headerMap, fileHeader);
   if (fileCol) {
     sheet.setColumnWidth(fileCol, 240);
     if (lastRow > 1) {
       sheet.getRange(2, fileCol, lastRow - 1, 1)
-        .setBackground('#fff2cc')
         .setFontWeight('bold')
         .setHorizontalAlignment('center')
         .setVerticalAlignment('middle');

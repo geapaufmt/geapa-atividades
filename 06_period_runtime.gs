@@ -487,6 +487,7 @@ function atividades_filterActivitiesForCurrentPeriod_(records, ctx) {
     var status = atividades_normalizeTextUpper_(record.STATUS);
 
     if (!idAtividade || !data) return false;
+    if (atividades_isRegistroInstitucionalForaDoEscopo_(record)) return false;
     if (status === 'CANCELADA' || status === 'ARQUIVADA') return false;
     if (ATIVIDADES_CFG.PLANNING.PERIOD_SYNC_STATUSES.indexOf(status) === -1) return false;
     if (!contaPresenca && !contaFalta) return false;
@@ -521,6 +522,17 @@ function atividades_writeTabularPayload_(sheet, headers, rows) {
   if (rows.length) {
     sheet.getRange(2, 1, rows.length, headers.length).setValues(rows);
   }
+}
+
+function atividades_isRegistroInstitucionalForaDoEscopo_(record) {
+  var classificacaoReuniao = atividades_normalizeTextUpper_(record && record.CLASSIFICACAO_REUNIAO);
+  var tipoAtividade = atividades_normalizeTextUpper_(record && record.TIPO_ATIVIDADE);
+  var classificacaoAcesso = atividades_normalizeTextUpper_(record && record.CLASSIFICACAO_ACESSO);
+
+  return classificacaoReuniao === 'DIRETORIA' ||
+    tipoAtividade === 'ESTRATEGICA' ||
+    tipoAtividade === 'DELIBERATIVA' ||
+    classificacaoAcesso === 'RESTRITA_DIRETORIA';
 }
 
 function atividades_sincronizarPeriodoVigente_() {

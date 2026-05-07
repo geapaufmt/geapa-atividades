@@ -33,42 +33,19 @@ function onEditAtividades(e) {
 }
 
 function atividades_jobApresentacoesWrapper_() {
+  return atividades_jobApresentacoesPreEventoWrapper_();
+}
+
+function atividades_jobApresentacoesPreEventoWrapper_() {
   return atividades_runWithOperationalGuard_('APRESENTACOES_INTEGRADAS', null, function() {
-    var job = atividades_jobApresentacoes_();
-    if (job && job.phaseExecuted === 'POS_EVENTO') {
-      return job;
-    }
+    return atividades_jobApresentacoesPreEvento_();
+  }, { entrypoint: 'atividades_jobApresentacoesPreEventoWrapper_', executionType: 'TRIGGER' });
+}
 
-    var autoRealizadasLite = atividades_tryAutoMarkApresentacoesRealizadas_();
-    var statusSyncLite = autoRealizadasLite && Number(autoRealizadasLite.updatedCount || 0)
-      ? atividades_refletirStatusApresentacoesEmAtividades_()
-      : { ok: true, updatedCount: 0, updated: [] };
-    var periodResyncLite = atividades_ressincronizarPeriodoEPresencasAposReflexoStatusApresentacoes_(statusSyncLite);
-    var cobrancasArquivoLite = atividades_enviarCobrancasArquivoApresentacoes_({
-      processOutbox: false
-    });
-    var inboxArquivoLite = atividades_processarInboxArquivoApresentacoes_({
-      processOutbox: false,
-      allowGmailFallback: false
-    });
-    var historicoPublico = atividades_sincronizarHistoricoPublicoApresentacoes_();
-    var resumoMembers = atividades_sincronizarResumoApresentacoesEmMembersAtuais_();
-
-    job = job || { ok: true };
-    job.postRunSync = {
-      autoRealizadasLite: autoRealizadasLite,
-      statusSyncLite: statusSyncLite,
-      periodResyncLite: periodResyncLite,
-      cobrancasArquivoLite: cobrancasArquivoLite,
-      inboxArquivoLite: inboxArquivoLite,
-      historicoPublico: historicoPublico,
-      resumoMembers: resumoMembers,
-      outboxLite: atividades_processOutboxIfNeeded_([
-        cobrancasArquivoLite
-      ])
-    };
-    return job;
-  }, { entrypoint: 'atividades_jobApresentacoesWrapper_', executionType: 'TRIGGER' });
+function atividades_jobApresentacoesPosEventoWrapper_() {
+  return atividades_runWithOperationalGuard_('APRESENTACOES_INTEGRADAS', null, function() {
+    return atividades_jobApresentacoesPosEventoIntegrado_();
+  }, { entrypoint: 'atividades_jobApresentacoesPosEventoWrapper_', executionType: 'TRIGGER' });
 }
 
 function atividades_jobAtividadesGeraisWrapper_() {
@@ -85,6 +62,8 @@ function atividades_removerTriggers_() {
       handler === 'onEditAtividades' ||
       handler === 'atividades_jobPlanejamentoNormativo_' ||
       handler === 'atividades_jobApresentacoesWrapper_' ||
+      handler === 'atividades_jobApresentacoesPreEventoWrapper_' ||
+      handler === 'atividades_jobApresentacoesPosEventoWrapper_' ||
       handler === 'atividades_jobAtividadesGeraisWrapper_'
     ) {
       ScriptApp.deleteTrigger(trigger);
@@ -116,11 +95,19 @@ function atividades_instalarTriggers_() {
     .create();
   created.push('atividades_jobPlanejamentoNormativo_');
 
-  ScriptApp.newTrigger('atividades_jobApresentacoesWrapper_')
+  ScriptApp.newTrigger('atividades_jobApresentacoesPreEventoWrapper_')
     .timeBased()
     .everyHours(1)
+    .nearMinute(5)
     .create();
-  created.push('atividades_jobApresentacoesWrapper_');
+  created.push('atividades_jobApresentacoesPreEventoWrapper_');
+
+  ScriptApp.newTrigger('atividades_jobApresentacoesPosEventoWrapper_')
+    .timeBased()
+    .everyHours(1)
+    .nearMinute(35)
+    .create();
+  created.push('atividades_jobApresentacoesPosEventoWrapper_');
 
   ScriptApp.newTrigger('atividades_jobAtividadesGeraisWrapper_')
     .timeBased()

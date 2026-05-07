@@ -27,7 +27,8 @@ function atividades_buildAtividadeGeralPendenciaMaterialCorrelationKey_(idAtivid
 }
 
 function atividades_isGeneralActivity_(record) {
-  return atividades_normalizeTextUpper_(record && record.SUBTIPO_ATIVIDADE) !== 'APRESENTACAO_MEMBRO';
+  return atividades_normalizeTextUpper_(record && record.SUBTIPO_ATIVIDADE) !== 'APRESENTACAO_MEMBRO' &&
+    !atividades_isRegistroInstitucionalForaDoEscopo_(record);
 }
 
 function atividades_isBlockedGeneralActivityStatus_(record) {
@@ -188,9 +189,7 @@ function atividades_resolverDestinatariosAtividadeGeral_(record) {
   var recipients = [];
 
   if (acesso === 'RESTRITA_DIRETORIA') {
-    recipients = atividades_listBoardMembersForGeneralCommunication_().map(function(item) {
-      return { nome: item.nome, email: item.email, origem: 'DIRETORIA' };
-    });
+    recipients = [];
   } else if (acesso === 'RESTRITA_CONVIDADOS') {
     recipients = convidados.map(function(item) {
       return { nome: item.nome, email: item.email, origem: 'CONVIDADO' };
@@ -235,7 +234,7 @@ function atividades_getGeneralActivityAudienceLabel_(record) {
   if (explicit) return explicit;
 
   var acesso = atividades_normalizeTextUpper_(record && record.CLASSIFICACAO_ACESSO);
-  if (acesso === 'RESTRITA_DIRETORIA') return 'Diretoria vigente do GEAPA';
+  if (acesso === 'RESTRITA_DIRETORIA') return 'Fora do escopo do modulo Atividades';
   if (acesso === 'RESTRITA_CONVIDADOS') return 'Convidados vinculados a atividade';
   if (acesso === 'ABERTA') return 'Membros ativos e convidados vinculados';
   return 'Membros ativos do GEAPA';
@@ -462,8 +461,7 @@ function atividades_hasExistingLogForActivityGeneral_(activityId, logType) {
 }
 
 function atividades_resolveFallbackEmailsForPendingGeneralActivity_() {
-  var emails = atividades_getGovernanceGroupEmails_(ATIVIDADES_CFG.ATIVIDADES_GERAIS_JOB.EMAIL_GROUP_SECRETARIA)
-    .concat(atividades_getGovernanceGroupEmails_(ATIVIDADES_CFG.ATIVIDADES_GERAIS_JOB.EMAIL_GROUP_DIRETORIA));
+  var emails = atividades_getGovernanceGroupEmails_(ATIVIDADES_CFG.ATIVIDADES_GERAIS_JOB.EMAIL_GROUP_SECRETARIA);
 
   var unique = Object.create(null);
   return emails.filter(function(email) {

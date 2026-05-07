@@ -2,7 +2,7 @@
 
 Modulo responsavel pelo dominio `ATIVIDADES`, com foco inicial em:
 
-- cadastro das atividades internas;
+- cadastro de atividades formativas, academicas, tecnicas, organizacionais ou certificaveis do grupo;
 - heranca de regras a partir de `Atividades_Config`;
 - resolucao dinamica do periodo vigente;
 - criacao das abas operacionais do periodo diretamente pelo codigo do modulo;
@@ -24,7 +24,6 @@ Usada apenas quando a atividade for enquadrada como reuniao. Valores atuais:
 
 - `ORDINARIA`
 - `EXTRAORDINARIA`
-- `DIRETORIA`
 
 ### `TIPO_ATIVIDADE`
 
@@ -32,9 +31,7 @@ Define a natureza institucional principal da atividade. Valores atuais:
 
 - `ACADEMICA`
 - `ORGANIZACIONAL`
-- `ESTRATEGICA`
 - `INTERNA`
-- `DELIBERATIVA`
 - `OUTRA`
 
 ### `SUBTIPO_ATIVIDADE`
@@ -56,7 +53,6 @@ Detalha a forma operacional da atividade. Valores atuais:
 Exemplos de combinacao:
 
 - `CLASSIFICACAO_REUNIAO = ORDINARIA`, `TIPO_ATIVIDADE = ORGANIZACIONAL`, `SUBTIPO_ATIVIDADE = SEM_SUBTIPO`
-- `CLASSIFICACAO_REUNIAO = DIRETORIA`, `TIPO_ATIVIDADE = ESTRATEGICA`, `SUBTIPO_ATIVIDADE = SEM_SUBTIPO`
 - `CLASSIFICACAO_REUNIAO = <vazio>`, `TIPO_ATIVIDADE = ACADEMICA`, `SUBTIPO_ATIVIDADE = APRESENTACAO_MEMBRO`
 - `CLASSIFICACAO_REUNIAO = <vazio>`, `TIPO_ATIVIDADE = INTERNA`, `SUBTIPO_ATIVIDADE = DINAMICA`
 
@@ -64,8 +60,9 @@ Exemplos de combinacao:
 
 - `ABERTA`
 - `RESTRITA_MEMBROS`
-- `RESTRITA_DIRETORIA`
 - `RESTRITA_CONVIDADOS`
+
+Registros de reunioes internas da Diretoria, reunioes deliberativas/institucionais, atas institucionais, alteracoes regimentais, aprovacoes normativas e pendencias administrativas pertencem ao controle de Gestao, Atas e Deliberacoes. O modulo `ATIVIDADES` preserva registros antigos na aba principal, mas nao deve cadastrar nem sincronizar esse tipo de registro para as abas dinamicas do periodo.
 
 ## Escopo da V1
 
@@ -202,6 +199,7 @@ Se nenhuma ancora de historico existir no `Registry`, essa e a unica adicao real
 - `atividades_marcarAtividadesGeraisRealizadas()`
 - `atividades_notificarPendenciasAtaMaterialAtividadesGerais()`
 - `atividades_jobApresentacoes()`
+- `atividades_jobApresentacoesPreEvento()`
 - `atividades_jobApresentacoesBase()`
 - `atividades_jobApresentacoesConvites()`
 - `atividades_jobApresentacoesPosEvento()`
@@ -240,7 +238,7 @@ Fluxos integrados nesta fase:
 - `JUSTIFICATIVAS_FALTAS`: importacao, aplicacao de decisoes, abonos e avisos de faltas.
 - `MOTOR_DISCIPLINAR`: snapshot normativo, recalculo disciplinar, alertas e eventos de desligamento por faltas.
 - `ATIVIDADES_GERAIS`: job ciclico e rotinas de convocacao, lembrete, realizacao automatica e pendencias.
-- `APRESENTACOES_INTEGRADAS`: job ciclico, inbox, e-mails, convites, arquivos, fotos e historico publico de apresentacoes no modulo ATIVIDADES.
+- `APRESENTACOES_INTEGRADAS`: triggers horarios de pre e pos-apresentacao, inbox, e-mails, convites, arquivos, fotos e historico publico de apresentacoes no modulo ATIVIDADES.
 - `ARQUIVAMENTO_PERIODOS`: arquivamento de abas dinamicas antigas em planilhas historicas.
 
 Capabilities exigidas por fluxo:
@@ -403,6 +401,8 @@ Funcao publica para recalcule manual:
 
 ### Campos novos em `Presencas_<PERIODO>`
 
+- `APRESENTOU_NO_PERIODO`
+- `DATA_APRESENTACAO_NO_PERIODO`
 - `TOTAL_ATIVIDADES_QUE_CONTAM_FALTA`
 - `LIMITE_FALTAS_PERIODO`
 - `FALTAS_LIQUIDAS`
@@ -411,6 +411,8 @@ Funcao publica para recalcule manual:
 
 Regras de calculo:
 
+- `PREVISAO_APRESENTACAO_NO_PERIODO` continua manual e preservada nas sincronizacoes;
+- `APRESENTOU_NO_PERIODO` e `DATA_APRESENTACAO_NO_PERIODO` sao calculados a partir de `Atividades_Apresentacoes` com `STATUS_APRESENTACAO = REALIZADA` dentro do periodo vigente;
 - `TOTAL_ATIVIDADES_QUE_CONTAM_FALTA` = base oficial congelada do periodo, ou projecao enquanto o snapshot nao for fechado;
 - `LIMITE_FALTAS_PERIODO` = limite oficial congelado do periodo;
 - `FALTAS_LIQUIDAS` = contagem de `F + J`;
@@ -479,11 +481,9 @@ Esse instalador cria:
 - trigger horario para `atividades_jobPlanejamentoNormativo_`, que atualiza a data-limite, tenta congelar o snapshot quando a hora chegar e recalcula o bloco disciplinar;
 - no mesmo job normativo, apos o recalculo disciplinar, o modulo tenta enfileirar automaticamente os avisos de `ALERTA_60` e `ALERTA_80` quando houver transicao real de faixa;
 - trigger horario para `atividades_jobAtividadesGeraisWrapper_`, responsavel pela V1 do fluxo geral da aba `Atividades` para tudo o que nao seja `SUBTIPO_ATIVIDADE = APRESENTACAO_MEMBRO`;
-- trigger horario para `atividades_jobApresentacoes_`, que agora roda em fases ciclicas para reduzir carga e limite de execucoes do Apps Script:
-  - `BASE`: garante `ID_ATIVIDADE`, faz upsert de `APRESENTACAO_MEMBRO`, reflete `STATUS_APRESENTACAO` e, quando esse reflexo altera `Atividades.STATUS`, ressincroniza automaticamente `Atividades_Periodo_<PERIODO>` e `Presencas_<PERIODO>` antes de seguir para agendamento, cobranca e inbox de titulo/eixo e aviso a secretaria;
-  - `CONVITES`: upsert de professores e externos, convites e lembretes aos membros;
-  - `POS_EVENTO`: cobranca/inbox de arquivo, sincronizacao do historico publico e resumo em `MEMBERS_ATUAIS`.
-- no wrapper horario, mesmo quando a fase executada for `BASE` ou `CONVITES`, o modulo faz um pass final de sincronizacao de historico publico e resumo de apresentacoes em `MEMBERS_ATUAIS`, para nao depender exclusivamente da rodada `POS_EVENTO`.
+- trigger horario para `atividades_jobApresentacoesPreEventoWrapper_`, proximo ao minuto 5 de cada hora, cobrindo upsert, reflexo de status, cobranca/inbox de titulo/eixo, aviso a secretaria, convites e lembretes;
+- trigger horario para `atividades_jobApresentacoesPosEventoWrapper_`, proximo ao minuto 35 de cada hora, cobrindo auto-realizacao, cobranca/inbox de PDF, fotos, historico publico e resumo em `MEMBERS_ATUAIS`;
+- o handler legado `atividades_jobApresentacoesWrapper_` permanece apenas como compatibilidade e delega para o fluxo de pre-evento.
 
 ## Integracao com Atividades_Apresentacoes
 
@@ -529,7 +529,8 @@ Fluxo atual entre `AGENDADA`, `CONFIRMADA` e `APROVADA`:
 
 - `AGENDADA` significa apenas que a data foi marcada e o membro deve ser avisado;
 - entre 1 e 4 dias antes da apresentacao, se ainda nao houver titulo/eixo confirmados, o sistema envia cobranca de titulo/eixo;
-- quando a resposta valida e recebida, o sistema grava `TITULO_APRESENTACAO`, `EIXO_TEMATICO_PRINCIPAL`, `EIXO_TEMATICO_SECUNDARIO` e `DATA_CONFIRMACAO_TITULO_EIXO`, alem de mudar `STATUS_APRESENTACAO` para `CONFIRMADA`;
+- o recebimento da resposta de titulo/eixo usa a central `MAIL_EVENTOS`: o job faz ingestao dirigida com `saveFullBody = true`, filtra eventos pendentes com chave `ATX-*` e nao usa leitura direta de threads pelo modulo;
+- quando a resposta valida e recebida pela central, o sistema grava `TITULO_APRESENTACAO`, `EIXO_TEMATICO_PRINCIPAL`, `EIXO_TEMATICO_SECUNDARIO` e `DATA_CONFIRMACAO_TITULO_EIXO`, alem de mudar `STATUS_APRESENTACAO` para `CONFIRMADA`;
 - em seguida, o sistema envia aviso automatico para a secretaria revisar o material;
 - somente depois da analise humana e da mudanca manual para `STATUS_APRESENTACAO = APROVADA` e que a atividade geral passa para `CONFIRMADA` e os convites amplos ficam liberados.
 
@@ -553,6 +554,7 @@ Professores por eixo tematico:
   - `Eixo tematico 2` / `EIXO_TEMATICO_2`
 - os professores elegiveis sao vinculados primeiro em `Atividade_Convidados`, mantendo trilha auditavel por pessoa;
 - o envio e idempotente e usa o controle `CONVITE_ENVIADO` da aba `Atividade_Convidados`.
+- a aba `Atividades_Apresentacoes` mantem o controle agregado em `CONVITE_PROFESSORES_ENVIADO` e `DATA_ENVIO_CONVITE_PROFESSORES`.
 
 Lembretes aos membros:
 
@@ -608,6 +610,7 @@ Participantes externos por eixo tematico:
   - interesse em `EIXO_TEMATICO_PRINCIPAL` e/ou `EIXO_TEMATICO_SECUNDARIO`
 - os externos elegiveis sao vinculados primeiro em `Atividade_Convidados`, mantendo trilha auditavel por pessoa;
 - o envio e idempotente e usa o controle `CONVITE_ENVIADO` da aba `Atividade_Convidados`;
+- a aba `Atividades_Apresentacoes` mantem o controle agregado em `CONVITE_EXTERNOS_ENVIADO` e `DATA_ENVIO_CONVITE_EXTERNOS`;
 - a apresentacao precisa estar em status `APROVADA`;
 - a atividade geral precisa ser aberta a externos, isto e, `CLASSIFICACAO_ACESSO = ABERTA`.
 
@@ -621,22 +624,20 @@ Para limpar e reinstalar:
 
 ## Operacao do job de apresentacoes
 
-O job horario de apresentacoes permanece unico no instalador, mas internamente ele nao tenta mais executar todo o fluxo de uma vez.
+O instalador cria dois triggers horarios independentes para apresentacoes:
 
-Agora o modulo alterna automaticamente entre tres fases:
+1. `PRE_EVENTO`
+2. `POS_EVENTO`
 
-1. `BASE`
-2. `CONVITES`
-3. `POS_EVENTO`
+O `PRE_EVENTO` roda `BASE` e `CONVITES` na mesma execucao. Ele garante `ID_ATIVIDADE`, faz upsert de `APRESENTACAO_MEMBRO`, reflete `STATUS_APRESENTACAO` em `Atividades`, ressincroniza periodo/presencas quando necessario, cobra e processa titulo/eixo via central `MAIL_EVENTOS`, avisa a secretaria, vincula convidados e envia convites/lembretes.
 
-Cada execucao avanca para a fase seguinte. Isso reduz risco de timeout, limite de chamadas e o erro de "funcao executada muitas vezes em curto espaco de tempo".
+O `POS_EVENTO` marca apresentacoes aprovadas como realizadas quando o horario final ja passou e existe evidencia em presencas, reflete esse status em `Atividades`, cobra/processa PDF, processa fotos, sincroniza o historico publico e atualiza o resumo em `MEMBERS_ATUAIS`.
 
 No `POS_EVENTO`, a etapa de inbox de arquivo roda em modo `central_only` quando chamada pelo trigger automatico, mas antes faz uma ingestao dirigida da inbox pela central com busca estreita por assunto e anexo. O fallback direto ao Gmail fica reservado para execucao manual, evitando estourar a cota diaria do servico `gmail`.
 
-No trigger horario, o wrapper tambem garante ao final da execucao uma sincronizacao de historico publico e de resumo em `MEMBERS_ATUAIS` quando a fase rodada nao for `POS_EVENTO`. Assim, o historico nao fica aguardando necessariamente a proxima volta completa do ciclo.
-
 Para teste manual, voce pode rodar cada fase isoladamente:
 
+- `atividades_jobApresentacoesPreEvento()`
 - `atividades_jobApresentacoesBase()`
 - `atividades_jobApresentacoesConvites()`
 - `atividades_jobApresentacoesPosEvento()`
@@ -646,6 +647,8 @@ Para depuracao mais objetiva de historico e membros, estas funcoes continuam dis
 - `atividades_sincronizarHistoricoPublicoApresentacoes()`
 - `atividades_sincronizarResumoApresentacoesEmMembersAtuais()`
 
+Na planilha de historico publico, o campo antigo `Eixo Tematico` e tratado como alias legado de `Eixo Tematico Principal`. A sincronizacao tambem cria/preenche `Eixo Tematico Secundario` quando a apresentacao tiver esse dado em `Atividades_Apresentacoes`.
+
 ## Motor de atividades gerais
 
 O modulo agora separa explicitamente dois fluxos:
@@ -653,7 +656,8 @@ O modulo agora separa explicitamente dois fluxos:
 - fluxo geral de atividades:
   - trabalha diretamente na aba `Atividades`;
   - trata convocacoes, lembretes, auto-realizacao e pendencias administrativas;
-  - ignora qualquer linha com `SUBTIPO_ATIVIDADE = APRESENTACAO_MEMBRO`.
+  - ignora qualquer linha com `SUBTIPO_ATIVIDADE = APRESENTACAO_MEMBRO`;
+  - ignora registros institucionais fora do escopo de atividades do grupo.
 - fluxo especializado de apresentacoes:
   - continua baseado em `Atividades_Apresentacoes`;
   - mantem a semantica propria de apresentacoes, titulo/eixo, convites, PDF, fotos e historico publico.
@@ -666,21 +670,21 @@ Funcoes publicas do fluxo geral:
 - `atividades_marcarAtividadesGeraisRealizadas()`
 - `atividades_notificarPendenciasAtaMaterialAtividadesGerais()`
 
-Regras de status e idempotencia da V1:
+Regras de status, escopo e idempotencia da V1:
 
 - `STATUS = PLANEJADA` nao dispara e-mails;
 - `STATUS = CONFIRMADA` libera convocacao, lembrete e a presenca operacional;
 - `STATUS = REALIZADA` pode ser marcado automaticamente quando houver evidencia real em `Presencas_<PERIODO>`;
 - `STATUS = CANCELADA` e `STATUS = ARQUIVADA` sao sempre ignorados;
+- registros com `CLASSIFICACAO_REUNIAO = DIRETORIA`, `TIPO_ATIVIDADE = ESTRATEGICA`, `TIPO_ATIVIDADE = DELIBERATIVA` ou `CLASSIFICACAO_ACESSO = RESTRITA_DIRETORIA` sao preservados na aba principal, mas ficam fora de `Atividades_Periodo_<PERIODO>` e `Presencas_<PERIODO>`;
 - convocacoes e lembretes usam `correlationKey` estavel e carimbo nas colunas `DATA_CONVOCACAO` e `DATA_LEMBRETE`;
 - pendencias de ata e material usam `correlationKey` estavel e log em `Atividades_Log` para evitar duplicidade.
 
-Reunioes de diretoria na V1:
+Fronteira com Gestao, Atas e Deliberacoes:
 
-- atividades com `CLASSIFICACAO_REUNIAO = DIRETORIA` e `CLASSIFICACAO_ACESSO = RESTRITA_DIRETORIA` podem registrar presenca;
-- para essas atividades, o modulo trata `CONTA_FALTA` de forma efetiva como `NAO`, mantendo o fluxo fora do motor disciplinar geral;
-- membros que nao sao diretores recebem `N/A` nessa coluna em `Presencas_<PERIODO>`;
-- diretores podem receber `P`, `R`, `F`, `J` ou `A`, mas esses valores ficam restritos ao historico administrativo nesta V1.
+- reunioes internas da Diretoria nao devem mais ser cadastradas no modulo `ATIVIDADES`;
+- reunioes deliberativas ou institucionais, atas institucionais, alteracoes regimentais, aprovacoes normativas e pendencias administrativas devem ser tratadas pelo controle de Gestao, Atas e Deliberacoes;
+- as colunas `EXIGE_ATA`, `DATA_LIMITE_ATA` e `LINK_ATA` permanecem no schema por compatibilidade, mas nao devem ser usadas para atas institucionais ou deliberativas neste modulo.
 
 ## Fluxo de virada de periodo
 
@@ -738,6 +742,14 @@ Reunioes de diretoria na V1:
 4. confirme `STATUS_NO_PERIODO = DESLIGADO_NO_PERIODO`;
 5. confirme `DATA_SAIDA_NO_PERIODO`;
 6. confirme `N/A` nas atividades posteriores a data de saida.
+
+### Membro que apresentou no periodo
+
+1. mantenha uma linha em `Atividades_Apresentacoes` com `STATUS_APRESENTACAO = REALIZADA`;
+2. garanta que `RGA` e `DATA_ATIVIDADE` estejam preenchidos;
+3. rode `atividades_sincronizarPresencasPeriodoVigente()`;
+4. confirme `APRESENTOU_NO_PERIODO = SIM`;
+5. confirme `DATA_APRESENTACAO_NO_PERIODO` com a data da apresentacao realizada.
 
 ### Membro suspenso no meio do periodo
 
