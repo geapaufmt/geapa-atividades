@@ -14,6 +14,54 @@ function atividades_validarModulo() {
   }, { entrypoint: 'atividades_validarModulo' });
 }
 
+function atividades_listarParaPortal(contexto) {
+  return atividades_listarParaPortal_(contexto);
+}
+
+function atividades_buscarDetalheParaPortal(idAtividade, contexto) {
+  return atividades_buscarDetalheParaPortal_(idAtividade, contexto);
+}
+
+function atividades_runTestePortalAtividades() {
+  return atividades_runTestePortalAtividades_();
+}
+
+function atividadesV2_sincronizarPortalAtividadesCalendarioDev() {
+  return atividadesV2_sincronizarPortalAtividadesCalendarioDev_();
+}
+
+function atividadesV2_runTestePortalAtividadesCalendarioDev() {
+  return atividadesV2_runTestePortalAtividadesCalendarioDev_();
+}
+
+function atividadesV2_atualizarPortalAtividadesDetalhesDev() {
+  return atividadesV2_atualizarPortalAtividadesDetalhesDev_();
+}
+
+function atividadesV2_portalGetDetalhesAtividade(idAtividade, contexto) {
+  return atividadesV2_portalGetDetalhesAtividade_(idAtividade, contexto);
+}
+
+function atividadesV2_portalGetAtividadesBundle(contexto) {
+  return atividadesV2_portalGetAtividadesBundle_(contexto);
+}
+
+function atividadesV2_limparCachePortalDev() {
+  return atividadesV2_limparCachePortalDev_();
+}
+
+function atividadesV2_portalGetChamada(idAtividade, contexto) {
+  return atividadesV2_portalGetChamada_(idAtividade, contexto);
+}
+
+function atividadesV2_portalSalvarChamada(payload, contexto) {
+  return atividadesV2_portalSalvarChamada_(payload, contexto);
+}
+
+function atividadesV2_runTestePortalChamadaDev() {
+  return atividadesV2_runTestePortalChamadaDev_();
+}
+
 function atividades_setupV1() {
   return atividades_runWithOperationalGuard_('SETUP_V1', null, function() {
     return atividades_setupV1_();
