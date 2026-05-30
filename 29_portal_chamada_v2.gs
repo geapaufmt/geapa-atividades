@@ -256,6 +256,24 @@ function atividadesV2_listarMembrosChamadaViaCore_(dataAtividade, contexto) {
   } else if (
     typeof GEAPA_CORE !== 'undefined' &&
     GEAPA_CORE &&
+    typeof GEAPA_CORE.geapaCoreListarMembrosParaChamada === 'function'
+  ) {
+    result = GEAPA_CORE.geapaCoreListarMembrosParaChamada(isoDate, contexto || {});
+  } else if (
+    typeof GEAPA_CORE !== 'undefined' &&
+    GEAPA_CORE &&
+    typeof GEAPA_CORE.coreListarMembrosParaChamada === 'function'
+  ) {
+    result = GEAPA_CORE.coreListarMembrosParaChamada(isoDate, contexto || {});
+  } else if (
+    typeof GEAPA_CORE !== 'undefined' &&
+    GEAPA_CORE &&
+    typeof GEAPA_CORE.listarMembrosParaChamada === 'function'
+  ) {
+    result = GEAPA_CORE.listarMembrosParaChamada(isoDate, contexto || {});
+  } else if (
+    typeof GEAPA_CORE !== 'undefined' &&
+    GEAPA_CORE &&
     GEAPA_CORE.portal &&
     typeof GEAPA_CORE.portal.listarMembrosParaChamada === 'function'
   ) {
