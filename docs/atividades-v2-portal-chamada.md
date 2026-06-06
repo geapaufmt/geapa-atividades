@@ -20,6 +20,8 @@ Regras:
 - valida se a atividade existe na v2 DEV;
 - recusa atividade `CANCELADA` ou `ARQUIVADA`;
 - exige que a atividade conte presenca/falta ou exija lista de presenca;
+- valida a janela operacional configurada em `portal_config` antes de carregar participantes;
+- permite visualizar chamada ja salva/finalizada conforme permissao, mesmo fora da janela de registro;
 - lista membros aplicaveis pela data da atividade via GEAPA Core;
 - mescla registros ja salvos em `Atividades_Presencas_Registros`;
 - inclui convidados/externos previstos em `Atividades_Convites`, com campos seguros.
@@ -32,6 +34,7 @@ Regras:
 
 - valida permissao no backend;
 - usa `LockService`;
+- revalida a janela operacional antes de salvar ou finalizar;
 - revalida membros aplicaveis pela data da atividade;
 - impede presenca/falta para membro nao aplicavel;
 - valida status de presenca;
@@ -95,6 +98,22 @@ PRS-2026-1-0005-202321801022
 | NAO_SE_APLICA | N/A |
 
 Se o payload vier com codigo divergente, o backend corrige para o codigo esperado pelo status.
+
+## Janela Operacional
+
+A janela de registro de chamada vem da aba `portal_config` da planilha de parametros operacionais. O modulo le essas chaves com cache curto no Apps Script:
+
+```text
+ATIVIDADES_CHAMADA_ANTECEDENCIA_MINUTOS
+ATIVIDADES_CHAMADA_TOLERANCIA_POS_MINUTOS
+ATIVIDADES_DESTACAR_PROXIMA
+ATIVIDADES_PRELOAD_DETALHES
+ATIVIDADES_PRELOAD_LIMITE
+```
+
+Padrao atual, caso a configuracao nao esteja disponivel: 60 minutos antes e 60 minutos depois.
+
+Alterar a antecedencia de 60 para 30 minutos em `portal_config` nao exige deploy; a mudanca passa a valer apos expirar o cache curto.
 
 ## Segurança
 

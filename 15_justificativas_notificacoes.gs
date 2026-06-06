@@ -32,6 +32,7 @@ function atividades_buildFaltaNotificationPayload_(activityInfo, presenceRecord)
         title: 'Atividade',
         items: [
           { label: 'Código da atividade', value: activityInfo.codigoAtividade },
+          { label: 'ID da atividade', value: activityInfo.idAtividade || '-' },
           { label: 'Título', value: activityInfo.titulo || '-' },
           { label: 'Data', value: activityInfo.dataAtividade ? GEAPA_CORE.coreFormatDate(activityInfo.dataAtividade, Session.getScriptTimeZone(), ATIVIDADES_CFG.DATE_FORMAT) : '-' }
         ]
@@ -176,22 +177,44 @@ function atividades_notificarResultadoJustificativa_(record, opts) {
   };
 }
 
-function atividades_notificarFaltasPendentes_() {
+function atividades_buildFaltasPendentesFilterSet_(values) {
+  if (!Array.isArray(values) || !values.length) return null;
+  var set = Object.create(null);
+  values.forEach(function(value) {
+    var normalized = String(value || '').trim();
+    if (normalized) set[normalized] = true;
+  });
+  return Object.keys(set).length ? set : null;
+}
+
+function atividades_notificarFaltasPendentes_(opts) {
+  opts = opts || {};
   atividades_garantirEstruturasFixasV1_();
 
   var importResult = atividades_importarJustificativasFaltas_();
   var activityLookup = atividades_buildCurrentPeriodActivityLookup_();
   var presenceState = atividades_buildCurrentPresenceState_();
+  var previaPromoteResult = atividades_promoverJustificativasPreviasParaPendentes_(activityLookup, presenceState);
   var justificativasState = atividades_readJustificativasState_();
-  var avisosJaRegistrados = atividades_buildAvisosFaltaJaRegistradosSet_();
+  // A fila central e a fonte de verdade para deduplicacao de e-mails.
+  // Atividades_Log e apenas auditoria e nao deve bloquear reprocessamentos.
+  var avisosJaRegistrados = Object.create(null);
+  var activityFilterSet = atividades_buildFaltasPendentesFilterSet_(opts.activityIds);
+  var codigoFilterSet = atividades_buildFaltasPendentesFilterSet_(opts.codigoAtividades);
   var queued = [];
   var duplicates = 0;
+  var deferred = 0;
+  var errors = 0;
   var skipped = [];
+  var warnings = [];
 
   Object.keys(activityLookup.byCode).sort().forEach(function(codigoAtividade) {
     var activityInfo = activityLookup.byCode[codigoAtividade];
+    if (codigoFilterSet && !codigoFilterSet[codigoAtividade]) return;
+    if (activityFilterSet && !activityFilterSet[String(activityInfo && activityInfo.idAtividade || '').trim()]) return;
     if (!activityInfo || !activityInfo.contaFalta || !activityInfo.colunaPresenca) return;
     if (!atividades_justificativaAindaNoPrazo_(activityInfo, new Date())) {
+      skipped.push({ codigoAtividade: codigoAtividade, reason: 'fora_do_prazo_de_justificativa' });
       return;
     }
 
@@ -205,43 +228,88 @@ function atividades_notificarFaltasPendentes_() {
 
       var key = atividades_buildJustificativaKey_(activityLookup.ctx.code, codigoAtividade, rga);
       if (justificativasState.byKey[key]) {
-        skipped.push({ rga: rga, codigoAtividade: codigoAtividade, reason: 'justificativa_ja_registrada' });
-        return;
+        var justificativaExistente = justificativasState.byKey[key].record || {};
+        var justificativaTemporalmenteValida = !atividades_justificativaRecordPreviaForaDaJanela_(justificativaExistente, activityInfo);
+        if (!justificativaTemporalmenteValida) {
+          warnings.push({
+            rga: rga,
+            codigoAtividade: codigoAtividade,
+            idAtividade: activityInfo.idAtividade,
+            reason: 'justificativa_previa_fora_da_janela_ignorada',
+            idJustificativa: String(justificativaExistente.ID_JUSTIFICATIVA || '').trim(),
+            statusAnalise: String(justificativaExistente.STATUS_ANALISE || '').trim(),
+            dataEnvio: String(justificativaExistente.DATA_ENVIO || '').trim()
+          });
+        } else {
+          skipped.push({
+            rga: rga,
+            codigoAtividade: codigoAtividade,
+            idAtividade: activityInfo.idAtividade,
+            reason: 'justificativa_ja_registrada',
+            idJustificativa: String(justificativaExistente.ID_JUSTIFICATIVA || '').trim(),
+            statusAnalise: String(justificativaExistente.STATUS_ANALISE || '').trim(),
+            dataEnvio: String(justificativaExistente.DATA_ENVIO || '').trim()
+          });
+          return;
+        }
       }
 
       var email = String(presenceRecord.EMAIL || '').trim();
       if (!GEAPA_CORE.coreIsValidEmail(email)) {
-        skipped.push({ rga: rga, codigoAtividade: codigoAtividade, reason: 'email_invalido' });
+        skipped.push({ rga: rga, codigoAtividade: codigoAtividade, idAtividade: activityInfo.idAtividade, reason: 'email_invalido' });
         return;
       }
 
       var correlationKey = atividades_buildFaltaNotificationCorrelationKey_(activityLookup.ctx.code, codigoAtividade, rga);
       if (avisosJaRegistrados[correlationKey]) {
-        skipped.push({ rga: rga, codigoAtividade: codigoAtividade, reason: 'aviso_ja_registrado' });
+        skipped.push({ rga: rga, codigoAtividade: codigoAtividade, idAtividade: activityInfo.idAtividade, reason: 'aviso_ja_registrado' });
         return;
       }
-      var queueResult = GEAPA_CORE.coreMailQueueOutgoing({
-        moduleName: ATIVIDADES_CFG.MODULE_CODE,
-        templateKey: 'GEAPA_OPERACIONAL',
-        correlationKey: correlationKey,
-        entityType: 'MEMBRO',
-        entityId: rga,
-        flowCode: 'FALTA',
-        stage: 'AVISO',
-        to: email,
-        recipientName: String(presenceRecord.NOME_MEMBRO || '').trim(),
-        subjectHuman: 'Falta registrada em atividade do GEAPA',
-        payload: atividades_buildFaltaNotificationPayload_(activityInfo, presenceRecord),
-        metadata: {
-          source: 'geapa-atividades',
-          periodCode: activityLookup.ctx.code,
+
+      var queueResult;
+      try {
+        queueResult = atividades_tryQueueOutgoing_({
+          moduleName: ATIVIDADES_CFG.MODULE_CODE,
+          templateKey: 'GEAPA_OPERACIONAL',
+          correlationKey: correlationKey,
+          entityType: 'MEMBRO',
+          entityId: rga,
+          flowCode: 'FALTA',
+          stage: 'AVISO',
+          to: email,
+          recipientName: String(presenceRecord.NOME_MEMBRO || '').trim(),
+          subjectHuman: 'Falta registrada em atividade do GEAPA',
+          payload: atividades_buildFaltaNotificationPayload_(activityInfo, presenceRecord),
+          metadata: {
+            source: 'geapa-atividades',
+            periodCode: activityLookup.ctx.code,
+            codigoAtividade: codigoAtividade,
+            idAtividade: String(activityInfo.idAtividade || '').trim(),
+            colunaPresenca: String(activityInfo.colunaPresenca || '').trim(),
+            rga: rga
+          }
+        });
+      } catch (err) {
+        errors++;
+        skipped.push({
+          rga: rga,
           codigoAtividade: codigoAtividade,
-          rga: rga
-        }
-      });
+          idAtividade: activityInfo.idAtividade,
+          reason: 'erro_fila_central',
+          message: err && err.message ? err.message : String(err)
+        });
+        return;
+      }
 
       if (queueResult && queueResult.duplicate) {
         duplicates++;
+        avisosJaRegistrados[correlationKey] = true;
+        return;
+      }
+
+      if (queueResult && queueResult.locked) {
+        deferred++;
+        skipped.push({ rga: rga, codigoAtividade: codigoAtividade, idAtividade: activityInfo.idAtividade, reason: 'fila_central_ocupada' });
         return;
       }
 
@@ -249,6 +317,7 @@ function atividades_notificarFaltasPendentes_() {
         queued.push({
           rga: rga,
           codigoAtividade: codigoAtividade,
+          idAtividade: activityInfo.idAtividade,
           correlationKey: correlationKey,
           saidaId: queueResult.saidaId || ''
         });
@@ -258,14 +327,42 @@ function atividades_notificarFaltasPendentes_() {
           STATUS: 'OK',
           ACAO_EXECUTADA: 'Enfileirar aviso automatico de falta',
           RESULTADO: correlationKey,
-          OBSERVACOES: 'RGA=' + rga + ' | CODIGO_ATIVIDADE=' + codigoAtividade + ' | saidaId=' + (queueResult.saidaId || '')
+          OBSERVACOES: 'RGA=' + rga +
+            ' | CODIGO_ATIVIDADE=' + codigoAtividade +
+            ' | ID_ATIVIDADE=' + (activityInfo.idAtividade || '') +
+            ' | COLUNA_PRESENCA=' + (activityInfo.colunaPresenca || '') +
+            ' | saidaId=' + (queueResult.saidaId || '')
         });
         avisosJaRegistrados[correlationKey] = true;
+        return;
       }
+
+      skipped.push({ rga: rga, codigoAtividade: codigoAtividade, idAtividade: activityInfo.idAtividade, reason: 'fila_nao_enfileirou' });
     });
   });
 
-  var outboxResult = queued.length ? GEAPA_CORE.coreMailProcessOutbox() : {
+  if (deferred || errors || skipped.length || warnings.length) {
+    atividades_logEvento_({
+      TIPO_EVENTO_LOG: ATIVIDADES_CFG.JUSTIFICATIVAS_LOG_TYPES.AVISO_FALTA,
+      STATUS: errors ? 'ERRO' : 'ATENCAO',
+      ACAO_EXECUTADA: 'Auditar avisos automaticos de falta e justificativas ignoradas',
+      RESULTADO: 'skipped=' + skipped.length + ' | warnings=' + warnings.length + ' | deferred=' + deferred + ' | errors=' + errors,
+      OBSERVACOES: skipped.concat(warnings).slice(0, 30).map(function(item) {
+        return (item.rga || 'SEM_RGA') +
+          ':' + (item.codigoAtividade || 'SEM_CODIGO') +
+          ':' + (item.idAtividade || 'SEM_ID') +
+          ':' + item.reason +
+          (item.idJustificativa ? ':JUS=' + item.idJustificativa : '') +
+          (item.statusAnalise ? ':STATUS=' + item.statusAnalise : '');
+      }).join(' | ')
+    });
+  }
+
+  var outboxResult = opts.processOutbox === false ? {
+    ok: true,
+    skipped: true,
+    reason: 'process_outbox_disabled'
+  } : queued.length ? GEAPA_CORE.coreMailProcessOutbox() : {
     ok: true,
     processed: 0
   };
@@ -275,8 +372,107 @@ function atividades_notificarFaltasPendentes_() {
     periodCode: activityLookup.ctx.code,
     imported: importResult,
     queued: queued.length,
+    queuedCount: queued.length,
     duplicates: duplicates,
+    duplicateCount: duplicates,
+    deferred: deferred,
+    deferredCount: deferred,
+    errors: errors,
+    errorCount: errors,
     skipped: skipped,
+    warnings: warnings,
+    previaPromoteResult: previaPromoteResult,
     outbox: outboxResult
   };
+}
+
+function atividades_diagnosticarFaltasPendentes_(opts) {
+  opts = opts || {};
+  atividades_garantirEstruturasFixasV1_();
+
+  var activityLookup = atividades_buildCurrentPeriodActivityLookup_();
+  var presenceState = atividades_buildCurrentPresenceState_();
+  var justificativasState = atividades_readJustificativasState_();
+  var avisosJaRegistrados = atividades_buildAvisosFaltaJaRegistradosSet_();
+  var activityFilterSet = atividades_buildFaltasPendentesFilterSet_(opts.activityIds);
+  var codigoFilterSet = atividades_buildFaltasPendentesFilterSet_(opts.codigoAtividades);
+  var rows = [];
+  var counters = {
+    activities: 0,
+    faltas: 0,
+    elegiveis: 0,
+    blocked: 0
+  };
+
+  Object.keys(activityLookup.byCode).sort().forEach(function(codigoAtividade) {
+    var activityInfo = activityLookup.byCode[codigoAtividade];
+    if (codigoFilterSet && !codigoFilterSet[codigoAtividade]) return;
+    if (activityFilterSet && !activityFilterSet[String(activityInfo && activityInfo.idAtividade || '').trim()]) return;
+    if (!activityInfo || !activityInfo.contaFalta || !activityInfo.colunaPresenca) return;
+    counters.activities++;
+
+    Object.keys(presenceState.byRga).sort().forEach(function(rga) {
+      var presenceItem = presenceState.byRga[rga];
+      var presenceRecord = presenceItem.record || {};
+      var currentValue = atividades_normalizeTextUpper_(presenceRecord[activityInfo.colunaPresenca]);
+      if (currentValue !== 'F') return;
+
+      counters.faltas++;
+      var key = atividades_buildJustificativaKey_(activityLookup.ctx.code, codigoAtividade, rga);
+      var correlationKey = atividades_buildFaltaNotificationCorrelationKey_(activityLookup.ctx.code, codigoAtividade, rga);
+      var email = String(presenceRecord.EMAIL || '').trim();
+      var reasons = [];
+
+      if (!atividades_justificativaAindaNoPrazo_(activityInfo, new Date())) reasons.push('fora_do_prazo_de_justificativa');
+      if (!atividades_isMemberApplicableForActivityDate_(presenceRecord, activityInfo.dataAtividade)) reasons.push('membro_nao_aplicavel_na_data');
+      var justificativaExistente = justificativasState.byKey[key] ? justificativasState.byKey[key].record || {} : null;
+      var justificativaTemporalmenteValida = justificativaExistente
+        ? !atividades_justificativaRecordPreviaForaDaJanela_(justificativaExistente, activityInfo)
+        : false;
+      if (justificativaExistente && justificativaTemporalmenteValida) reasons.push('justificativa_ja_registrada');
+      if (!GEAPA_CORE.coreIsValidEmail(email)) reasons.push('email_invalido');
+      var avisoRegistradoEmLog = !!avisosJaRegistrados[correlationKey];
+
+      if (reasons.length) {
+        counters.blocked++;
+      } else {
+        counters.elegiveis++;
+      }
+
+      rows.push({
+        codigoAtividade: codigoAtividade,
+        idAtividade: activityInfo.idAtividade,
+        colunaPresenca: activityInfo.colunaPresenca,
+        rga: rga,
+        nome: String(presenceRecord.NOME_MEMBRO || '').trim(),
+        email: email,
+        valorPresenca: currentValue,
+        correlationKey: correlationKey,
+        elegivel: reasons.length ? 'NAO' : 'SIM',
+        reasons: reasons,
+        warnings: []
+          .concat(justificativaExistente && !justificativaTemporalmenteValida ? ['justificativa_previa_fora_da_janela_ignorada'] : [])
+          .concat(avisoRegistradoEmLog ? ['aviso_registrado_apenas_em_log'] : []),
+        justificativa: justificativaExistente ? {
+          idJustificativa: String(justificativaExistente.ID_JUSTIFICATIVA || '').trim(),
+          statusAnalise: String(justificativaExistente.STATUS_ANALISE || '').trim(),
+          dataEnvio: String(justificativaExistente.DATA_ENVIO || '').trim(),
+          decisaoAplicada: String(justificativaExistente.DECISAO_APLICADA_NA_PRESENCA || '').trim()
+        } : null
+      });
+    });
+  });
+
+  return {
+    ok: true,
+    periodCode: activityLookup.ctx.code,
+    counters: counters,
+    rows: rows
+  };
+}
+
+function atividades_reenviarAvisosFaltasPendentes_() {
+  return atividades_notificarFaltasPendentes_({
+    ignoreRegisteredLogs: true
+  });
 }

@@ -77,6 +77,72 @@ function atividades_onEditPeriodoSync_(e) {
   atividades_sincronizarPresencasPeriodoVigente_();
 }
 
+function atividades_onEditConfirmacaoConvidados_(e) {
+  if (!e || !e.range) return;
+
+  var sheet = e.range.getSheet();
+  var atividadesSheet = atividades_getAtividadesSheet_();
+  if (sheet.getSheetId() !== atividadesSheet.getSheetId()) return;
+  if (e.range.getRow() <= 1) return;
+
+  var headerMap = GEAPA_CORE.coreHeaderMap(atividadesSheet, 1);
+  var monitoredCols = [
+    'STATUS',
+    'EXIGE_CONFIRMACAO_PRESENCA',
+    'ID_ATIVIDADE'
+  ].map(function(header) {
+    return GEAPA_CORE.coreGetCol(headerMap, header);
+  }).filter(function(col) {
+    return !!col;
+  });
+
+  if (monitoredCols.indexOf(e.range.getColumn()) === -1) return;
+
+  var rowValues = atividadesSheet.getRange(e.range.getRow(), 1, 1, atividadesSheet.getLastColumn()).getValues()[0];
+  var headers = atividadesSheet.getRange(1, 1, 1, atividadesSheet.getLastColumn()).getValues()[0];
+  var rowRecord = GEAPA_CORE.coreRowToObject(headers, rowValues);
+  var status = atividades_normalizeTextUpper_(rowRecord.STATUS);
+  var activityId = String(rowRecord.ID_ATIVIDADE || '').trim();
+  if (!activityId || !atividades_isTruthySim_(rowRecord.EXIGE_CONFIRMACAO_PRESENCA)) return;
+
+  if (status === 'CONFIRMADA') {
+    atividades_upsertConvidadosAtividadeGeral_({ activityIds: [activityId] });
+    return;
+  }
+
+  if (status === 'CONVITES_LIBERADOS') {
+    atividades_enviarSolicitacoesConfirmacaoConvidados_({ activityIds: [activityId] });
+  }
+}
+
+function atividades_onEditConvidados_(e) {
+  if (!e || !e.range) return;
+
+  var sheet = e.range.getSheet();
+  var convidadosSheet;
+  try {
+    convidadosSheet = atividades_getConvidadosSheet_();
+  } catch (err) {
+    return;
+  }
+
+  if (sheet.getSheetId() !== convidadosSheet.getSheetId()) return;
+  if (e.range.getRow() <= 1) return;
+
+  var headerMap = GEAPA_CORE.coreHeaderMap(convidadosSheet, 1);
+  var monitoredCols = [
+    'TIPO_VINCULO_PESSOA',
+    'ID_REFERENCIA'
+  ].map(function(header) {
+    return GEAPA_CORE.coreGetCol(headerMap, header);
+  }).filter(function(col) {
+    return !!col;
+  });
+
+  if (monitoredCols.indexOf(e.range.getColumn()) === -1) return;
+  atividades_autofillProfessoresConvidadosAtividadesGerais_({ rowNumber: e.range.getRow() });
+}
+
 function atividades_onEditJustificativas_(e) {
   if (!e || !e.range) return;
 

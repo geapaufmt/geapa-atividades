@@ -22,6 +22,14 @@ function atividades_buscarDetalheParaPortal(idAtividade, contexto) {
   return atividades_buscarDetalheParaPortal_(idAtividade, contexto);
 }
 
+function atividadesV2_portalGetCalendario(contexto) {
+  return atividadesV2_portalGetCalendario_(contexto);
+}
+
+function atividadesV2_portalGetAtividadesDetalhes(contexto) {
+  return atividadesV2_portalGetAtividadesDetalhes_(contexto);
+}
+
 function atividades_runTestePortalAtividades() {
   return atividades_runTestePortalAtividades_();
 }
@@ -48,6 +56,10 @@ function atividadesV2_portalGetAtividadesBundle(contexto) {
 
 function atividadesV2_limparCachePortalDev() {
   return atividadesV2_limparCachePortalDev_();
+}
+
+function atividadesV2_runTestePortalPerformanceDev() {
+  return atividadesV2_runTestePortalPerformanceDev_();
 }
 
 function atividadesV2_portalGetChamada(idAtividade, contexto) {
@@ -194,6 +206,24 @@ function atividades_notificarPendenciasAtaMaterialAtividadesGerais() {
   }, { entrypoint: 'atividades_notificarPendenciasAtaMaterialAtividadesGerais' });
 }
 
+function atividades_vincularConvidadosAtividadesGerais() {
+  return atividades_runWithOperationalGuard_('ATIVIDADES_GERAIS', null, function() {
+    return atividades_upsertConvidadosAtividadeGeral_();
+  }, { entrypoint: 'atividades_vincularConvidadosAtividadesGerais' });
+}
+
+function atividades_autofillProfessoresConvidadosAtividadesGerais() {
+  return atividades_runWithOperationalGuard_('ATIVIDADES_GERAIS', null, function() {
+    return atividades_autofillProfessoresConvidadosAtividadesGerais_();
+  }, { entrypoint: 'atividades_autofillProfessoresConvidadosAtividadesGerais' });
+}
+
+function atividades_limparDuplicadosConvidadosAtividadesGerais() {
+  return atividades_runWithOperationalGuard_('ATIVIDADES_GERAIS', null, function() {
+    return atividades_limparDuplicadosConvidadosAtividadesGerais_();
+  }, { entrypoint: 'atividades_limparDuplicadosConvidadosAtividadesGerais' });
+}
+
 function atividades_enviarCobrancasTituloEixoApresentacoes() {
   return atividades_runWithOperationalGuard_('APRESENTACOES_INTEGRADAS', null, function() {
     return atividades_enviarCobrancasTituloEixoApresentacoes_();
@@ -246,6 +276,18 @@ function atividades_enviarConvitesExternosApresentacoes() {
   return atividades_runWithOperationalGuard_('APRESENTACOES_INTEGRADAS', null, function() {
     return atividades_enviarConvitesExternosApresentacoes_();
   }, { entrypoint: 'atividades_enviarConvitesExternosApresentacoes' });
+}
+
+function atividades_enviarSolicitacoesConfirmacaoConvidados() {
+  return atividades_runWithOperationalGuard_('APRESENTACOES_INTEGRADAS', null, function() {
+    return atividades_enviarSolicitacoesConfirmacaoConvidados_();
+  }, { entrypoint: 'atividades_enviarSolicitacoesConfirmacaoConvidados' });
+}
+
+function atividades_processarInboxConfirmacoesConvidados() {
+  return atividades_runWithOperationalGuard_('APRESENTACOES_INTEGRADAS', null, function() {
+    return atividades_processarInboxConfirmacoesConvidados_();
+  }, { entrypoint: 'atividades_processarInboxConfirmacoesConvidados' });
 }
 
 function atividades_enviarLembretesMembrosApresentacoes() {
@@ -386,4 +428,16 @@ function atividades_notificarFaltasPendentes() {
   return atividades_runWithOperationalGuard_('JUSTIFICATIVAS_FALTAS', null, function() {
     return atividades_notificarFaltasPendentes_();
   }, { entrypoint: 'atividades_notificarFaltasPendentes' });
+}
+
+function atividades_diagnosticarFaltasPendentes() {
+  return atividades_runWithOperationalGuard_('JUSTIFICATIVAS_FALTAS', null, function() {
+    return atividades_diagnosticarFaltasPendentes_();
+  }, { entrypoint: 'atividades_diagnosticarFaltasPendentes' });
+}
+
+function atividades_reenviarAvisosFaltasPendentes() {
+  return atividades_runWithOperationalGuard_('JUSTIFICATIVAS_FALTAS', null, function() {
+    return atividades_reenviarAvisosFaltasPendentes_();
+  }, { entrypoint: 'atividades_reenviarAvisosFaltasPendentes' });
 }

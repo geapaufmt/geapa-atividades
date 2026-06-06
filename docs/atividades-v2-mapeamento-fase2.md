@@ -39,7 +39,7 @@ Nesta fase, o objetivo e mapear dados e riscos. A migracao real deve ser impleme
 | `DESCRICAO` | `DESCRICAO` | Copiar. |
 | `DESCRICAO` | `DESCRICAO_PUBLICA` | Inicialmente copiar quando apropriado; revisar privacidade. |
 | `DATA_ATIVIDADE` | `DATA_ATIVIDADE` | Copiar. |
-| `PERIODO_REFERENCIA` | `PERIODO_REFERENCIA` | Copiar. |
+| ano da atividade | `CICLO` | Gerar no formato `GEAPA_<ANO>`, por exemplo `GEAPA_2026`. |
 | `HORARIO_INICIO` | `HORARIO_INICIO` | Copiar. |
 | `HORARIO_FIM` | `HORARIO_FIM` | Copiar. |
 | `LOCAL` | `LOCAL` | Copiar. |
@@ -78,7 +78,8 @@ Nesta fase, o objetivo e mapear dados e riscos. A migracao real deve ser impleme
 | --- | --- | --- |
 | `ID_APRESENTACAO` | `ID_APRESENTACAO` | Preservar. |
 | `ID_ATIVIDADE` legado | `ID_ATIVIDADE` | Resolver pelo mapa gerado em `Atividades`. |
-| `PERIODO_REFERENCIA` | `PERIODO_REFERENCIA` | Copiar. |
+| ano da atividade | `CICLO` | Gerar no formato `GEAPA_<ANO>`, por exemplo `GEAPA_2026`. |
+| RGA/e-mail/nome | `ID_PESSOA` | Resolver via GEAPA_CORE/Pessoas v2 quando possivel. |
 | `RGA` | `RGA` | Copiar. |
 | `NOME_MEMBRO` | `NOME_MEMBRO` | Copiar. |
 | `EMAIL_MEMBRO` | `EMAIL_MEMBRO` | Copiar. |
@@ -114,6 +115,7 @@ Nesta fase, o objetivo e mapear dados e riscos. A migracao real deve ser impleme
 | `ID_CONVITE_ATIVIDADE` | `ID_CONVITE_ATIVIDADE` | Preservar. |
 | `ID_ATIVIDADE` legado | `ID_ATIVIDADE` | Resolver pelo mapa gerado em `Atividades`. |
 | `TIPO_VINCULO_PESSOA` | `TIPO_VINCULO_PESSOA` | Copiar e normalizar nomenclatura. |
+| pessoa vinculada | `ID_PESSOA` | Resolver via GEAPA_CORE/Pessoas v2 quando possivel. |
 | `ID_REFERENCIA` | `ID_REFERENCIA` | Copiar. |
 | `NOME` | `NOME` | Copiar. |
 | `EMAIL` | `EMAIL` | Copiar. |
@@ -136,7 +138,8 @@ Nesta fase, o objetivo e mapear dados e riscos. A migracao real deve ser impleme
 | --- | --- | --- |
 | `ID_JUSTIFICATIVA` | `ID_JUSTIFICATIVA` | Preservar. |
 | `ID_ATIVIDADE` legado | `ID_ATIVIDADE` | Resolver pelo mapa gerado em `Atividades`. |
-| `PERIODO` | `PERIODO_REFERENCIA` | Copiar/normalizar. |
+| `PERIODO` ou ano da atividade | `CICLO` | Normalizar para `GEAPA_<ANO>`, por exemplo `GEAPA_2026`. |
+| RGA/e-mail/nome | `ID_PESSOA` | Resolver via GEAPA_CORE/Pessoas v2 quando possivel. |
 | `RGA` | `RGA` | Copiar. |
 | `NOME_MEMBRO` | `NOME_MEMBRO` | Copiar. |
 | `DATA_ATIVIDADE` | `DATA_ATIVIDADE` | Copiar. |
@@ -165,7 +168,8 @@ A V1 usa matriz de presenca por periodo. A v2 deve transformar cada celula de pr
 
 | Fonte | v2 | Regra inicial |
 | --- | --- | --- |
-| Nome da aba `Presencas_<PERIODO>` | `PERIODO_REFERENCIA` | Extrair do nome da aba. |
+| Nome da aba `Presencas_<PERIODO>` | `CICLO` | Extrair/normalizar para `GEAPA_<ANO>`. |
+| Linha do membro em `Presencas_*` | `ID_PESSOA` | Resolver via GEAPA_CORE/Pessoas v2 quando possivel. |
 | Linha do membro em `Presencas_*` | `RGA`, `NOME_PARTICIPANTE`, `EMAIL_PARTICIPANTE` | Copiar metadados do membro. |
 | Coluna dinamica de atividade | `ID_ATIVIDADE` | Resolver pelo mapa de atividades e gerar ID novo `ATV-AAAA-S-NNNN`. |
 | `Atividades_Periodo_*`.`COLUNA_PRESENCA` | vinculo com coluna dinamica | Usar como ponte preferencial. |
@@ -176,7 +180,7 @@ A V1 usa matriz de presenca por periodo. A v2 deve transformar cada celula de pr
 | valor da celula | `MODALIDADE_PRESENCA` | `P` = presencial, `R` = remota, demais conforme regra. |
 | atividade correspondente | `DATA_ATIVIDADE`, `TITULO_ATIVIDADE`, `TIPO_ATIVIDADE`, `SUBTIPO_ATIVIDADE` | Copiar do mapa de atividade. |
 | atividade correspondente | `CONTA_PRESENCA`, `CONTA_FALTA`, `GERA_CERTIFICADO`, `CARGA_HORARIA_TOTAL_ATIVIDADE` | Copiar regras da atividade. |
-| sem equivalente | `ID_REGISTRO_PRESENCA` | Gerar ID novo deterministico por periodo + atividade + RGA. |
+| sem equivalente | `ID_REGISTRO_PRESENCA` | Gerar ID novo deterministico por periodo + atividade + `ID_PESSOA`; usar RGA como fallback legado. |
 | sem equivalente | `TIPO_PARTICIPANTE` | Definir `MEMBRO` para matriz oficial V1. |
 | sem equivalente | `PRESENCA_REGISTRADA` | `SIM` quando houver codigo de presenca/falta conhecido. |
 | sem equivalente | `ORIGEM_REGISTRO` | Definir `MIGRACAO_V1_TESTE`. |

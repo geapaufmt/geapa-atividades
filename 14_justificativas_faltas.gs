@@ -53,6 +53,7 @@ function atividades_buildCurrentPeriodActivityLookup_() {
   });
   var activitiesById = {};
   var byCode = {};
+  var byActivityId = {};
 
   activityRecords.forEach(function(record) {
     var idAtividade = String(record.ID_ATIVIDADE || '').trim();
@@ -77,14 +78,28 @@ function atividades_buildCurrentPeriodActivityLookup_() {
       cargaHoraria: row.CARGA_HORARIA || '',
       atividadeRecord: atividade
     };
+    if (idAtividade) byActivityId[idAtividade] = byCode[code];
   });
 
   return {
     ctx: ctx,
     periodRows: periodRows,
     byCode: byCode,
+    byActivityId: byActivityId,
     activitiesById: activitiesById
   };
+}
+
+function atividades_getCurrentPeriodActivityInfoById_(idAtividade) {
+  var normalizedId = String(idAtividade || '').trim();
+  if (!normalizedId) return null;
+  var lookup = atividades_buildCurrentPeriodActivityLookup_();
+  return lookup.byActivityId[normalizedId] || null;
+}
+
+function atividades_getCodigoAtividadePeriodoById_(idAtividade) {
+  var activityInfo = atividades_getCurrentPeriodActivityInfoById_(idAtividade);
+  return activityInfo ? String(activityInfo.codigoAtividade || '').trim() : '';
 }
 
 function atividades_buildDateTimeFromDateAndTime_(dateValue, timeValue, opts) {
@@ -121,6 +136,68 @@ function atividades_calculateJustificativaDeadline_(activityLookupItem) {
   return baseDate
     ? atividades_addHours_(baseDate, ATIVIDADES_CFG.JUSTIFICATIVAS.NOTIFICATION_WINDOW_HOURS)
     : null;
+}
+
+function atividades_getActivityDayStartForJustificativa_(activityLookupItem) {
+  var activityRecord = activityLookupItem && activityLookupItem.atividadeRecord ? activityLookupItem.atividadeRecord : null;
+  var dateValue = activityRecord ? activityRecord.DATA_ATIVIDADE : (activityLookupItem ? activityLookupItem.dataAtividade : null);
+  var parsed = atividades_parseDateOrNull_(dateValue);
+  if (!parsed) return null;
+  return new Date(parsed.getFullYear(), parsed.getMonth(), parsed.getDate(), 0, 0, 0, 0);
+}
+
+function atividades_justificativaEnviadaAntesDaAtividade_(dataEnvio, activityLookupItem) {
+  var sentAt = atividades_parseDateOrNull_(dataEnvio);
+  var activityDayStart = atividades_getActivityDayStartForJustificativa_(activityLookupItem);
+  if (!sentAt || !activityDayStart) return false;
+  return sentAt.getTime() < activityDayStart.getTime();
+}
+
+function atividades_justificativaRecordEnviadaAntesDaAtividade_(record, activityLookupItem) {
+  return atividades_justificativaEnviadaAntesDaAtividade_(
+    record && record.DATA_ENVIO,
+    activityLookupItem
+  );
+}
+
+function atividades_getJustificativaPreviaWindowStart_(activityLookupItem) {
+  var activityDayStart = atividades_getActivityDayStartForJustificativa_(activityLookupItem);
+  if (!activityDayStart) return null;
+
+  var days = Number(ATIVIDADES_CFG.JUSTIFICATIVAS.PRE_ACTIVITY_WINDOW_DAYS || 7);
+  if (!isFinite(days) || days < 0) days = 7;
+  return new Date(activityDayStart.getTime() - (days * 24 * 60 * 60 * 1000));
+}
+
+function atividades_classificarTemporalidadeJustificativa_(dataEnvio, activityLookupItem) {
+  var sentAt = atividades_parseDateOrNull_(dataEnvio);
+  var activityDayStart = atividades_getActivityDayStartForJustificativa_(activityLookupItem);
+  if (!sentAt || !activityDayStart) return 'SEM_DATA';
+  if (sentAt.getTime() >= activityDayStart.getTime()) return 'POS_ATIVIDADE';
+
+  var windowStart = atividades_getJustificativaPreviaWindowStart_(activityLookupItem);
+  if (windowStart && sentAt.getTime() < windowStart.getTime()) return 'PREVIA_FORA_DA_JANELA';
+  return 'PREVIA';
+}
+
+function atividades_justificativaPreviaForaDaJanela_(dataEnvio, activityLookupItem) {
+  return atividades_classificarTemporalidadeJustificativa_(dataEnvio, activityLookupItem) === 'PREVIA_FORA_DA_JANELA';
+}
+
+function atividades_justificativaRecordPreviaForaDaJanela_(record, activityLookupItem) {
+  return atividades_justificativaPreviaForaDaJanela_(
+    record && record.DATA_ENVIO,
+    activityLookupItem
+  );
+}
+
+function atividades_getInitialStatusAnaliseJustificativa_(existing, temporalidade) {
+  var existingStatus = String(existing && existing.STATUS_ANALISE || '').trim();
+  if (existingStatus) return existingStatus;
+  if (temporalidade === 'PREVIA') {
+    return ATIVIDADES_CFG.JUSTIFICATIVAS.PRE_ACTIVITY_ANALYSIS_STATUS;
+  }
+  return ATIVIDADES_CFG.JUSTIFICATIVAS.DEFAULT_ANALYSIS_STATUS;
 }
 
 function atividades_pickJustificativaFormField_(record, aliases) {
@@ -200,11 +277,15 @@ function atividades_buildJustificativaOfficialPayload_(formEntry, activityLookup
   var existing = existingRecord || {};
   var deadline = activityInfo ? atividades_calculateJustificativaDeadline_(activityInfo) : null;
   var isLate = !!(deadline && formEntry.dataEnvio && formEntry.dataEnvio.getTime() > deadline.getTime());
+  var temporalidade = activityInfo
+    ? atividades_classificarTemporalidadeJustificativa_(formEntry.dataEnvio, activityInfo)
+    : 'SEM_ATIVIDADE';
   var observations = atividades_mergeObservationText_([
     existing.OBSERVACOES || '',
     formEntry.observacoes || '',
     activityInfo ? '' : 'CODIGO_ATIVIDADE_NAO_LOCALIZADO_NO_PERIODO_VIGENTE',
     activityInfo && !activityInfo.contaFalta ? 'ATIVIDADE_MARCADA_COMO_NAO_CONTABILIZA_FALTA' : '',
+    temporalidade === 'PREVIA' ? 'JUSTIFICATIVA_PREVIA' : '',
     isLate ? 'ENVIO_FORA_DO_PRAZO_DE_48H' : ''
   ]);
 
@@ -222,7 +303,7 @@ function atividades_buildJustificativaOfficialPayload_(formEntry, activityLookup
     DESCRICAO_JUSTIFICATIVA: formEntry.descricaoJustificativa || String(existing.DESCRICAO_JUSTIFICATIVA || '').trim(),
     POSSUI_DOCUMENTO_COMPROBATORIO: formEntry.possuiDocumento || String(existing.POSSUI_DOCUMENTO_COMPROBATORIO || '').trim() || 'NAO',
     LINK_DOCUMENTO_COMPROBATORIO: formEntry.linkDocumento || String(existing.LINK_DOCUMENTO_COMPROBATORIO || '').trim(),
-    STATUS_ANALISE: String(existing.STATUS_ANALISE || '').trim() || ATIVIDADES_CFG.JUSTIFICATIVAS.DEFAULT_ANALYSIS_STATUS,
+    STATUS_ANALISE: atividades_getInitialStatusAnaliseJustificativa_(existing, temporalidade),
     DATA_ENVIO: formEntry.dataEnvio || existing.DATA_ENVIO || '',
     DATA_ANALISE: existing.DATA_ANALISE || '',
     ANALISADO_POR: String(existing.ANALISADO_POR || '').trim(),
@@ -266,6 +347,18 @@ function atividades_importarJustificativasFaltas_() {
       return;
     }
 
+    var activityInfo = activityLookup.byCode[formEntry.codigoAtividade] || null;
+    if (activityInfo && atividades_justificativaPreviaForaDaJanela_(formEntry.dataEnvio, activityInfo)) {
+      skipped.push({
+        index: item.index,
+        reason: 'envio_previo_fora_da_janela',
+        codigoAtividade: formEntry.codigoAtividade,
+        idAtividade: activityInfo.idAtividade,
+        rga: formEntry.rga
+      });
+      return;
+    }
+
     var key = atividades_buildJustificativaKey_(
       activityLookup.ctx.code,
       formEntry.codigoAtividade,
@@ -295,13 +388,82 @@ function atividades_importarJustificativasFaltas_() {
     STATUS: 'OK',
     ACAO_EXECUTADA: 'Importar justificativas da planilha bruta para a aba oficial',
     RESULTADO: activityLookup.ctx.code,
-    OBSERVACOES: 'Inseridas=' + inserted + ' | Atualizadas=' + updated + ' | Ignoradas=' + skipped.length
+    OBSERVACOES: 'Inseridas=' + inserted +
+      ' | Atualizadas=' + updated +
+      ' | Ignoradas=' + skipped.length +
+      (skipped.length ? ' | skipped_reasons=' + skipped.slice(0, 20).map(function(item) {
+        return (item.rga || 'SEM_RGA') + ':' +
+          (item.codigoAtividade || 'SEM_CODIGO') + ':' +
+          item.reason;
+      }).join(' | ') : '')
   });
 
   return {
     ok: true,
     periodCode: activityLookup.ctx.code,
     inserted: inserted,
+    updated: updated,
+    skipped: skipped
+  };
+}
+
+function atividades_promoverJustificativasPreviasParaPendentes_(activityLookup, presenceState) {
+  var state = atividades_readJustificativasState_();
+  var updated = 0;
+  var skipped = [];
+
+  state.rows.forEach(function(rowEntry) {
+    var record = rowEntry.record || {};
+    var status = atividades_normalizeTextUpper_(record.STATUS_ANALISE);
+    if (status !== ATIVIDADES_CFG.JUSTIFICATIVAS.PRE_ACTIVITY_ANALYSIS_STATUS) return;
+    if (String(record.PERIODO || '').trim() !== activityLookup.ctx.code) return;
+
+    var target = atividades_locatePresenceTargetForJustificativa_(record, activityLookup, presenceState);
+    if (!target.ok) {
+      skipped.push({
+        idJustificativa: String(record.ID_JUSTIFICATIVA || '').trim(),
+        reason: target.reason
+      });
+      return;
+    }
+
+    if (target.currentValue !== 'F') return;
+    if (atividades_justificativaRecordPreviaForaDaJanela_(record, target.activityInfo)) {
+      skipped.push({
+        idJustificativa: String(record.ID_JUSTIFICATIVA || '').trim(),
+        reason: 'previa_fora_da_janela'
+      });
+      return;
+    }
+
+    var payload = {};
+    Object.keys(record).forEach(function(key) {
+      payload[key] = record[key];
+    });
+    payload.STATUS_ANALISE = ATIVIDADES_CFG.JUSTIFICATIVAS.DEFAULT_ANALYSIS_STATUS;
+    payload.OBSERVACOES = atividades_mergeObservationText_([
+      record.OBSERVACOES || '',
+      'JUSTIFICATIVA_PREVIA_CONVERTIDA_EM_PENDENTE_APOS_FALTA'
+    ]);
+
+    atividades_writeObjectRowByHeaders_(state.sheet, rowEntry.rowNumber, state.headers, payload);
+    updated++;
+  });
+
+  if (updated || skipped.length) {
+    atividades_logEvento_({
+      TIPO_EVENTO_LOG: ATIVIDADES_CFG.JUSTIFICATIVAS_LOG_TYPES.IMPORT_JUSTIFICATIVA,
+      STATUS: 'OK',
+      ACAO_EXECUTADA: 'Promover justificativas previas apos registro de falta',
+      RESULTADO: 'updated=' + updated + ' | skipped=' + skipped.length,
+      OBSERVACOES: skipped.slice(0, 20).map(function(item) {
+        return (item.idJustificativa || 'SEM_ID') + ':' + item.reason;
+      }).join(' | ')
+    });
+  }
+
+  return {
+    ok: true,
     updated: updated,
     skipped: skipped
   };

@@ -182,6 +182,9 @@ Se nenhuma ancora de historico existir no `Registry`, essa e a unica adicao real
 
 - `atividades_diagnostico()`
 - `atividades_validarModulo()`
+- `atividades_listarParaPortal(contexto)`
+- `atividades_buscarDetalheParaPortal(idAtividade, contexto)`
+- `atividades_runTestePortalAtividades()`
 - `atividades_setupV1()`
 - `atividades_garantirPeriodoVigente()`
 - `atividades_sincronizarPeriodoVigente()`
@@ -198,6 +201,9 @@ Se nenhuma ancora de historico existir no `Registry`, essa e a unica adicao real
 - `atividades_enviarLembretesAtividadesGerais()`
 - `atividades_marcarAtividadesGeraisRealizadas()`
 - `atividades_notificarPendenciasAtaMaterialAtividadesGerais()`
+- `atividades_vincularConvidadosAtividadesGerais()`
+- `atividades_autofillProfessoresConvidadosAtividadesGerais()`
+- `atividades_limparDuplicadosConvidadosAtividadesGerais()`
 - `atividades_jobApresentacoes()`
 - `atividades_jobApresentacoesPreEvento()`
 - `atividades_jobApresentacoesBase()`
@@ -211,6 +217,8 @@ Se nenhuma ancora de historico existir no `Registry`, essa e a unica adicao real
 - `atividades_enviarConvitesProfessoresApresentacoes()`
 - `atividades_vincularExternosApresentacoes()`
 - `atividades_enviarConvitesExternosApresentacoes()`
+- `atividades_enviarSolicitacoesConfirmacaoConvidados()`
+- `atividades_processarInboxConfirmacoesConvidados()`
 - `atividades_sincronizarHistoricoPublicoApresentacoes()`
 - `atividades_sincronizarResumoApresentacoesEmMembersAtuais()`
 - `atividades_aplicarUxPlanilhas()`
@@ -284,16 +292,20 @@ Valores aceitos nas colunas dinamicas de presenca:
 
 Resumo do fluxo:
 
-1. a equipe registra a ausencia em `Presencas_<PERIODO>` com `F`;
-2. `atividades_notificarFaltasPendentes()` importa primeiro a base bruta, depois envia aviso automatico para os `F` elegiveis ainda sem justificativa registrada;
-3. `atividades_importarJustificativasFaltas()` consolida as respostas brutas em `Justificativas_Faltas`;
-4. a diretoria analisa manualmente em `Justificativas_Faltas`;
-5. ao marcar `STATUS_ANALISE = DEFERIDA` ou `INDEFERIDA`, o modulo reflete automaticamente a decisao na presenca e envia um e-mail com o resultado da analise;
-6. a cada duas justificativas deferidas no periodo, uma passa de `J` para `A`.
+1. o lembrete da atividade informa o `CODIGO_ATIVIDADE` quando a atividade ja consta em `Atividades_Periodo_<PERIODO>`;
+2. o membro pode preencher o formulario de justificativa antes da atividade, dentro da janela previa configurada;
+3. a equipe registra a ausencia em `Presencas_<PERIODO>` com `F`;
+4. `atividades_notificarFaltasPendentes()` importa primeiro a base bruta, promove justificativas previas validas para `PENDENTE` quando a falta existir, depois envia aviso automatico para os `F` elegiveis ainda sem justificativa registrada;
+5. `atividades_importarJustificativasFaltas()` consolida as respostas brutas em `Justificativas_Faltas`;
+6. a diretoria analisa manualmente em `Justificativas_Faltas`;
+7. ao marcar `STATUS_ANALISE = DEFERIDA` ou `INDEFERIDA`, o modulo reflete automaticamente a decisao na presenca e envia um e-mail com o resultado da analise;
+8. a cada duas justificativas deferidas no periodo, uma passa de `J` para `A`.
 
 Regras aplicadas na V1:
 
 - o prazo padrao e de 48 horas apos a atividade;
+- justificativas previas sao aceitas como `PREVIA` por ate 7 dias antes da atividade;
+- justificativas previas fora dessa janela nao bloqueiam o aviso automatico de falta;
 - o formulario usa `CODIGO_ATIVIDADE` como chave principal;
 - a base bruta continua separada da base oficial de analise;
 - membros com `N/A`, `P`, `R`, `J` ou `A` nao recebem cobranca;
@@ -530,6 +542,9 @@ Fluxo atual entre `AGENDADA`, `CONFIRMADA` e `APROVADA`:
 - `AGENDADA` significa apenas que a data foi marcada e o membro deve ser avisado;
 - entre 1 e 4 dias antes da apresentacao, se ainda nao houver titulo/eixo confirmados, o sistema envia cobranca de titulo/eixo;
 - o recebimento da resposta de titulo/eixo usa a central `MAIL_EVENTOS`: o job faz ingestao dirigida com `saveFullBody = true`, filtra eventos pendentes com chave `ATX-*` e nao usa leitura direta de threads pelo modulo;
+- o processador considera apenas o trecho novo da resposta, antes de citacoes, encaminhamentos ou blocos do modelo institucional, para evitar que o exemplo de titulo/eixo da propria cobranca seja interpretado como resposta do membro;
+- se uma resposta real ja tiver sido ingerida pela central e ficado fora da fila pendente por reprocessamento anterior, o modulo tambem consulta a `MAIL_EVENTOS` pelo Registry e recupera eventos `ATX-*` da mesma apresentacao e RGA, inclusive quando a resposta veio de uma cobranca anterior;
+- respostas com `TITULO` e `EIXO` na mesma linha tambem sao aceitas, como `Titulo: ... Eixo: ...`;
 - quando a resposta valida e recebida pela central, o sistema grava `TITULO_APRESENTACAO`, `EIXO_TEMATICO_PRINCIPAL`, `EIXO_TEMATICO_SECUNDARIO` e `DATA_CONFIRMACAO_TITULO_EIXO`, alem de mudar `STATUS_APRESENTACAO` para `CONFIRMADA`;
 - em seguida, o sistema envia aviso automatico para a secretaria revisar o material;
 - somente depois da analise humana e da mudanca manual para `STATUS_APRESENTACAO = APROVADA` e que a atividade geral passa para `CONFIRMADA` e os convites amplos ficam liberados.
@@ -600,19 +615,42 @@ Autofill de identificacao:
 - a origem do autofill e `MEMBERS_ATUAIS`, via `GEAPA-CORE`;
 - esse `onEdit` nao envia e-mails, nao cria apresentacoes e nao altera status: ele apenas resolve a identidade do membro.
 
-Participantes externos por eixo tematico:
+Publico externo por eixo tematico:
 
 - a fonte oficial e a aba `Participantes Externos` da planilha de pessoas, via `PESSOAS_EXTERNAS_BASE` com fallback legado para `PARTICIPANTES_EXTERNOS_BASE`;
+- ex-membros tambem podem entrar no fluxo, sempre via `GEAPA_CORE.coreGetExMembersCommunicationRecipients({ eixos })`;
+- para ex-membros, o contrato esperado e `STATUS_REGISTRO = HOMOLOGADO`, `RECEBE_COMUNICACOES_GEAPA = SIM` e `STATUS_COMUNICACAO = ATIVO` na aba `Ex-Membros`;
 - o matching dos interesses usa a base oficial `EIXOS_TEMATICOS_OFICIAIS` para transformar os eixos selecionados na apresentacao em chaves institucionais estaveis;
 - o modulo usa essa base para localizar externos com:
   - `ATIVO = SIM`
   - `RECEBE_APRESENTACOES_ALUNOS = SIM`
   - interesse em `EIXO_TEMATICO_PRINCIPAL` e/ou `EIXO_TEMATICO_SECUNDARIO`
-- os externos elegiveis sao vinculados primeiro em `Atividade_Convidados`, mantendo trilha auditavel por pessoa;
+- participantes externos e ex-membros elegiveis sao vinculados primeiro em `Atividade_Convidados`, mantendo trilha auditavel por pessoa;
+- ex-membros sao gravados com `TIPO_VINCULO_PESSOA = EX_MEMBRO`;
+- se a mesma pessoa aparecer como participante externo e ex-membro, o modulo deduplica por e-mail para evitar convite duplicado;
 - o envio e idempotente e usa o controle `CONVITE_ENVIADO` da aba `Atividade_Convidados`;
 - a aba `Atividades_Apresentacoes` mantem o controle agregado em `CONVITE_EXTERNOS_ENVIADO` e `DATA_ENVIO_CONVITE_EXTERNOS`;
 - a apresentacao precisa estar em status `APROVADA`;
 - a atividade geral precisa ser aberta a externos, isto e, `CLASSIFICACAO_ACESSO = ABERTA`.
+
+Confirmacao de presenca de convidados:
+
+- atividades podem marcar `EXIGE_CONFIRMACAO_PRESENCA = SIM`;
+- a V1 processa apenas pessoas vinculadas em `Atividade_Convidados`, sem alterar a presenca oficial dos membros;
+- para atividades gerais abertas de visita/evento, `atividades_vincularConvidadosAtividadesGerais()` preenche a lista nominal com participantes externos que `RECEBE_EVENTOS_VISITAS = SIM`, ex-membros que `RECEBE_COMUNICACOES_GEAPA = SIM` e professores que `RECEBE_EVENTOS_VISITAS = SIM`;
+- a etapa de vinculo nao envia e-mail: ela prepara a lista para curadoria manual antes do disparo;
+- a montagem automatica so preenche atividades ainda sem lista em `Atividade_Convidados`; se a lista ja foi iniciada, exclusoes manuais sao preservadas e o modulo nao reinsere os removidos;
+- professores tambem podem ser inseridos manualmente em `Atividade_Convidados` com `TIPO_VINCULO_PESSOA = PROFESSOR` e `ID_REFERENCIA = ID_PROFESSOR`; o `onEdit` completa `NOME`, `EMAIL` e `PAPEL_NA_ATIVIDADE`;
+- ao marcar a atividade como `CONFIRMADA`, o `onEdit` tenta montar a lista nominal em `Atividade_Convidados`, sem envio de e-mail;
+- a montagem da lista usa lock para evitar duplicidade quando duas execucoes rodam ao mesmo tempo;
+- depois da curadoria manual da lista, marque `STATUS = CONVITES_LIBERADOS` para o `onEdit` enviar as solicitacoes de confirmacao;
+- ao liberar convites, o modulo nao reconstroi a lista: a aba `Atividade_Convidados` passa a ser a fonte de verdade e exclusoes manuais sao respeitadas;
+- o job horario tambem tenta enviar solicitacoes pendentes apenas para atividades em `CONVITES_LIBERADOS`;
+- ao enfileirar a solicitacao, o modulo tambem marca `CONVITE_ENVIADO = SIM`, pois neste fluxo a confirmacao funciona como convite nominal;
+- se uma execucao antiga tiver criado duplicados ainda sem envio/resposta, use `atividades_limparDuplicadosConvidadosAtividadesGerais()` para manter a primeira linha e remover apenas duplicados seguros;
+- o e-mail pede resposta livre, mas objetiva: primeira linha `SIM` ou `NAO`;
+- respostas sao ingeridas pela central `MAIL_EVENTOS` com correlation key `ACF-*`;
+- quando a resposta e interpretada, o modulo atualiza `CONFIRMADO` e `DATA_CONFIRMACAO`.
 
 Usabilidade visual:
 
@@ -673,7 +711,8 @@ Funcoes publicas do fluxo geral:
 Regras de status, escopo e idempotencia da V1:
 
 - `STATUS = PLANEJADA` nao dispara e-mails;
-- `STATUS = CONFIRMADA` libera convocacao, lembrete e a presenca operacional;
+- `STATUS = CONFIRMADA` libera convocacao, lembrete, presenca operacional e montagem da lista nominal de convidados quando houver confirmacao de presenca;
+- `STATUS = CONVITES_LIBERADOS` mantem a atividade operacionalmente confirmada e libera o envio das solicitacoes de confirmacao de presenca apos curadoria da lista nominal;
 - `STATUS = REALIZADA` pode ser marcado automaticamente quando houver evidencia real em `Presencas_<PERIODO>`;
 - `STATUS = CANCELADA` e `STATUS = ARQUIVADA` sao sempre ignorados;
 - registros com `CLASSIFICACAO_REUNIAO = DIRETORIA`, `TIPO_ATIVIDADE = ESTRATEGICA`, `TIPO_ATIVIDADE = DELIBERATIVA` ou `CLASSIFICACAO_ACESSO = RESTRITA_DIRETORIA` sao preservados na aba principal, mas ficam fora de `Atividades_Periodo_<PERIODO>` e `Presencas_<PERIODO>`;
@@ -685,6 +724,20 @@ Fronteira com Gestao, Atas e Deliberacoes:
 - reunioes internas da Diretoria nao devem mais ser cadastradas no modulo `ATIVIDADES`;
 - reunioes deliberativas ou institucionais, atas institucionais, alteracoes regimentais, aprovacoes normativas e pendencias administrativas devem ser tratadas pelo controle de Gestao, Atas e Deliberacoes;
 - as colunas `EXIGE_ATA`, `DATA_LIMITE_ATA` e `LINK_ATA` permanecem no schema por compatibilidade, mas nao devem ser usadas para atas institucionais ou deliberativas neste modulo.
+
+## Contrato de leitura para o Portal GEAPA
+
+O modulo expoe uma camada publica somente leitura para o Portal GEAPA:
+
+- `atividades_listarParaPortal(contexto)`;
+- `atividades_buscarDetalheParaPortal(idAtividade, contexto)`;
+- `atividades_runTestePortalAtividades()`.
+
+Essas funcoes leem a aba `Atividades`, aplicam a mesma guarda de escopo usada na sincronizacao do periodo e devolvem apenas campos seguros para interface. O contrato nao escreve em planilhas, nao retorna e-mails internos, observacoes privadas, logs, lista nominal de participantes ou presencas de outros membros.
+
+Quando o `contexto` nao for informado, o acesso e tratado como `MEMBRO`. Para membros comuns, o portal recebe apenas atividades `ABERTA` ou `RESTRITA_MEMBROS`, sem atividades `CANCELADA` ou `ARQUIVADA`. Perfis `SECRETARIO`, `DIRETORIA` e `ADMIN_TECNICO` podem consultar mais registros, mas ainda recebem somente dados sanitizados e sem acoes reais liberadas nesta etapa.
+
+Nesta V1 os campos de acao retornam sempre sem operacao efetiva: `podeJustificarFalta`, `podeRegistrarChamada` e `podeEditar` permanecem `false`. A criacao, edicao, chamada e justificativa pelo portal ficam para etapas futuras.
 
 ## Fluxo de virada de periodo
 

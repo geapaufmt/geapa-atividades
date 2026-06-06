@@ -43,7 +43,7 @@ Caracteristicas:
 - consolida campos publicos/operacionais necessarios ao detalhe;
 - gera linha comum para atividade sem apresentacao vinculada;
 - gera linha com dados de apresentacao quando houver vinculo por `ID_ATIVIDADE`;
-- permite fallback antigo se a view estiver vazia, mas esse fallback deve ser excecao.
+- deve ser usada no clique/preload do portal sem cruzar abas operacionais em tempo real.
 
 Gerador:
 
@@ -77,9 +77,10 @@ Reservada para indicadores gerais de processamento.
 
 ```js
 atividades_listarParaPortal(contexto)
+atividadesV2_portalGetCalendario(contexto)
 ```
 
-Usa `PORTAL_ATIVIDADES_CALENDARIO`.
+Usam `PORTAL_ATIVIDADES_CALENDARIO`. O caminho v2 aplica cache curto por contexto seguro e retorna somente dados de lista.
 
 ### Detalhe
 
@@ -88,7 +89,27 @@ atividades_buscarDetalheParaPortal(idAtividade, contexto)
 atividadesV2_portalGetDetalhesAtividade(idAtividade, contexto)
 ```
 
-Usa primeiro `PORTAL_ATIVIDADES_DETALHES`. Se a view estiver vazia ou ausente, usa fallback na aba `Atividades`.
+Usam `PORTAL_ATIVIDADES_DETALHES`. O detalhe nao deve cruzar `Atividades` + `Atividades_Apresentacoes` durante o clique do usuario.
+
+### Preload de Detalhes
+
+```js
+atividadesV2_portalGetAtividadesDetalhes(contexto)
+```
+
+Retorna apenas:
+
+```json
+{
+  "ok": true,
+  "data": {
+    "detalhesPorId": {},
+    "ultimaAtualizacao": ""
+  }
+}
+```
+
+Esse endpoint e separado do calendario para permitir primeiro render mais leve e preload posterior.
 
 ### Bundle
 
@@ -109,7 +130,7 @@ Retorna:
 }
 ```
 
-Objetivo: permitir que a aba Atividades carregue lista e detalhes em uma chamada, reduzindo cliques com nova ida ao backend.
+Objetivo: manter compatibilidade com consumidores antigos. Para primeira renderizacao, prefira calendario separado e preload separado.
 
 ## Regras para Novas Views
 

@@ -6,16 +6,20 @@ function atividades_buildAtividadeGeralCorrelationKey_(prefix, parts) {
   })).join('-');
 }
 
-function atividades_buildAtividadeGeralConvocacaoCorrelationKey_(idAtividade) {
-  return atividades_buildAtividadeGeralCorrelationKey_('AGC', [idAtividade]);
-}
-
-function atividades_buildAtividadeGeralLembreteCorrelationKey_(idAtividade, dataAtividade) {
+function atividades_buildAtividadeGeralConvocacaoCorrelationKey_(idAtividade, dataAtividade) {
   var dateObj = atividades_parseDateOrNull_(dataAtividade);
   var dateKey = dateObj
     ? Utilities.formatDate(dateObj, Session.getScriptTimeZone(), 'yyyyMMdd')
     : 'semdata';
-  return atividades_buildAtividadeGeralCorrelationKey_('AGL', [idAtividade, dateKey]);
+  return atividades_buildAtividadeGeralCorrelationKey_('AGC', [idAtividade, dateKey]);
+}
+
+function atividades_buildAtividadeGeralLembreteCorrelationKey_(idAtividade, dataAtividade, audienceKey) {
+  var dateObj = atividades_parseDateOrNull_(dataAtividade);
+  var dateKey = dateObj
+    ? Utilities.formatDate(dateObj, Session.getScriptTimeZone(), 'yyyyMMdd')
+    : 'semdata';
+  return atividades_buildAtividadeGeralCorrelationKey_('AGL', [idAtividade, dateKey, audienceKey]);
 }
 
 function atividades_buildAtividadeGeralPendenciaAtaCorrelationKey_(idAtividade) {
@@ -34,6 +38,11 @@ function atividades_isGeneralActivity_(record) {
 function atividades_isBlockedGeneralActivityStatus_(record) {
   var status = atividades_normalizeTextUpper_(record && record.STATUS);
   return status === 'CANCELADA' || status === 'ARQUIVADA';
+}
+
+function atividades_isConfirmedLikeGeneralActivityStatus_(status) {
+  var normalized = atividades_normalizeTextUpper_(status);
+  return normalized === 'CONFIRMADA' || normalized === 'CONVITES_LIBERADOS';
 }
 
 function atividades_isDiretoriaAdministrativeActivity_(record) {
@@ -182,6 +191,447 @@ function atividades_deduplicateRecipients_(items) {
   return out;
 }
 
+function atividades_listExternosElegiveisParaAtividadeGeral_(record) {
+  var subtipo = atividades_normalizeTextUpper_(record && record.SUBTIPO_ATIVIDADE);
+  var tipo = atividades_normalizeTextUpper_(record && record.TIPO_ATIVIDADE);
+  var aceitaEventosVisitas = subtipo === 'VISITA_TECNICA' ||
+    subtipo === 'EVENTO' ||
+    tipo === 'VISITA_TECNICA' ||
+    tipo === 'EVENTO';
+
+  if (!aceitaEventosVisitas) return [];
+
+  var seen = Object.create(null);
+  return atividades_listExternosBaseRecords_().filter(function(externoRecord) {
+    var email = atividades_getExternalRecordEmail_(externoRecord);
+    var externoId = atividades_getExternalRecordId_(externoRecord);
+    if (!externoId || !GEAPA_CORE.coreIsValidEmail(email)) return false;
+    if (!atividades_isExternalRecordActive_(externoRecord)) return false;
+    if (!atividades_isTruthySim_(externoRecord.RECEBE_EVENTOS_VISITAS)) return false;
+
+    var emailKey = String(email || '').trim().toLowerCase();
+    if (seen[emailKey]) return false;
+    seen[emailKey] = true;
+    return true;
+  }).map(function(externoRecord) {
+    return {
+      id: atividades_getExternalRecordId_(externoRecord),
+      nome: atividades_getExternalRecordName_(externoRecord),
+      email: atividades_getExternalRecordEmail_(externoRecord),
+      tipoVinculo: 'PARTICIPANTE_EXTERNO',
+      papel: 'CONVIDADO',
+      origem: 'RECEBE_EVENTOS_VISITAS'
+    };
+  });
+}
+
+function atividades_listExMembrosElegiveisParaAtividadeGeral_() {
+  if (typeof GEAPA_CORE === 'undefined' || typeof GEAPA_CORE.coreGetExMembersCommunicationRecipients !== 'function') return [];
+
+  var recipients;
+  try {
+    recipients = GEAPA_CORE.coreGetExMembersCommunicationRecipients({}) || [];
+  } catch (err) {
+    atividades_logEvento_({
+      TIPO_EVENTO_LOG: ATIVIDADES_CFG.ATIVIDADES_GERAIS_LOG_TYPES.UPSERT_CONVIDADOS,
+      STATUS: 'ATENCAO',
+      ACAO_EXECUTADA: 'Consultar ex-membros elegiveis para atividade geral',
+      RESULTADO: 'erro_consulta_ex_membros',
+      OBSERVACOES: err && err.message ? err.message : String(err)
+    });
+    return [];
+  }
+
+  return recipients.map(function(recipient) {
+    var email = String(recipient.email || '').trim();
+    var rga = String(recipient.rga || '').trim();
+    return {
+      id: rga || email,
+      nome: String(recipient.nome || '').trim(),
+      email: email,
+      tipoVinculo: 'EX_MEMBRO',
+      papel: 'CONVIDADO',
+      origem: String(recipient.origem || 'EX_MEMBROS').trim()
+    };
+  }).filter(function(recipient) {
+    return recipient.id && GEAPA_CORE.coreIsValidEmail(recipient.email);
+  });
+}
+
+function atividades_listProfessoresElegiveisParaAtividadeGeral_() {
+  if (!atividades_getRegistryEntryByKey_(ATIVIDADES_CFG.STABLE_KEYS.PROFS)) return [];
+
+  var seen = Object.create(null);
+  return GEAPA_CORE.coreReadRecordsByKey(ATIVIDADES_CFG.STABLE_KEYS.PROFS, {
+    headerRow: ATIVIDADES_CFG.HEADER_ROW
+  }).filter(function(record) {
+    if (!atividades_isTruthySim_(atividades_pickFirstRecordValueApresentacoes_(record, [
+      'RECEBE_EVENTOS_VISITAS',
+      'RECEBE_EVENTOS_E_VISITAS',
+      'RECEBE_VISITAS_TECNICAS'
+    ]))) return false;
+
+    var id = atividades_pickFirstRecordValueApresentacoes_(record, ['ID_PROFESSOR', 'MATRICULA', 'EMAIL', 'E-mail', 'Email']);
+    var email = atividades_pickFirstRecordValueApresentacoes_(record, ['E-mail', 'EMAIL', 'Email']);
+    var nome = atividades_pickFirstRecordValueApresentacoes_(record, ['Nome', 'NOME', 'PROFESSOR']);
+    if (!id || !nome || !GEAPA_CORE.coreIsValidEmail(email)) return false;
+
+    var emailKey = String(email || '').trim().toLowerCase();
+    if (seen[emailKey]) return false;
+    seen[emailKey] = true;
+    return true;
+  }).map(function(record) {
+    return {
+      id: atividades_pickFirstRecordValueApresentacoes_(record, ['ID_PROFESSOR', 'MATRICULA', 'EMAIL', 'E-mail', 'Email']),
+      nome: atividades_pickFirstRecordValueApresentacoes_(record, ['Nome', 'NOME', 'PROFESSOR']),
+      email: atividades_pickFirstRecordValueApresentacoes_(record, ['E-mail', 'EMAIL', 'Email']),
+      tipoVinculo: 'PROFESSOR',
+      papel: 'CONVIDADO',
+      origem: 'PROFESSORES_RECEBE_EVENTOS_VISITAS'
+    };
+  });
+}
+
+function atividades_buildConvidadoAtividadeGeralId_(activityId, recipient) {
+  var ref = String(recipient && (recipient.id || recipient.email) || '').trim();
+  var tipo = String(recipient && recipient.tipoVinculo || 'CONVIDADO').trim();
+  var token = [activityId, tipo, ref].join('-');
+  return 'CAG-' + atividades_normalizeTextUpper_(token)
+    .replace(/[^\w]+/g, '_')
+    .replace(/^_+|_+$/g, '');
+}
+
+function atividades_buildConvidadosActivityPresenceIndex_() {
+  var index = Object.create(null);
+  GEAPA_CORE.coreReadSheetRecords(atividades_getConvidadosSheet_(), {
+    headerRow: 1
+  }).forEach(function(record) {
+    var activityId = atividades_normalizeTextUpper_(record.ID_ATIVIDADE);
+    if (activityId) index[activityId] = true;
+  });
+  return index;
+}
+
+function atividades_withConvidadosAtividadeGeralLock_(fn) {
+  var lock = LockService.getScriptLock();
+  var locked = lock.tryLock(30000);
+  if (!locked) {
+    return {
+      ok: false,
+      locked: true,
+      reason: 'lock_timeout'
+    };
+  }
+
+  try {
+    return fn();
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function atividades_upsertConvidadosAtividadeGeral_(opts) {
+  return atividades_withConvidadosAtividadeGeralLock_(function() {
+    return atividades_upsertConvidadosAtividadeGeralUnlocked_(opts || {});
+  });
+}
+
+function atividades_upsertConvidadosAtividadeGeralUnlocked_(opts) {
+  opts = opts || {};
+  atividades_garantirEstruturasFixasV1_();
+
+  var convidadosSheet = atividades_getConvidadosSheet_();
+  var convidadosHeaderMap = GEAPA_CORE.coreHeaderMap(convidadosSheet, 1);
+  var convidadosIndex = atividades_buildConvidadosIndex_();
+  var convidadosEmailIndex = atividades_buildConvidadosEmailIndex_();
+  var convidadosActivityPresenceIndex = atividades_buildConvidadosActivityPresenceIndex_();
+  var activityFilterSet = atividades_buildActivityFilterSet_(opts.activityIds);
+  var preserveExistingManualList = opts.preserveExistingManualList !== false;
+  var created = [];
+  var skippedReasons = {};
+  var scanned = 0;
+  var eligibleActivities = 0;
+  var candidateRecipients = 0;
+
+  function skip(reason) {
+    skippedReasons[reason] = (skippedReasons[reason] || 0) + 1;
+  }
+
+  atividades_listGeneralActivityRowsWithNumbers_().forEach(function(item) {
+    var record = item.record || {};
+    var activityId = String(record.ID_ATIVIDADE || '').trim();
+    scanned++;
+
+    if (!atividades_activityPassesFilter_(activityId, activityFilterSet)) {
+      skip('filtro_activity_ids');
+      return;
+    }
+    if (!atividades_isConfirmedLikeGeneralActivityStatus_(record.STATUS)) {
+      skip('status_nao_confirmada');
+      return;
+    }
+    if (atividades_normalizeTextUpper_(record.CLASSIFICACAO_ACESSO) !== 'ABERTA') {
+      skip('acesso_nao_aberto');
+      return;
+    }
+    if (!atividades_isTruthySim_(record.EXIGE_CONFIRMACAO_PRESENCA)) {
+      skip('nao_exige_confirmacao_presenca');
+      return;
+    }
+    if (preserveExistingManualList && convidadosActivityPresenceIndex[atividades_normalizeTextUpper_(activityId)]) {
+      skip('lista_ja_iniciada_curadoria_preservada');
+      return;
+    }
+
+    eligibleActivities++;
+    var recipients = atividades_listExternosElegiveisParaAtividadeGeral_(record)
+      .concat(atividades_listExMembrosElegiveisParaAtividadeGeral_())
+      .concat(atividades_listProfessoresElegiveisParaAtividadeGeral_());
+    var seenEmails = Object.create(null);
+
+    recipients.forEach(function(recipient) {
+      var emailKey = String(recipient.email || '').trim().toLowerCase();
+      if (!emailKey || seenEmails[emailKey]) {
+        skip('email_duplicado');
+        return;
+      }
+      seenEmails[emailKey] = true;
+      candidateRecipients++;
+
+      var key = atividades_buildConvidadosIndexKey_(activityId, recipient.tipoVinculo, recipient.id);
+      var emailIndexKey = atividades_buildConvidadosEmailIndexKey_(activityId, emailKey);
+      if (convidadosIndex[key] || convidadosEmailIndex[emailIndexKey]) {
+        skip('convidado_ja_vinculado');
+        return;
+      }
+
+      var row = {
+        ID_CONVITE_ATIVIDADE: atividades_buildConvidadoAtividadeGeralId_(activityId, recipient),
+        ID_ATIVIDADE: activityId,
+        TIPO_VINCULO_PESSOA: recipient.tipoVinculo,
+        ID_REFERENCIA: recipient.id,
+        NOME: recipient.nome,
+        EMAIL: recipient.email,
+        PAPEL_NA_ATIVIDADE: recipient.papel || 'CONVIDADO',
+        CONVITE_ENVIADO: '',
+        CONFIRMADO: '',
+        DATA_ENVIO_CONFIRMACAO: '',
+        DATA_CONFIRMACAO: '',
+        PRESENCA_REGISTRADA: '',
+        OBSERVACOES: 'Vinculado automaticamente para atividade geral. Origem=' + (recipient.origem || ''),
+        CRIADO_EM: new Date(),
+        ATUALIZADO_EM: new Date()
+      };
+
+      GEAPA_CORE.coreAppendObjectByHeaders(convidadosSheet, row, { headerRow: 1 });
+      convidadosIndex[key] = row;
+      convidadosEmailIndex[emailIndexKey] = row;
+      convidadosActivityPresenceIndex[atividades_normalizeTextUpper_(activityId)] = true;
+      created.push({
+        idAtividade: activityId,
+        idConvite: row.ID_CONVITE_ATIVIDADE,
+        tipo: recipient.tipoVinculo,
+        email: recipient.email
+      });
+    });
+
+    if (!recipients.length) skip('sem_destinatarios_elegiveis');
+  });
+
+  atividades_logEvento_({
+    TIPO_EVENTO_LOG: ATIVIDADES_CFG.ATIVIDADES_GERAIS_LOG_TYPES.UPSERT_CONVIDADOS,
+    STATUS: 'OK',
+    ACAO_EXECUTADA: 'Vincular convidados elegiveis para atividades gerais',
+    RESULTADO: 'scanned=' + scanned + ' | eligibleActivities=' + eligibleActivities + ' | candidates=' + candidateRecipients + ' | created=' + created.length,
+    OBSERVACOES: created.slice(0, 20).map(function(item) {
+      return item.idAtividade + ':' + item.tipo + ':' + item.email;
+    }).concat(Object.keys(skippedReasons).length ? ['skipped_reasons=' + Object.keys(skippedReasons).sort().map(function(reason) {
+      return reason + ':' + skippedReasons[reason];
+    }).join(', ')] : []).join(' | ')
+  });
+
+  return {
+    ok: true,
+    scannedCount: scanned,
+    eligibleActivitiesCount: eligibleActivities,
+    candidateRecipientsCount: candidateRecipients,
+    createdCount: created.length,
+    created: created,
+    skippedReasons: skippedReasons
+  };
+}
+
+function atividades_canRemoveDuplicateConvidadoAtividadeGeral_(record) {
+  return !atividades_normalizeTextUpper_(record && record.CONVITE_ENVIADO) &&
+    !atividades_normalizeTextUpper_(record && record.CONFIRMADO) &&
+    !atividades_parseDateOrNull_(record && record.DATA_ENVIO_CONFIRMACAO) &&
+    !atividades_parseDateOrNull_(record && record.DATA_CONFIRMACAO);
+}
+
+function atividades_buildDuplicateConvidadoAtividadeGeralKey_(record) {
+  var activityId = String(record && record.ID_ATIVIDADE || '').trim();
+  var email = String(record && record.EMAIL || '').trim().toLowerCase();
+  if (activityId && email) return atividades_buildConvidadosEmailIndexKey_(activityId, email);
+
+  var ref = String(record && record.ID_REFERENCIA || '').trim();
+  if (!activityId || !ref) return '';
+  return atividades_buildConvidadosIndexKey_(
+    activityId,
+    record && record.TIPO_VINCULO_PESSOA,
+    ref
+  );
+}
+
+function atividades_limparDuplicadosConvidadosAtividadesGerais_(opts) {
+  return atividades_withConvidadosAtividadeGeralLock_(function() {
+    opts = opts || {};
+    var sheet = atividades_getConvidadosSheet_();
+    var activityFilterSet = atividades_buildActivityFilterSet_(opts.activityIds);
+    var seen = Object.create(null);
+    var removableRows = [];
+    var protectedDuplicates = [];
+
+    GEAPA_CORE.coreReadSheetRecords(sheet, { headerRow: 1 }).forEach(function(record, index) {
+      var rowNumber = index + 2;
+      var activityId = String(record.ID_ATIVIDADE || '').trim();
+      if (!activityId || !atividades_activityPassesFilter_(activityId, activityFilterSet)) return;
+
+      var key = atividades_buildDuplicateConvidadoAtividadeGeralKey_(record);
+      if (!key || key === '||') return;
+      if (!seen[key]) {
+        seen[key] = {
+          rowNumber: rowNumber,
+          record: record
+        };
+        return;
+      }
+
+      if (atividades_canRemoveDuplicateConvidadoAtividadeGeral_(record)) {
+        removableRows.push({
+          rowNumber: rowNumber,
+          idAtividade: activityId,
+          email: String(record.EMAIL || '').trim(),
+          idReferencia: String(record.ID_REFERENCIA || '').trim()
+        });
+      } else {
+        protectedDuplicates.push({
+          rowNumber: rowNumber,
+          idAtividade: activityId,
+          email: String(record.EMAIL || '').trim(),
+          idReferencia: String(record.ID_REFERENCIA || '').trim(),
+          reason: 'possui_envio_ou_resposta'
+        });
+      }
+    });
+
+    if (!opts.dryRun) {
+      removableRows.slice().sort(function(a, b) {
+        return b.rowNumber - a.rowNumber;
+      }).forEach(function(item) {
+        sheet.deleteRow(item.rowNumber);
+      });
+    }
+
+    return {
+      ok: true,
+      dryRun: !!opts.dryRun,
+      removedCount: opts.dryRun ? 0 : removableRows.length,
+      removableCount: removableRows.length,
+      removable: removableRows,
+      protectedCount: protectedDuplicates.length,
+      protected: protectedDuplicates
+    };
+  });
+}
+
+function atividades_buildProfessorAtividadeGeralIndex_() {
+  var byId = Object.create(null);
+  if (!atividades_getRegistryEntryByKey_(ATIVIDADES_CFG.STABLE_KEYS.PROFS)) return byId;
+
+  GEAPA_CORE.coreReadRecordsByKey(ATIVIDADES_CFG.STABLE_KEYS.PROFS, {
+    headerRow: ATIVIDADES_CFG.HEADER_ROW
+  }).forEach(function(record) {
+    var id = atividades_pickFirstRecordValueApresentacoes_(record, ['ID_PROFESSOR', 'MATRICULA', 'EMAIL', 'E-mail', 'Email']);
+    var email = atividades_pickFirstRecordValueApresentacoes_(record, ['E-mail', 'EMAIL', 'Email']);
+    var nome = atividades_pickFirstRecordValueApresentacoes_(record, ['Nome', 'NOME', 'PROFESSOR']);
+    if (!id || !nome || !GEAPA_CORE.coreIsValidEmail(email)) return;
+    byId[atividades_normalizeTextUpper_(id)] = {
+      id: id,
+      nome: nome,
+      email: email
+    };
+  });
+
+  return byId;
+}
+
+function atividades_autofillProfessoresConvidadosAtividadesGerais_(opts) {
+  opts = opts || {};
+  atividades_garantirEstruturasFixasV1_();
+
+  var sheet = atividades_getConvidadosSheet_();
+  var headerMap = GEAPA_CORE.coreHeaderMap(sheet, 1);
+  var professorIndex = atividades_buildProfessorAtividadeGeralIndex_();
+  var rowFilter = opts.rowNumber ? Number(opts.rowNumber) : 0;
+  var updated = [];
+  var skippedReasons = {};
+
+  function skip(reason) {
+    skippedReasons[reason] = (skippedReasons[reason] || 0) + 1;
+  }
+
+  GEAPA_CORE.coreReadSheetRecords(sheet, { headerRow: 1 }).forEach(function(record, index) {
+    var rowNumber = index + 2;
+    if (rowFilter && rowNumber !== rowFilter) return;
+    if (atividades_normalizeTextUpper_(record.TIPO_VINCULO_PESSOA) !== 'PROFESSOR') return;
+
+    var ref = String(record.ID_REFERENCIA || '').trim();
+    if (!ref) {
+      skip('sem_id_referencia');
+      return;
+    }
+
+    var professor = professorIndex[atividades_normalizeTextUpper_(ref)];
+    if (!professor) {
+      skip('professor_nao_localizado');
+      return;
+    }
+
+    var changed = false;
+    if (!String(record.NOME || '').trim()) {
+      GEAPA_CORE.coreWriteCellByHeader(sheet, rowNumber, headerMap, 'NOME', professor.nome, { oneBased: true });
+      changed = true;
+    }
+    if (!String(record.EMAIL || '').trim()) {
+      GEAPA_CORE.coreWriteCellByHeader(sheet, rowNumber, headerMap, 'EMAIL', professor.email, { oneBased: true });
+      changed = true;
+    }
+    if (!String(record.PAPEL_NA_ATIVIDADE || '').trim()) {
+      GEAPA_CORE.coreWriteCellByHeader(sheet, rowNumber, headerMap, 'PAPEL_NA_ATIVIDADE', 'CONVIDADO', { oneBased: true });
+      changed = true;
+    }
+    if (changed && GEAPA_CORE.coreGetCol(headerMap, 'ATUALIZADO_EM')) {
+      GEAPA_CORE.coreWriteCellByHeader(sheet, rowNumber, headerMap, 'ATUALIZADO_EM', new Date(), { oneBased: true });
+    }
+    if (changed) {
+      updated.push({
+        rowNumber: rowNumber,
+        idProfessor: professor.id,
+        email: professor.email
+      });
+    } else {
+      skip('sem_alteracao');
+    }
+  });
+
+  return {
+    ok: true,
+    updatedCount: updated.length,
+    updated: updated,
+    skippedReasons: skippedReasons
+  };
+}
+
 function atividades_resolverDestinatariosAtividadeGeral_(record) {
   var acesso = atividades_normalizeTextUpper_((record && record.CLASSIFICACAO_ACESSO) || '') || 'RESTRITA_MEMBROS';
   var activeMembers = atividades_listActiveMembersForGeneralCommunication_();
@@ -240,18 +690,25 @@ function atividades_getGeneralActivityAudienceLabel_(record) {
   return 'Membros ativos do GEAPA';
 }
 
-function atividades_buildGeneralActivityMailBlocks_(record) {
+function atividades_buildGeneralActivityMailBlocks_(record, opts) {
+  opts = opts || {};
+  var codigoAtividade = String(opts.codigoAtividade || '').trim();
+  var activityItems = [
+    { label: 'Titulo', value: String(record.TITULO || '').trim() || '-' },
+    { label: 'Tipo/Subtipo', value: [String(record.TIPO_ATIVIDADE || '').trim(), String(record.SUBTIPO_ATIVIDADE || '').trim()].filter(Boolean).join(' / ') || '-' },
+    { label: 'Data', value: atividades_formatGeneralActivityDate_(record.DATA_ATIVIDADE) },
+    { label: 'Horario', value: atividades_formatGeneralActivityTimeWindow_(record) },
+    { label: 'Local', value: String(record.LOCAL || '').trim() || '-' },
+    { label: 'Formato', value: String(record.FORMATO || '').trim() || '-' }
+  ];
+  if (codigoAtividade) {
+    activityItems.push({ label: 'Codigo para justificativa', value: codigoAtividade });
+  }
+
   return [
     {
       title: 'Atividade',
-      items: [
-        { label: 'Titulo', value: String(record.TITULO || '').trim() || '-' },
-        { label: 'Tipo/Subtipo', value: [String(record.TIPO_ATIVIDADE || '').trim(), String(record.SUBTIPO_ATIVIDADE || '').trim()].filter(Boolean).join(' / ') || '-' },
-        { label: 'Data', value: atividades_formatGeneralActivityDate_(record.DATA_ATIVIDADE) },
-        { label: 'Horario', value: atividades_formatGeneralActivityTimeWindow_(record) },
-        { label: 'Local', value: String(record.LOCAL || '').trim() || '-' },
-        { label: 'Formato', value: String(record.FORMATO || '').trim() || '-' }
-      ]
+      items: activityItems
     },
     {
       title: 'Contexto operacional',
@@ -273,13 +730,28 @@ function atividades_buildConvocacaoAtividadeGeralPayload_(record) {
   };
 }
 
-function atividades_buildLembreteAtividadeGeralPayload_(record) {
-  return {
+function atividades_buildLembreteAtividadeGeralPayload_(record, opts) {
+  opts = opts || {};
+  var shouldIncludeJustificativa = !!opts.incluirJustificativa;
+  var codigoAtividade = shouldIncludeJustificativa
+    ? atividades_getCodigoAtividadePeriodoById_(record.ID_ATIVIDADE)
+    : '';
+  var payload = {
     subtitle: 'Fluxo geral de atividades do GEAPA',
     introText: 'Este e um lembrete automatico de atividade do GEAPA agendada para hoje ou amanha.',
-    blocks: atividades_buildGeneralActivityMailBlocks_(record),
+    blocks: atividades_buildGeneralActivityMailBlocks_(record, { codigoAtividade: codigoAtividade }),
     footerNote: 'Mensagem automatica do GEAPA. Em caso de duvida, consulte a organizacao da atividade.'
   };
+
+  if (codigoAtividade) {
+    payload.cta = {
+      label: 'Abrir formulario de justificativa',
+      url: ATIVIDADES_CFG.JUSTIFICATIVA_FORM_URL,
+      helper: 'Se voce ja sabe que nao podera participar, use o codigo acima para registrar a justificativa previamente.'
+    };
+  }
+
+  return payload;
 }
 
 function atividades_buildPendenciaAtaAtividadeGeralPayload_(record) {
@@ -328,6 +800,48 @@ function atividades_buildGeneralActivityQueuePayload_(record, opts) {
       classificacaoAcesso: String(record.CLASSIFICACAO_ACESSO || '').trim()
     }
   };
+}
+
+function atividades_shouldIncludeJustificativaInGeneralReminder_(record) {
+  return atividades_isTruthySim_(atividades_getEffectiveContaFaltaForActivity_(record));
+}
+
+function atividades_buildGeneralReminderRecipientGroups_(record, resolved) {
+  var recipients = (resolved && resolved.recipients) || [];
+  var includeForMembers = atividades_shouldIncludeJustificativaInGeneralReminder_(record);
+  var members = [];
+  var others = [];
+
+  recipients.forEach(function(recipient) {
+    var origem = atividades_normalizeTextUpper_(recipient && recipient.origem);
+    if (includeForMembers && origem === 'MEMBRO') {
+      members.push(recipient);
+    } else {
+      others.push(recipient);
+    }
+  });
+
+  return [
+    {
+      key: 'MEMBROS',
+      recipients: members,
+      incluirJustificativa: true,
+      recipientName: 'Membros ativos do GEAPA'
+    },
+    {
+      key: includeForMembers ? 'CONVIDADOS' : 'TODOS',
+      recipients: others,
+      incluirJustificativa: false,
+      recipientName: includeForMembers ? 'Convidados da atividade' : 'Publico da atividade'
+    }
+  ].filter(function(group) {
+    return group.recipients.length > 0;
+  }).map(function(group) {
+    group.emails = group.recipients.map(function(recipient) {
+      return recipient.email;
+    });
+    return group;
+  });
 }
 
 function atividades_processOutboxForGeneralActivities_(queueLikeResults) {
@@ -389,7 +903,7 @@ function atividades_isActivityTodayOrTomorrow_(record) {
 function atividades_isActivityReadyForAutoRealizada_(record) {
   if (!atividades_isGeneralActivity_(record)) return false;
   if (atividades_isBlockedGeneralActivityStatus_(record)) return false;
-  if (atividades_normalizeTextUpper_(record.STATUS) !== 'CONFIRMADA') return false;
+  if (!atividades_isConfirmedLikeGeneralActivityStatus_(record.STATUS)) return false;
 
   var endDate = atividades_getActivityEndDateTime_(record);
   return !!(endDate && endDate.getTime() <= new Date().getTime());
@@ -400,7 +914,7 @@ function atividades_isPastDueForGeneralPending_(record, hoursAfter) {
   if (atividades_isBlockedGeneralActivityStatus_(record)) return false;
 
   var status = atividades_normalizeTextUpper_(record.STATUS);
-  if (status !== 'REALIZADA' && status !== 'CONFIRMADA') return false;
+  if (status !== 'REALIZADA' && !atividades_isConfirmedLikeGeneralActivityStatus_(status)) return false;
 
   var endDate = atividades_getActivityEndDateTime_(record);
   if (!endDate) return false;
@@ -483,7 +997,7 @@ function atividades_enviarConvocacoesAtividadesGerais_(opts) {
 
   atividades_listGeneralActivityRowsWithNumbers_().forEach(function(item) {
     var record = item.record || {};
-    if (atividades_normalizeTextUpper_(record.STATUS) !== 'CONFIRMADA') return;
+    if (!atividades_isConfirmedLikeGeneralActivityStatus_(record.STATUS)) return;
     if (!atividades_isTruthySim_(record.EXIGE_CONVOCACAO)) return;
     if (atividades_parseDateOrNull_(record.DATA_CONVOCACAO)) return;
     if (!atividades_parseDateOrNull_(record.DATA_ATIVIDADE)) return;
@@ -498,7 +1012,7 @@ function atividades_enviarConvocacoesAtividadesGerais_(opts) {
       kind: 'CONVOCACAO',
       stage: 'CONV',
       emails: resolved.emails,
-      correlationKey: atividades_buildAtividadeGeralConvocacaoCorrelationKey_(record.ID_ATIVIDADE),
+      correlationKey: atividades_buildAtividadeGeralConvocacaoCorrelationKey_(record.ID_ATIVIDADE, record.DATA_ATIVIDADE),
       payload: atividades_buildConvocacaoAtividadeGeralPayload_(record)
     }));
 
@@ -549,7 +1063,7 @@ function atividades_enviarLembretesAtividadesGerais_(opts) {
 
   atividades_listGeneralActivityRowsWithNumbers_().forEach(function(item) {
     var record = item.record || {};
-    if (atividades_normalizeTextUpper_(record.STATUS) !== 'CONFIRMADA') return;
+    if (!atividades_isConfirmedLikeGeneralActivityStatus_(record.STATUS)) return;
     if (!atividades_isTruthySim_(record.EXIGE_LEMBRETE)) return;
     if (atividades_parseDateOrNull_(record.DATA_LEMBRETE)) return;
     if (!atividades_parseDateOrNull_(record.DATA_ATIVIDADE)) return;
@@ -561,23 +1075,44 @@ function atividades_enviarLembretesAtividadesGerais_(opts) {
       return;
     }
 
-    var queueResult = atividades_tryQueueOutgoing_(atividades_buildGeneralActivityQueuePayload_(record, {
-      kind: 'LEMBRETE',
-      stage: 'LEMB',
-      emails: resolved.emails,
-      correlationKey: atividades_buildAtividadeGeralLembreteCorrelationKey_(record.ID_ATIVIDADE, record.DATA_ATIVIDADE),
-      payload: atividades_buildLembreteAtividadeGeralPayload_(record)
-    }));
+    var groups = atividades_buildGeneralReminderRecipientGroups_(record, resolved);
+    var completedGroups = 0;
+    var queuedGroups = 0;
+    var deferredForItem = 0;
 
-    if (queueResult && (queueResult.queued || queueResult.duplicate)) {
+    groups.forEach(function(group) {
+      var queueResult = atividades_tryQueueOutgoing_(atividades_buildGeneralActivityQueuePayload_(record, {
+        kind: 'LEMBRETE',
+        stage: 'LEMB',
+        emails: group.emails,
+        recipientName: group.recipientName,
+        correlationKey: atividades_buildAtividadeGeralLembreteCorrelationKey_(record.ID_ATIVIDADE, record.DATA_ATIVIDADE, group.key),
+        payload: atividades_buildLembreteAtividadeGeralPayload_(record, {
+          incluirJustificativa: group.incluirJustificativa
+        })
+      }));
+
+      if (queueResult && (queueResult.queued || queueResult.duplicate)) {
+        completedGroups++;
+        if (queueResult.queued) queuedGroups++;
+        if (queueResult.duplicate) duplicates++;
+        return;
+      }
+
+      if (queueResult && queueResult.locked) {
+        deferredForItem++;
+        deferred++;
+      }
+    });
+
+    if (groups.length && completedGroups === groups.length && deferredForItem === 0) {
       atividades_stampGeneralActivitySendDate_(sheet, headerMap, item.rowNumber, 'DATA_LEMBRETE');
       queued.push({
         idAtividade: String(record.ID_ATIVIDADE || '').trim(),
-        toCount: resolved.count
+        toCount: resolved.count,
+        queuedGroups: queuedGroups,
+        groups: groups.map(function(group) { return group.key; }).join(',')
       });
-      if (queueResult.duplicate) duplicates++;
-    } else if (queueResult && queueResult.locked) {
-      deferred++;
     }
   });
 
@@ -770,6 +1305,8 @@ function atividades_jobAtividadesGerais_() {
   var syncPresencasBefore = atividades_sincronizarPresencasPeriodoVigente_();
   var convocacoes = atividades_enviarConvocacoesAtividadesGerais_({ processOutbox: false });
   var lembretes = atividades_enviarLembretesAtividadesGerais_({ processOutbox: false });
+  var solicitacoesConfirmacao = atividades_enviarSolicitacoesConfirmacaoConvidados_({ processOutbox: false });
+  var inboxConfirmacoes = atividades_processarInboxConfirmacoesConvidados_({ skipIngest: false });
   var autoRealizadas = atividades_marcarAtividadesGeraisRealizadas_();
   var pendencias = atividades_notificarPendenciasAtaMaterialAtividadesGerais_({ processOutbox: false });
   var syncPeriodoAfter = null;
@@ -788,6 +1325,8 @@ function atividades_jobAtividadesGerais_() {
     syncPresencasBefore: syncPresencasBefore,
     convocacoes: convocacoes,
     lembretes: lembretes,
+    solicitacoesConfirmacao: solicitacoesConfirmacao,
+    inboxConfirmacoes: inboxConfirmacoes,
     autoRealizadas: autoRealizadas,
     pendencias: pendencias,
     syncPeriodoAfter: syncPeriodoAfter,
@@ -795,6 +1334,7 @@ function atividades_jobAtividadesGerais_() {
     outbox: atividades_processOutboxForGeneralActivities_([
       convocacoes,
       lembretes,
+      solicitacoesConfirmacao,
       pendencias
     ])
   };

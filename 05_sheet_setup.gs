@@ -24,6 +24,7 @@ function atividades_buildDropdownRules_() {
       OBRIGATORIA: { values: ATIVIDADES_CFG.ENUMS.SIM_NAO, helpText: 'Marque SIM quando houver obrigatoriedade formal.' },
       EXIGE_CONVOCACAO: { values: ATIVIDADES_CFG.ENUMS.SIM_NAO, helpText: 'Campo herdado do config na V1.' },
       EXIGE_LEMBRETE: { values: ATIVIDADES_CFG.ENUMS.SIM_NAO, helpText: 'Campo herdado do config na V1.' },
+      EXIGE_CONFIRMACAO_PRESENCA: { values: ATIVIDADES_CFG.ENUMS.SIM_NAO, helpText: 'Se SIM, solicita confirmacao de presenca aos convidados vinculados.' },
       EXIGE_ATA: { values: ATIVIDADES_CFG.ENUMS.SIM_NAO, helpText: 'Campo herdado do config na V1.' },
       EXIGE_MATERIAL: { values: ATIVIDADES_CFG.ENUMS.SIM_NAO, helpText: 'Campo herdado do config na V1.' },
       EXIGE_LISTA_PRESENCA: { values: ATIVIDADES_CFG.ENUMS.SIM_NAO, helpText: 'Campo herdado do config na V1.' },
@@ -69,6 +70,7 @@ function atividades_buildDropdownRules_() {
       EXIGE_LISTA_NOMINAL_CONVIDADOS: { values: ATIVIDADES_CFG.ENUMS.SIM_NAO, helpText: 'Exigir lista nominal de convidados.' },
       EXIGE_CONVOCACAO: { values: ATIVIDADES_CFG.ENUMS.SIM_NAO, helpText: 'Regra padrao de convocacao.' },
       EXIGE_LEMBRETE: { values: ATIVIDADES_CFG.ENUMS.SIM_NAO, helpText: 'Regra padrao de lembrete.' },
+      EXIGE_CONFIRMACAO_PRESENCA: { values: ATIVIDADES_CFG.ENUMS.SIM_NAO, helpText: 'Regra padrao de solicitacao de confirmacao aos convidados.' },
       EXIGE_ATA: { values: ATIVIDADES_CFG.ENUMS.SIM_NAO, helpText: 'Regra padrao de ata.' },
       EXIGE_MATERIAL: { values: ATIVIDADES_CFG.ENUMS.SIM_NAO, helpText: 'Regra padrao de material.' },
       EXIGE_LISTA_PRESENCA: { values: ATIVIDADES_CFG.ENUMS.SIM_NAO, helpText: 'Regra padrao de lista de presenca.' },
@@ -173,7 +175,10 @@ function atividades_buildHeaderNotes_() {
     Atividade_Convidados: {
       ID_CONVITE_ATIVIDADE: 'Identificador unico do vinculo da pessoa com a atividade.',
       ID_ATIVIDADE: 'Referencia para a atividade principal.',
-      TIPO_VINCULO_PESSOA: 'Membro, professor, participante externo ou convidado especifico.'
+      TIPO_VINCULO_PESSOA: 'Membro, professor, participante externo, ex-membro ou convidado especifico.',
+      CONFIRMADO: 'Resposta do convidado sobre presenca: SIM, NAO ou vazio enquanto pendente.',
+      DATA_ENVIO_CONFIRMACAO: 'Data/hora em que a solicitacao de confirmacao foi enviada.',
+      DATA_CONFIRMACAO: 'Data/hora em que a resposta de confirmacao foi processada.'
     },
     Atividades_Config: {
       ATIVO: 'Ativa ou desativa a regra.',
@@ -321,7 +326,7 @@ function atividades_buildHeaderColors_() {
     Atividades: [
       { color: '#d9ead3', headers: ['ID_ATIVIDADE', 'CLASSIFICACAO_REUNIAO', 'TIPO_ATIVIDADE', 'SUBTIPO_ATIVIDADE', 'CLASSIFICACAO_ACESSO', 'STATUS'] },
       { color: '#d0e0e3', headers: ['DATA_ATIVIDADE', 'PERIODO_REFERENCIA', 'HORARIO_INICIO', 'HORARIO_FIM', 'DATA_CONVOCACAO', 'DATA_LEMBRETE', 'DATA_REALIZACAO', 'CRIADO_EM', 'ATUALIZADO_EM'] },
-      { color: '#fff2cc', headers: ['OBRIGATORIA', 'EXIGE_CONVOCACAO', 'EXIGE_LEMBRETE', 'EXIGE_ATA', 'EXIGE_MATERIAL', 'EXIGE_LISTA_PRESENCA', 'CONTA_PRESENCA', 'CONTA_FALTA', 'BASE_PLANEJAMENTO_INICIAL', 'GERA_CERTIFICADO'] },
+      { color: '#fff2cc', headers: ['OBRIGATORIA', 'EXIGE_CONVOCACAO', 'EXIGE_LEMBRETE', 'EXIGE_CONFIRMACAO_PRESENCA', 'EXIGE_ATA', 'EXIGE_MATERIAL', 'EXIGE_LISTA_PRESENCA', 'CONTA_PRESENCA', 'CONTA_FALTA', 'BASE_PLANEJAMENTO_INICIAL', 'GERA_CERTIFICADO'] },
       { color: '#fce5cd', headers: ['TITULO', 'DESCRICAO', 'LOCAL', 'FORMATO', 'RESPONSAVEL_INTERNO', 'RESPONSAVEL_EMAIL', 'PUBLICO_ALVO', 'OBSERVACOES'] }
     ],
     Atividades_Apresentacoes: [
@@ -335,7 +340,7 @@ function atividades_buildHeaderColors_() {
     ],
     Atividades_Config: [
       { color: '#d9ead3', headers: ['ATIVO', 'CLASSIFICACAO_REUNIAO', 'TIPO_ATIVIDADE', 'SUBTIPO_ATIVIDADE', 'CLASSIFICACAO_ACESSO'] },
-      { color: '#fff2cc', headers: ['PERMITE_MEMBROS', 'PERMITE_PROFESSORES_CURSO', 'PERMITE_PARTICIPANTES_EXTERNOS', 'PERMITE_CONVIDADOS_ESPECIFICOS', 'EXIGE_LISTA_NOMINAL_CONVIDADOS', 'EXIGE_CONVOCACAO', 'EXIGE_LEMBRETE', 'EXIGE_ATA', 'EXIGE_MATERIAL', 'EXIGE_LISTA_PRESENCA', 'CONTA_PRESENCA', 'CONTA_FALTA', 'GERA_CERTIFICADO', 'EXIGE_REGRAS_APRESENTACAO'] }
+      { color: '#fff2cc', headers: ['PERMITE_MEMBROS', 'PERMITE_PROFESSORES_CURSO', 'PERMITE_PARTICIPANTES_EXTERNOS', 'PERMITE_CONVIDADOS_ESPECIFICOS', 'EXIGE_LISTA_NOMINAL_CONVIDADOS', 'EXIGE_CONVOCACAO', 'EXIGE_LEMBRETE', 'EXIGE_CONFIRMACAO_PRESENCA', 'EXIGE_ATA', 'EXIGE_MATERIAL', 'EXIGE_LISTA_PRESENCA', 'CONTA_PRESENCA', 'CONTA_FALTA', 'GERA_CERTIFICADO', 'EXIGE_REGRAS_APRESENTACAO'] }
     ],
     Atividades_Log: [
       { color: '#d9ead3', headers: ['ID_LOG', 'ID_ATIVIDADE', 'TIPO_EVENTO_LOG', 'STATUS'] }

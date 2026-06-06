@@ -78,6 +78,58 @@ function atividadesV2_setupDatabaseDev() {
   return result;
 }
 
+function atividadesV2_removerColunaPeriodoReferenciaDev() {
+  var spreadsheet = atividadesV2_getDatabaseSpreadsheetDev_();
+  var result = {
+    ok: true,
+    spreadsheetId: spreadsheet.getId(),
+    abasVerificadas: [],
+    colunasRemovidas: {},
+    avisos: [],
+    erros: []
+  };
+
+  ATIVIDADES_V2_SHEET_ORDER.forEach(function(sheetName) {
+    try {
+      var sheet = spreadsheet.getSheetByName(sheetName);
+      if (!sheet) {
+        result.avisos.push('Aba ausente: ' + sheetName);
+        return;
+      }
+
+      result.abasVerificadas.push(sheetName);
+      var lastColumn = sheet.getLastColumn();
+      if (lastColumn < 1) return;
+
+      var headers = sheet.getRange(1, 1, 1, lastColumn).getValues()[0];
+      var colsToDelete = [];
+      headers.forEach(function(header, index) {
+        if (String(header || '').trim().toUpperCase() === 'PERIODO_REFERENCIA') {
+          colsToDelete.push(index + 1);
+        }
+      });
+
+      colsToDelete.reverse().forEach(function(col) {
+        sheet.deleteColumn(col);
+      });
+      if (colsToDelete.length) {
+        result.colunasRemovidas[sheetName] = colsToDelete.length;
+      }
+    } catch (e) {
+      result.ok = false;
+      result.erros.push(sheetName + ': ' + (e && e.message ? e.message : String(e)));
+    }
+  });
+
+  atividadesV2_logSetup_(result.ok ? 'INFO' : 'WARN', 'Remocao da coluna PERIODO_REFERENCIA na base v2 DEV finalizada.', {
+    spreadsheetId: result.spreadsheetId,
+    abasComRemocao: Object.keys(result.colunasRemovidas).length,
+    erros: result.erros.length
+  });
+
+  return result;
+}
+
 /**
  * Valida a estrutura atual da base v2 DEV sem escrever em nenhuma aba.
  */
@@ -519,11 +571,21 @@ function atividadesV2_migrarTesteDev_(opts) {
   return result;
 }
 
+var ATIVIDADES_V2_DATABASE_SPREADSHEET_DEV_CACHE_ = null;
+
 function atividadesV2_getDatabaseSpreadsheetDev_() {
   var perf = typeof portalPerfStart_ === 'function'
     ? portalPerfStart_('atividadesV2_getDatabaseSpreadsheetDev')
     : null;
   atividades_assertCoreLibrary_();
+
+  if (ATIVIDADES_V2_DATABASE_SPREADSHEET_DEV_CACHE_) {
+    if (perf) {
+      portalPerfMark_(perf, 'cache_execucao_planilha_v2_dev');
+      portalPerfEnd_(perf);
+    }
+    return ATIVIDADES_V2_DATABASE_SPREADSHEET_DEV_CACHE_;
+  }
 
   var key = ATIVIDADES_V2_REGISTRY_KEYS.DB;
   var entry = atividadesV2_getRegistryEntryDevByKey_(key);
@@ -547,6 +609,7 @@ function atividadesV2_getDatabaseSpreadsheetDev_() {
   }
 
   var spreadsheet = SpreadsheetApp.openById(spreadsheetId);
+  ATIVIDADES_V2_DATABASE_SPREADSHEET_DEV_CACHE_ = spreadsheet;
   if (perf) {
     portalPerfMark_(perf, 'abrir_planilha_por_id');
     portalPerfEnd_(perf);
@@ -739,8 +802,7 @@ function atividadesV2_buildAtividadesMigrationRows_(activityIdMap) {
 
     return {
       ID_ATIVIDADE: identity.idAtividade,
-      PERIODO_REFERENCIA: source.PERIODO_REFERENCIA || '',
-      CICLO: source.PERIODO_REFERENCIA || '',
+      CICLO: atividadesV2_buildCicloFromIdentity_(identity, source),
       ANO: identity.ano,
       SEMESTRE: identity.semestre,
       NUMERO_SEQUENCIAL_NO_CICLO: identity.sequencial,
@@ -798,11 +860,17 @@ function atividadesV2_buildApresentacoesMigrationRows_(activityIdMap) {
     var counterKey = identity.legacyId || localId || identity.idAtividade;
     counters[counterKey] = (counters[counterKey] || 0) + 1;
     var presentationIndex = totals[counterKey] > 1 ? counters[counterKey] : null;
+    var pessoa = atividadesV2_resolverPessoa_({
+      ID_PESSOA: source.ID_PESSOA,
+      RGA: source.RGA,
+      EMAIL_MEMBRO: source.EMAIL_MEMBRO,
+      NOME_MEMBRO: source.NOME_MEMBRO
+    });
     return {
       ID_APRESENTACAO: atividadesV2_gerarIdApresentacao_(identity.ano, identity.semestre, identity.sequencial, presentationIndex),
       ID_ATIVIDADE: identity.idAtividade,
-      PERIODO_REFERENCIA: source.PERIODO_REFERENCIA || '',
-      CICLO: source.PERIODO_REFERENCIA || '',
+      ID_PESSOA: pessoa.idPessoa,
+      CICLO: atividadesV2_buildCicloFromIdentity_(identity, source),
       ANO: identity.ano,
       SEMESTRE: source.SEMESTRE_APRESENTACAO || identity.semestre,
       NOME_MEMBRO: source.NOME_MEMBRO || '',
@@ -852,11 +920,18 @@ function atividadesV2_buildConvitesMigrationRows_(activityIdMap) {
   return atividadesV2_readSheetObjects_(atividades_getConvidadosSheet_()).map(function(source) {
     var localId = source.ID_ATIVIDADE || source.ID_ATIVIDADE_LOCAL || source.ID_ATIVIDADE_GLOBAL || '';
     var identity = atividadesV2_getActivityIdentityForRelated_(activityIdMap, localId, source);
-    var idReferencia = source.ID_REFERENCIA || source.EMAIL || source.NOME || source._rowNumber;
+    var pessoa = atividadesV2_resolverPessoa_({
+      ID_PESSOA: source.ID_PESSOA,
+      ID_REFERENCIA: source.ID_REFERENCIA,
+      EMAIL: source.EMAIL,
+      NOME: source.NOME
+    });
+    var idReferencia = pessoa.idPessoa || source.ID_REFERENCIA || source.EMAIL || source.NOME || source._rowNumber;
     return {
       ID_CONVITE_ATIVIDADE: atividadesV2_gerarIdConvite_(identity.ano, identity.semestre, identity.sequencial, idReferencia),
       ID_ATIVIDADE: identity.idAtividade,
       TIPO_VINCULO_PESSOA: source.TIPO_VINCULO_PESSOA || '',
+      ID_PESSOA: pessoa.idPessoa,
       ID_REFERENCIA: source.ID_REFERENCIA || '',
       NOME: source.NOME || '',
       EMAIL: source.EMAIL || '',
@@ -882,19 +957,25 @@ function atividadesV2_buildJustificativasMigrationRows_(activityIdMap) {
   var counters = {};
   return sources.map(function(source) {
     var localId = source.ID_ATIVIDADE || source.ID_ATIVIDADE_LOCAL || source.ID_ATIVIDADE_GLOBAL || '';
-    var period = source.PERIODO || source.PERIODO_REFERENCIA || '';
+    var period = source.PERIODO || source.CICLO || '';
     var identity = atividadesV2_getActivityIdentityForRelated_(activityIdMap, localId, Object.assign({}, source, {
-      PERIODO_REFERENCIA: period
+      CICLO: period
     }));
-    var idReferencia = source.RGA || source.EMAIL_MEMBRO || source.NOME_MEMBRO || source._rowNumber;
+    var pessoa = atividadesV2_resolverPessoa_({
+      ID_PESSOA: source.ID_PESSOA,
+      RGA: source.RGA,
+      EMAIL_MEMBRO: source.EMAIL_MEMBRO,
+      NOME_MEMBRO: source.NOME_MEMBRO
+    });
+    var idReferencia = pessoa.idPessoa || source.RGA || source.EMAIL_MEMBRO || source.NOME_MEMBRO || source._rowNumber;
     var counterKey = [identity.idAtividade, idReferencia].join('|');
     counters[counterKey] = (counters[counterKey] || 0) + 1;
     return {
       ID_JUSTIFICATIVA: atividadesV2_gerarIdJustificativa_(identity.ano, identity.semestre, identity.sequencial, idReferencia, counters[counterKey]),
       ID_REGISTRO_PRESENCA: atividadesV2_gerarIdRegistroPresenca_(identity.ano, identity.semestre, identity.sequencial, idReferencia),
       ID_ATIVIDADE: identity.idAtividade,
-      PERIODO_REFERENCIA: period,
-      CICLO: period,
+      CICLO: atividadesV2_buildCicloFromIdentity_(identity, { CICLO: period }),
+      ID_PESSOA: pessoa.idPessoa,
       RGA: source.RGA || '',
       NOME_MEMBRO: source.NOME_MEMBRO || '',
       DATA_ATIVIDADE: source.DATA_ATIVIDADE || '',
@@ -980,15 +1061,20 @@ function atividadesV2_buildPresencasMigrationRows_(sourceSpreadsheet, activityId
         var localId = activity.ID_ATIVIDADE || atividadesV2_extractLocalActivityIdFromPresenceHeader_(dynamicHeader);
         if (!localId) continue;
         var identity = atividadesV2_getActivityIdentityForRelated_(activityIdMap, localId, Object.assign({}, activity, {
-          PERIODO_REFERENCIA: period
+          CICLO: period
         }));
-        var idReferencia = member.RGA || member.EMAIL || member._rowNumber;
+        var pessoa = atividadesV2_resolverPessoa_({
+          ID_PESSOA: member.ID_PESSOA,
+          RGA: member.RGA,
+          EMAIL: member.EMAIL,
+          NOME_MEMBRO: member.NOME_MEMBRO
+        });
+        var idReferencia = pessoa.idPessoa || member.RGA || member.EMAIL || member._rowNumber;
 
         rows.push({
           ID_REGISTRO_PRESENCA: atividadesV2_gerarIdRegistroPresenca_(identity.ano, identity.semestre, identity.sequencial, idReferencia),
           ID_ATIVIDADE: identity.idAtividade,
-          PERIODO_REFERENCIA: period,
-          CICLO: period,
+          CICLO: atividadesV2_buildCicloFromIdentity_(identity, { CICLO: period }),
           ANO: identity.ano,
           SEMESTRE: identity.semestre,
           DATA_ATIVIDADE: activity.DATA_ATIVIDADE || '',
@@ -996,6 +1082,7 @@ function atividadesV2_buildPresencasMigrationRows_(sourceSpreadsheet, activityId
           TIPO_ATIVIDADE: activity.TIPO_ATIVIDADE || '',
           SUBTIPO_ATIVIDADE: activity.SUBTIPO_ATIVIDADE || '',
           TIPO_PARTICIPANTE: 'MEMBRO',
+          ID_PESSOA: pessoa.idPessoa,
           ID_REFERENCIA: idReferencia,
           RGA: member.RGA || '',
           NOME_PARTICIPANTE: member.NOME_MEMBRO || '',
@@ -1195,8 +1282,8 @@ function atividadesV2_buildActivityIdNormalizationMap_(atividades) {
 
   (atividades || []).forEach(function(record) {
     var identity = atividadesV2_resolveActivityIdentity_(record);
-    var rawAno = atividadesV2_firstNonEmpty_(record.ANO, atividadesV2_extractYearFromVigencia_(record.DATA_ATIVIDADE), atividadesV2_extractYear_(record.DATA_ATIVIDADE), atividadesV2_extractYear_(record.PERIODO_REFERENCIA), atividadesV2_extractYear_(record.CICLO));
-    var rawSemestre = atividadesV2_firstValidSemester_(record.SEMESTRE, atividadesV2_extractSemesterFromVigencia_(record.DATA_ATIVIDADE), atividadesV2_extractSemester_(record.PERIODO_REFERENCIA), atividadesV2_extractSemester_(record.CICLO));
+    var rawAno = atividadesV2_firstNonEmpty_(record.ANO, atividadesV2_extractYearFromVigencia_(record.DATA_ATIVIDADE), atividadesV2_extractYear_(record.DATA_ATIVIDADE), atividadesV2_extractYear_(record.CICLO));
+    var rawSemestre = atividadesV2_firstValidSemester_(record.SEMESTRE, atividadesV2_extractSemesterFromVigencia_(record.DATA_ATIVIDADE), atividadesV2_extractSemester_(record.CICLO));
     var rawSequencial = atividadesV2_firstNonEmpty_(
       record.NUMERO_SEQUENCIAL_NO_CICLO,
       atividadesV2_extractSequenceFromLegacyId_(record.ID_ATIVIDADE_LOCAL),
@@ -1470,14 +1557,12 @@ function atividadesV2_resolveActivityIdentity_(record, opts) {
     opts.ano,
     atividadesV2_extractYearFromVigencia_(record.DATA_ATIVIDADE),
     atividadesV2_extractYear_(record.DATA_ATIVIDADE),
-    atividadesV2_extractYear_(record.PERIODO_REFERENCIA),
     atividadesV2_extractYear_(record.CICLO)
   );
   var semestre = atividadesV2_firstValidSemester_(
     record.SEMESTRE,
     opts.semestre,
     atividadesV2_extractSemesterFromVigencia_(record.DATA_ATIVIDADE),
-    atividadesV2_extractSemester_(record.PERIODO_REFERENCIA),
     atividadesV2_extractSemester_(record.CICLO)
   );
   var sequencial = atividadesV2_firstNonEmpty_(
@@ -1496,6 +1581,17 @@ function atividadesV2_resolveActivityIdentity_(record, opts) {
     sequencial: atividadesV2_padSequence_(sequencial),
     idAtividade: atividadesV2_gerarIdAtividade_(ano, semestre, sequencial)
   };
+}
+
+function atividadesV2_buildCicloFromIdentity_(identity, source) {
+  var raw = String(source && source.CICLO || '').trim();
+  if (/^GEAPA_\d{4}$/i.test(raw)) return raw.toUpperCase();
+
+  var ano = String(identity && identity.ano || source && source.ANO || '').trim();
+  if (/^\d{4}$/.test(ano)) return 'GEAPA_' + ano;
+
+  var extracted = atividadesV2_extractYear_(raw || source && source.DATA_ATIVIDADE);
+  return extracted ? 'GEAPA_' + extracted : raw;
 }
 
 function atividadesV2_getActivityIdentityForRelated_(activityIdMap, legacyId, record) {
@@ -1823,10 +1919,10 @@ function atividadesV2_buildMigrationFieldCoverage_() {
     },
     destinationFieldsWithoutSource: {
       Atividades: ['ID_ATIVIDADE', 'CICLO', 'ANO', 'SEMESTRE', 'NUMERO_SEQUENCIAL_NO_CICLO', 'TITULO_PUBLICO', 'DESCRICAO_PUBLICA', 'STATUS_PUBLICACAO_PORTAL', 'VISIBILIDADE_PORTAL', 'DATA_LIBERACAO_PORTAL', 'DATA_LIMITE_JUSTIFICATIVA', 'LINK_FOTOS', 'LINK_PASTA_DRIVE', 'CRIADO_POR', 'ATUALIZADO_POR', 'BLOQUEADO_PARA_EDICAO', 'ATIVO'],
-      Atividades_Apresentacoes: ['ID_ATIVIDADE', 'CICLO', 'ANO', 'SEMESTRE', 'STATUS_TITULO_EIXO', 'LINK_PASTA_DRIVE', 'PUBLICAR_NO_PORTAL', 'VISIBILIDADE_PORTAL', 'ELEGIVEL_CERTIFICADO', 'CRIADO_POR', 'ATUALIZADO_POR', 'BLOQUEADO_PARA_EDICAO', 'ATIVO'],
-      Atividades_Presencas_Registros: ['ID_REGISTRO_PRESENCA', 'ID_ATIVIDADE', 'ID_APRESENTACAO', 'TIPO_PARTICIPANTE', 'ID_REFERENCIA', 'CPF_PARTICIPANTE', 'VINCULO_PARTICIPANTE', 'PAPEL_NA_ATIVIDADE', 'STATUS_PRESENCA', 'CODIGO_PRESENCA', 'MODALIDADE_PRESENCA', 'CARGA_HORARIA_CONSIDERADA', 'PRESENCA_REGISTRADA', 'ELEGIVEL_CERTIFICADO', 'MOTIVO_NAO_CERTIFICAVEL', 'ID_JUSTIFICATIVA', 'STATUS_JUSTIFICATIVA', 'DECISAO_JUSTIFICATIVA', 'VALOR_ANTES_JUSTIFICATIVA', 'VALOR_DEPOIS_JUSTIFICATIVA', 'ORIGEM_REGISTRO', 'REGISTRADO_POR', 'REGISTRADO_EM', 'ATUALIZADO_POR', 'ATUALIZADO_EM', 'MOTIVO_AJUSTE', 'ATIVO'],
-      Atividades_Convites: ['ID_ATIVIDADE', 'ID_APRESENTACAO', 'PERIODO_REFERENCIA', 'CICLO', 'INSTITUICAO', 'TIPO_CONVITE', 'DATA_ENVIO_CONVITE', 'PRESENCA_ESPERADA', 'ID_REGISTRO_PRESENCA', 'ORIGEM_REGISTRO', 'CRIADO_POR', 'ATUALIZADO_POR', 'ATIVO'],
-      Justificativas_Faltas: ['ID_REGISTRO_PRESENCA', 'ID_ATIVIDADE', 'CICLO', 'EMAIL_MEMBRO', 'OBSERVACAO_PUBLICA', 'OBSERVACOES_INTERNAS', 'ORIGEM_ENVIO', 'CRIADO_EM', 'ATUALIZADO_EM', 'ATIVO'],
+      Atividades_Apresentacoes: ['ID_ATIVIDADE', 'ID_PESSOA', 'CICLO', 'ANO', 'SEMESTRE', 'STATUS_TITULO_EIXO', 'LINK_PASTA_DRIVE', 'PUBLICAR_NO_PORTAL', 'VISIBILIDADE_PORTAL', 'ELEGIVEL_CERTIFICADO', 'CRIADO_POR', 'ATUALIZADO_POR', 'BLOQUEADO_PARA_EDICAO', 'ATIVO'],
+      Atividades_Presencas_Registros: ['ID_REGISTRO_PRESENCA', 'ID_ATIVIDADE', 'ID_APRESENTACAO', 'ID_PESSOA', 'TIPO_PARTICIPANTE', 'ID_REFERENCIA', 'CPF_PARTICIPANTE', 'VINCULO_PARTICIPANTE', 'PAPEL_NA_ATIVIDADE', 'STATUS_PRESENCA', 'CODIGO_PRESENCA', 'MODALIDADE_PRESENCA', 'CARGA_HORARIA_CONSIDERADA', 'PRESENCA_REGISTRADA', 'ELEGIVEL_CERTIFICADO', 'MOTIVO_NAO_CERTIFICAVEL', 'ID_JUSTIFICATIVA', 'STATUS_JUSTIFICATIVA', 'DECISAO_JUSTIFICATIVA', 'VALOR_ANTES_JUSTIFICATIVA', 'VALOR_DEPOIS_JUSTIFICATIVA', 'ORIGEM_REGISTRO', 'REGISTRADO_POR', 'REGISTRADO_EM', 'ATUALIZADO_POR', 'ATUALIZADO_EM', 'MOTIVO_AJUSTE', 'ATIVO'],
+      Atividades_Convites: ['ID_ATIVIDADE', 'ID_APRESENTACAO', 'CICLO', 'ID_PESSOA', 'INSTITUICAO', 'TIPO_CONVITE', 'DATA_ENVIO_CONVITE', 'PRESENCA_ESPERADA', 'ID_REGISTRO_PRESENCA', 'ORIGEM_REGISTRO', 'CRIADO_POR', 'ATUALIZADO_POR', 'ATIVO'],
+      Justificativas_Faltas: ['ID_REGISTRO_PRESENCA', 'ID_ATIVIDADE', 'CICLO', 'ID_PESSOA', 'EMAIL_MEMBRO', 'OBSERVACAO_PUBLICA', 'OBSERVACOES_INTERNAS', 'ORIGEM_ENVIO', 'CRIADO_EM', 'ATUALIZADO_EM', 'ATIVO'],
       Atividades_Config: ['ID_CONFIG', 'OBRIGATORIA_PADRAO', 'CARGA_HORARIA_PADRAO', 'VISIBILIDADE_PORTAL_PADRAO', 'STATUS_PUBLICACAO_PORTAL_PADRAO', 'PERMITE_APRESENTACAO', 'PERMITE_CONVIDADOS', 'PERMITE_EXTERNOS', 'PERMITE_JUSTIFICATIVA', 'PRAZO_JUSTIFICATIVA_HORAS', 'CRIADO_EM', 'ATUALIZADO_EM']
     }
   };

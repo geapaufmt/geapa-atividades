@@ -52,9 +52,15 @@ Ela e materializada a partir da aba `Atividades` da base v2 DEV pela funcao manu
 
 `Atividades` e o eixo principal. Cada linha tem um unico `ID_ATIVIDADE`, global e permanente, no padrao `ATV-AAAA-S-NNNN`.
 
-`Atividades_Apresentacoes` referencia a atividade por `ID_ATIVIDADE` e adiciona `ID_APRESENTACAO`.
+`Atividades_Apresentacoes` referencia a atividade por `ID_ATIVIDADE`, adiciona `ID_APRESENTACAO` e usa `ID_PESSOA` como chave tecnica do apresentador quando disponivel.
 
-`Atividades_Presencas_Registros` referencia a atividade e, quando a presenca estiver ligada a uma apresentacao, tambem referencia `ID_APRESENTACAO`.
+`Atividades_Presencas_Registros` referencia a atividade e, quando a presenca estiver ligada a uma apresentacao, tambem referencia `ID_APRESENTACAO`. Para vinculos individuais, `ID_PESSOA` e a chave tecnica preferencial; `RGA` permanece como campo auxiliar/legado.
+
+## Chave de pessoa
+
+`ID_PESSOA` e a chave tecnica principal para pessoas em apresentacoes, chamadas, justificativas, certificados e participacoes. O Portal pode receber e reenviar `idPessoa`, mas a resolucao e validacao continuam no backend, usando GEAPA_CORE/Pessoas v2 quando disponivel.
+
+`RGA` permanece nas bases internas para conferencia humana e compatibilidade historica. Views publicas e endpoints para perfis comuns nao devem expor RGA, e-mail, observacoes internas, logs, cobrancas ou links privados sem permissao especifica.
 
 ## Diferencas importantes
 

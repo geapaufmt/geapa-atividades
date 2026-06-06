@@ -39,8 +39,10 @@ function atividades_garantirEstruturasFixasV1_() {
   var targetName = cfg.sheetNames[0];
   var atividadesSheet = atividades_getAtividadesSheet_();
 
-  atividades_ensureHeadersOnSheet_(atividadesSheet, ['PERIODO_REFERENCIA', 'BASE_PLANEJAMENTO_INICIAL']);
+  atividades_ensureHeadersOnSheet_(atividadesSheet, ATIVIDADES_SCHEMA.ATIVIDADES);
   atividades_ensureHeadersOnSheet_(atividades_getApresentacoesSheet_(), ATIVIDADES_SCHEMA.APRESENTACOES);
+  atividades_ensureHeadersOnSheet_(atividades_getConvidadosSheet_(), ATIVIDADES_SCHEMA.CONVIDADOS);
+  atividades_ensureHeadersOnSheet_(atividades_getConfigSheet_(), ATIVIDADES_SCHEMA.CONFIG);
 
   if (!atividades_findSheetByName_(operational, targetName)) {
     atividades_createSheetWithHeaders_(

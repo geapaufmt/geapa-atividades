@@ -191,8 +191,10 @@ function atividades_buildPortalPermissions_(record, contexto) {
   };
 }
 
-function atividades_buildPortalListItem_(record, contexto) {
+function atividades_buildPortalListItem_(record, contexto, statusChamada, portalConfig) {
   var permissions = atividades_buildPortalPermissions_(record, contexto);
+  var status = statusChamada || {};
+  var chamadaMeta = atividadesV2_getChamadaWindowMeta_(record, status, contexto, null, portalConfig);
   return {
     idAtividade: String(record.ID_ATIVIDADE || '').trim(),
     dataAtividade: atividades_formatPortalDateIso_(record.DATA_ATIVIDADE),
@@ -212,15 +214,27 @@ function atividades_buildPortalListItem_(record, contexto) {
     geraCertificado: atividades_isTruthySim_(record.GERA_CERTIFICADO),
     cargaHoraria: atividades_parsePortalCargaHoraria_(record.CARGA_HORARIA, record),
     statusPublico: String(record.STATUS_PUBLICO || record.STATUS_PUBLICACAO_PORTAL || record.STATUS_OPERACIONAL || record.STATUS || '').trim(),
+    dataHoraInicio: chamadaMeta.dataHoraInicio,
+    dataHoraFim: chamadaMeta.dataHoraFim,
+    chamadaDisponivelEm: chamadaMeta.chamadaDisponivelEm,
+    chamadaEncerraEm: chamadaMeta.chamadaEncerraEm,
+    podeRegistrarChamadaAgora: chamadaMeta.podeRegistrarChamadaAgora,
+    podeVisualizarChamada: chamadaMeta.podeVisualizarChamada,
+    motivoChamadaIndisponivel: chamadaMeta.motivoChamadaIndisponivel,
+    chamadaFinalizada: chamadaMeta.chamadaFinalizada,
+    statusChamada: chamadaMeta.statusChamada,
+    statusChamadaRotulo: chamadaMeta.statusChamadaRotulo,
+    statusChamadaAtualizadoEm: status.atualizadoEm || '',
     visibilidadePortal: atividades_getPortalVisibilidade_(record),
     podeVerDetalhes: permissions.podeVerDetalhes,
     podeJustificarFalta: permissions.podeJustificarFalta,
-    podeRegistrarChamada: permissions.podeRegistrarChamada,
+    podeRegistrarChamada: chamadaMeta.podeRegistrarChamadaAgora,
     podeEditar: permissions.podeEditar
   };
 }
 
 function atividades_buildPortalDetail_(record, contexto) {
+  var privileged = atividades_isPrivilegedPortalProfile_(contexto || {});
   return {
     idAtividade: String(record.ID_ATIVIDADE || '').trim(),
     idApresentacao: String(record.ID_APRESENTACAO || '').trim(),
@@ -242,7 +256,8 @@ function atividades_buildPortalDetail_(record, contexto) {
     cargaHoraria: atividades_parsePortalCargaHoraria_(record.CARGA_HORARIA, record),
     statusPublico: String(record.STATUS_PUBLICO || record.STATUS_PUBLICACAO_PORTAL || record.STATUS_OPERACIONAL || record.STATUS || '').trim(),
     nomeApresentadorPublico: atividades_sanitizePortalText_(record.NOME_APRESENTADOR_PUBLICO, 180),
-    rgaApresentador: String(record.RGA_APRESENTADOR || '').trim(),
+    idPessoaApresentador: String(record.ID_PESSOA_APRESENTADOR || '').trim(),
+    rgaApresentador: privileged ? String(record.RGA_APRESENTADOR || '').trim() : '',
     tituloApresentacao: atividades_sanitizePortalText_(record.TITULO_APRESENTACAO, 240),
     eixoTematicoPrincipal: String(record.EIXO_TEMATICO_PRINCIPAL || '').trim(),
     eixoTematicoSecundario: String(record.EIXO_TEMATICO_SECUNDARIO || '').trim(),
@@ -258,15 +273,20 @@ function atividades_readPortalActivityRecords_() {
   return atividades_readPortalActivityRecordsV2Dev_();
 }
 
-function atividades_readPortalActivityRecordsV2Dev_() {
-  var ss = atividadesV2_getDatabaseSpreadsheetDev_();
+function atividades_readPortalActivityRecordsV2Dev_(spreadsheet, perf) {
+  var ss = spreadsheet || atividadesV2_getDatabaseSpreadsheetDev_();
   var sheet = ss.getSheetByName(ATIVIDADES_V2_SHEETS.PORTAL_ATIVIDADES_CALENDARIO);
 
   if (!sheet) {
     throw new Error('Aba PORTAL_ATIVIDADES_CALENDARIO nao encontrada na base v2 DEV.');
   }
 
-  return GEAPA_CORE.coreReadSheetRecords(sheet, { headerRow: 1 });
+  var records = atividades_readPortalSheetRecordsFast_(
+    sheet,
+    ATIVIDADES_V2_SCHEMA.PORTAL_ATIVIDADES_CALENDARIO
+  );
+  if (perf) portalPerfMark_(perf, 'ler_view_calendario', { linhas: records.length });
+  return records;
 }
 
 function atividades_readPortalActivityDetailRecordsV2Dev_() {
@@ -284,11 +304,60 @@ function atividades_readPortalActivityDetailRecordsV2Dev_() {
   return GEAPA_CORE.coreReadSheetRecords(sheet, { headerRow: 1 });
 }
 
-function atividades_tryReadPortalActivityDetailViewV2Dev_() {
-  var ss = atividadesV2_getDatabaseSpreadsheetDev_();
+function atividades_readPortalActivityDetailViewRecordsV2Dev_(spreadsheet, perf) {
+  var records = atividades_tryReadPortalActivityDetailViewV2Dev_(spreadsheet, perf);
+  return records || [];
+}
+
+function atividades_tryReadPortalActivityDetailViewV2Dev_(spreadsheet, perf) {
+  var ss = spreadsheet || atividadesV2_getDatabaseSpreadsheetDev_();
   var sheet = ss.getSheetByName(ATIVIDADES_V2_SHEETS.PORTAL_ATIVIDADES_DETALHES);
   if (!sheet || sheet.getLastRow() < 2) return null;
-  return GEAPA_CORE.coreReadSheetRecords(sheet, { headerRow: 1 });
+  var records = atividades_readPortalSheetRecordsFast_(
+    sheet,
+    ATIVIDADES_V2_SCHEMA.PORTAL_ATIVIDADES_DETALHES
+  );
+  if (perf) portalPerfMark_(perf, 'ler_view_detalhes', { linhas: records.length });
+  return records;
+}
+
+function atividades_readPortalSheetRecordsFast_(sheet, expectedHeaders) {
+  var lastRow = sheet.getLastRow();
+  if (lastRow < 2) return [];
+
+  var lastColumn = Math.max(sheet.getLastColumn(), 1);
+  var currentHeaders = sheet.getRange(1, 1, 1, lastColumn).getValues()[0].map(function(header) {
+    return String(header || '').trim();
+  });
+  var headerIndex = {};
+  currentHeaders.forEach(function(header, index) {
+    if (header && !Object.prototype.hasOwnProperty.call(headerIndex, header)) {
+      headerIndex[header] = index;
+    }
+  });
+
+  var headers = (expectedHeaders || currentHeaders).filter(function(header) {
+    return String(header || '').trim();
+  });
+  var maxIndex = 0;
+  headers.forEach(function(header) {
+    if (Object.prototype.hasOwnProperty.call(headerIndex, header)) {
+      maxIndex = Math.max(maxIndex, headerIndex[header]);
+    }
+  });
+
+  var readColumns = Math.max(maxIndex + 1, 1);
+  var values = sheet.getRange(2, 1, lastRow - 1, readColumns).getValues();
+  return values.map(function(row, rowIndex) {
+    var record = { _rowNumber: rowIndex + 2 };
+    headers.forEach(function(header) {
+      var index = headerIndex[header];
+      record[header] = index === undefined ? '' : row[index];
+    });
+    return record;
+  }).filter(function(record) {
+    return String(record.ID_ATIVIDADE || '').trim();
+  });
 }
 
 function atividades_sortPortalActivities_(a, b) {
@@ -302,42 +371,69 @@ function atividades_sortPortalActivities_(a, b) {
 }
 
 function atividades_listarParaPortal_(contexto) {
-  var perf = portalPerfStart_('atividades_listarParaPortal');
+  return atividadesV2_portalGetCalendario_(contexto);
+}
+
+function atividadesV2_portalGetCalendario_(contexto) {
+  var perf = portalPerfStart_('atividadesV2_portalGetCalendario');
   try {
     var ctx = atividades_normalizePortalContext_(contexto);
+    var portalConfig = atividadesV2_getPortalConfigCached_();
     var cacheKey = portalCacheBuildKey_('calendario', portalCacheContextToken_(ctx));
-    var cached = portalCacheGetJson_(cacheKey);
+    var podeUsarCache = !atividades_isPrivilegedPortalProfile_(ctx);
+    var cached = podeUsarCache ? portalCacheGetJson_(cacheKey) : null;
     if (cached) {
-      portalPerfMark_(perf, 'cache_hit_calendario');
+      portalPerfMark_(perf, 'cache_hit_calendario', {
+        total: cached.length || 0,
+        payloadBytes: portalApproxPayloadBytes_(cached)
+      });
       var cachedPerf = portalPerfEnd_(perf);
       return {
         ok: true,
         data: cached,
+        meta: atividadesV2_buildPortalCalendarioMeta_(portalConfig),
         cacheHit: true,
+        origem: 'cache',
         tempoTotalMs: cachedPerf.totalMs
       };
     }
 
     portalPerfMark_(perf, 'contexto_normalizado');
-    var records = atividades_readPortalActivityRecords_();
-    portalPerfMark_(perf, 'ler_view_calendario', { linhas: records.length });
-    var data = records
+    var ss = atividadesV2_getDatabaseSpreadsheetDev_();
+    portalPerfMark_(perf, 'abrir_planilha_v2_dev');
+    var records = atividades_readPortalActivityRecordsV2Dev_(ss, perf);
+    var visiveis = records
       .filter(function(record) {
         return atividades_canShowActivityInPortal_(record, ctx);
       })
-      .sort(atividades_sortPortalActivities_)
-      .map(function(record) {
-        return atividades_buildPortalListItem_(record, ctx);
+      .sort(atividades_sortPortalActivities_);
+    var statusMap = atividades_isPrivilegedPortalProfile_(ctx)
+      ? atividadesV2_getChamadaStatusMap_(ss, visiveis.map(function(record) {
+        return record.ID_ATIVIDADE;
+      }))
+      : {};
+    var data = visiveis.map(function(record) {
+        var idAtividade = String(record.ID_ATIVIDADE || '').trim();
+        return atividades_buildPortalListItem_(record, ctx, statusMap[idAtividade], portalConfig);
       });
 
-    portalPerfMark_(perf, 'montar_resposta_calendario', { total: data.length });
-    portalCachePutJson_(cacheKey, data, ATIVIDADES_V2_PORTAL_CACHE_TTL_SECONDS);
+    var payloadBytes = portalApproxPayloadBytes_(data);
+    portalPerfMark_(perf, 'montar_resposta_calendario', {
+      total: data.length,
+      payloadBytes: payloadBytes
+    });
+    var cacheOk = podeUsarCache
+      ? portalCachePutJson_(cacheKey, data, ATIVIDADES_V2_PORTAL_CALENDARIO_CACHE_TTL_SECONDS)
+      : false;
+    portalPerfMark_(perf, 'gravar_cache_calendario', { ok: cacheOk, ttl: ATIVIDADES_V2_PORTAL_CALENDARIO_CACHE_TTL_SECONDS });
     var perfResult = portalPerfEnd_(perf);
 
     return {
       ok: true,
       data: data,
+      meta: atividadesV2_buildPortalCalendarioMeta_(portalConfig),
       cacheHit: false,
+      origem: 'planilha',
       tempoTotalMs: perfResult.totalMs
     };
   } catch (err) {
@@ -350,6 +446,17 @@ function atividades_listarParaPortal_(contexto) {
       tempoTotalMs: errorPerf ? errorPerf.totalMs : ''
     };
   }
+}
+
+function atividadesV2_buildPortalCalendarioMeta_(portalConfig) {
+  var cfg = portalConfig || atividadesV2_getPortalConfigCached_();
+  return {
+    destacarProxima: cfg.ATIVIDADES_DESTACAR_PROXIMA === true,
+    preloadDetalhes: cfg.ATIVIDADES_PRELOAD_DETALHES === true,
+    preloadLimite: Number(cfg.ATIVIDADES_PRELOAD_LIMITE || 0),
+    chamadaAntecedenciaMinutos: Number(cfg.ATIVIDADES_CHAMADA_ANTECEDENCIA_MINUTOS || 0),
+    chamadaToleranciaPosMinutos: Number(cfg.ATIVIDADES_CHAMADA_TOLERANCIA_POS_MINUTOS || 0)
+  };
 }
 
 function atividades_buscarDetalheParaPortal_(idAtividade, contexto) {
@@ -378,10 +485,25 @@ function atividades_buscarDetalheParaPortal_(idAtividade, contexto) {
       };
     }
 
+    var bundleCacheKey = portalCacheBuildKey_('detalhes', portalCacheContextToken_(ctx));
+    var cachedDetails = portalCacheGetJson_(bundleCacheKey);
+    if (cachedDetails && cachedDetails.detalhesPorId && cachedDetails.detalhesPorId[wantedId]) {
+      portalPerfMark_(perf, 'cache_hit_detalhes_agregado', { idAtividade: wantedId });
+      var aggregatePerf = portalPerfEnd_(perf);
+      return {
+        ok: true,
+        data: cachedDetails.detalhesPorId[wantedId],
+        cacheHit: true,
+        origem: 'cache_agregado',
+        tempoTotalMs: aggregatePerf.totalMs
+      };
+    }
+
     portalPerfMark_(perf, 'contexto_normalizado');
     var target = null;
-    var records = atividades_readPortalActivityDetailRecordsV2Dev_();
-    portalPerfMark_(perf, 'ler_view_detalhes', { linhas: records.length });
+    var ss = atividadesV2_getDatabaseSpreadsheetDev_();
+    portalPerfMark_(perf, 'abrir_planilha_v2_dev');
+    var records = atividades_readPortalActivityDetailViewRecordsV2Dev_(ss, perf);
 
     for (var i = 0; i < records.length; i++) {
       if (String(records[i].ID_ATIVIDADE || '').trim() === wantedId) {
@@ -423,12 +545,80 @@ function atividadesV2_portalGetDetalhesAtividade_(idAtividade, contexto) {
   return atividades_buscarDetalheParaPortal_(idAtividade, contexto);
 }
 
+function atividadesV2_portalGetAtividadesDetalhes_(contexto) {
+  var perf = portalPerfStart_('atividadesV2_portalGetAtividadesDetalhes');
+  try {
+    var ctx = atividades_normalizePortalContext_(contexto);
+    var cacheKey = portalCacheBuildKey_('detalhes', portalCacheContextToken_(ctx));
+    var cached = portalCacheGetJson_(cacheKey);
+    if (cached) {
+      portalPerfMark_(perf, 'cache_hit_detalhes', {
+        total: cached && cached.detalhesPorId ? Object.keys(cached.detalhesPorId).length : 0,
+        payloadBytes: portalApproxPayloadBytes_(cached)
+      });
+      var cachedPerf = portalPerfEnd_(perf);
+      return {
+        ok: true,
+        data: cached,
+        cacheHit: true,
+        origem: 'cache',
+        tempoTotalMs: cachedPerf.totalMs
+      };
+    }
+
+    portalPerfMark_(perf, 'contexto_normalizado');
+    var ss = atividadesV2_getDatabaseSpreadsheetDev_();
+    portalPerfMark_(perf, 'abrir_planilha_v2_dev');
+    var records = atividades_readPortalActivityDetailViewRecordsV2Dev_(ss, perf);
+
+    var detalhesPorId = {};
+    var ultimaAtualizacao = '';
+    records.forEach(function(record) {
+      var id = String(record.ID_ATIVIDADE || '').trim();
+      if (!id || detalhesPorId[id]) return;
+      if (!atividades_canShowActivityInPortal_(record, ctx)) return;
+      detalhesPorId[id] = atividades_buildPortalDetail_(record, ctx);
+      if (record.ULTIMA_ATUALIZACAO) ultimaAtualizacao = String(record.ULTIMA_ATUALIZACAO || '');
+    });
+
+    var data = {
+      detalhesPorId: detalhesPorId,
+      ultimaAtualizacao: ultimaAtualizacao
+    };
+    var payloadBytes = portalApproxPayloadBytes_(data);
+    portalPerfMark_(perf, 'montar_resposta_detalhes', {
+      total: Object.keys(detalhesPorId).length,
+      payloadBytes: payloadBytes
+    });
+    var cacheOk = portalCachePutJson_(cacheKey, data, ATIVIDADES_V2_PORTAL_DETALHES_CACHE_TTL_SECONDS);
+    portalPerfMark_(perf, 'gravar_cache_detalhes', { ok: cacheOk, ttl: ATIVIDADES_V2_PORTAL_DETALHES_CACHE_TTL_SECONDS });
+    var perfResult = portalPerfEnd_(perf);
+    return {
+      ok: true,
+      data: data,
+      cacheHit: false,
+      origem: 'planilha',
+      tempoTotalMs: perfResult.totalMs
+    };
+  } catch (err) {
+    var errorPerf = portalPerfEnd_(perf);
+    return {
+      ok: false,
+      errorCode: 'ERRO_DETALHES_PORTAL_ATIVIDADES',
+      message: 'Nao foi possivel carregar os detalhes de atividades para preload.',
+      details: err && err.message ? err.message : String(err),
+      tempoTotalMs: errorPerf ? errorPerf.totalMs : ''
+    };
+  }
+}
+
 function atividadesV2_portalGetAtividadesBundle_(contexto) {
   var perf = portalPerfStart_('atividadesV2_portalGetAtividadesBundle');
   try {
     var ctx = atividades_normalizePortalContext_(contexto);
     var cacheKey = portalCacheBuildKey_('bundle', portalCacheContextToken_(ctx));
-    var cached = portalCacheGetJson_(cacheKey);
+    var podeUsarCache = !atividades_isPrivilegedPortalProfile_(ctx);
+    var cached = podeUsarCache ? portalCacheGetJson_(cacheKey) : null;
     if (cached) {
       portalPerfMark_(perf, 'cache_hit_bundle');
       var cachedPerf = portalPerfEnd_(perf);
@@ -440,34 +630,26 @@ function atividadesV2_portalGetAtividadesBundle_(contexto) {
       };
     }
 
-    var listResult = atividades_listarParaPortal_(ctx);
+    var listResult = atividadesV2_portalGetCalendario_(ctx);
     if (!listResult.ok) return listResult;
     portalPerfMark_(perf, 'carregar_calendario', { total: listResult.data.length });
 
-    var allowedIds = {};
-    listResult.data.forEach(function(item) {
-      allowedIds[String(item.idAtividade || '').trim()] = true;
-    });
-
-    var detalhesPorId = {};
-    var ultimaAtualizacao = '';
-    var detailRecords = atividades_readPortalActivityDetailRecordsV2Dev_();
-    portalPerfMark_(perf, 'ler_view_detalhes', { linhas: detailRecords.length });
-
-    detailRecords.forEach(function(record) {
-      var id = String(record.ID_ATIVIDADE || '').trim();
-      if (!allowedIds[id] || detalhesPorId[id]) return;
-      if (!atividades_canShowActivityInPortal_(record, ctx)) return;
-      detalhesPorId[id] = atividades_buildPortalDetail_(record, ctx);
-      if (record.ULTIMA_ATUALIZACAO) ultimaAtualizacao = record.ULTIMA_ATUALIZACAO;
+    var detailResult = atividadesV2_portalGetAtividadesDetalhes_(ctx);
+    if (!detailResult.ok) return detailResult;
+    portalPerfMark_(perf, 'carregar_detalhes', {
+      total: Object.keys(detailResult.data.detalhesPorId || {}).length,
+      cacheHit: !!detailResult.cacheHit
     });
 
     var data = {
       calendario: listResult.data,
-      detalhesPorId: detalhesPorId,
-      ultimaAtualizacao: ultimaAtualizacao
+      detalhesPorId: detailResult.data.detalhesPorId || {},
+      ultimaAtualizacao: detailResult.data.ultimaAtualizacao || '',
+      meta: listResult.meta || {}
     };
-    portalCachePutJson_(cacheKey, data, ATIVIDADES_V2_PORTAL_CACHE_TTL_SECONDS);
+    if (podeUsarCache) {
+      portalCachePutJson_(cacheKey, data, ATIVIDADES_V2_PORTAL_CACHE_TTL_SECONDS);
+    }
     var perfResult = portalPerfEnd_(perf);
     return {
       ok: true,
@@ -487,8 +669,41 @@ function atividadesV2_portalGetAtividadesBundle_(contexto) {
   }
 }
 
+function atividadesV2_runTestePortalPerformanceDev_() {
+  var ctx = {
+    perfil: 'MEMBRO',
+    somenteVisiveis: true
+  };
+  var token = portalCacheContextToken_(ctx);
+  portalCacheRemove_(portalCacheBuildKey_('calendario', token));
+  portalCacheRemove_(portalCacheBuildKey_('detalhes', token));
+  portalCacheRemove_(portalCacheBuildKey_('bundle', token));
+
+  var primeira = atividadesV2_portalGetCalendario_(ctx);
+  var segunda = atividadesV2_portalGetCalendario_(ctx);
+  var detalhes = atividadesV2_portalGetAtividadesDetalhes_(ctx);
+
+  return {
+    ok: !!(primeira.ok && segunda.ok && detalhes.ok),
+    calendarioPrimeiraChamadaMs: primeira.tempoTotalMs || '',
+    calendarioCacheMs: segunda.tempoTotalMs || '',
+    detalhesMs: detalhes.tempoTotalMs || '',
+    totalAtividades: primeira.ok ? primeira.data.length : 0,
+    totalDetalhes: detalhes.ok ? Object.keys(detalhes.data.detalhesPorId || {}).length : 0,
+    cacheFuncionando: !!segunda.cacheHit,
+    calendarioOrigemPrimeira: primeira.origem || '',
+    calendarioOrigemSegunda: segunda.origem || '',
+    detalhesOrigem: detalhes.origem || '',
+    erros: [primeira, segunda, detalhes].filter(function(result) {
+      return !result.ok;
+    }).map(function(result) {
+      return result.errorCode || result.message || 'ERRO';
+    })
+  };
+}
+
 function atividades_runTestePortalAtividades_() {
-  var listResult = atividades_listarParaPortal_({
+  var listResult = atividadesV2_portalGetCalendario_({
     perfil: 'MEMBRO',
     somenteVisiveis: true
   });

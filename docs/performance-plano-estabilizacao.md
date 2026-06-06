@@ -26,14 +26,15 @@ Reduzir a latencia percebida do Portal GEAPA antes de adicionar novas funcionali
 - Adicionar `PORTAL_ATIVIDADES_DETALHES` ao schema v2.
 - Fazer o setup criar/validar a nova view.
 - Criar `atividadesV2_atualizarPortalAtividadesDetalhesDev()`.
-- Ajustar detalhes para usar view com fallback antigo.
+- Ajustar detalhes para usar view materializada sem cruzamento pesado no clique.
 - Criar `atividadesV2_portalGetAtividadesBundle()`.
 - Adicionar cache curto e logs de tempo.
+- Separar o caminho rapido em `atividadesV2_portalGetCalendario()` e `atividadesV2_portalGetAtividadesDetalhes()`.
 - Documentar gargalos e regras futuras.
 
 ## Cache
 
-TTL padrao no modulo `geapa-atividades`: 600 segundos.
+TTL padrao no modulo `geapa-atividades`: 300 segundos.
 
 Chaves logicas:
 
@@ -47,6 +48,7 @@ Regras:
 - Cache nao substitui validacao de permissao.
 - Cache nao deve conter dados alem do necessario para a tela.
 - Em caso de falha do cache, a leitura deve continuar pela view.
+- A primeira renderizacao da aba Atividades deve buscar somente calendario; detalhes devem ser carregados em preload separado.
 - Rotinas de materializacao removem apenas caches agregados conhecidos; caches por contexto expiram pelo TTL.
 
 ## Observabilidade
@@ -56,6 +58,8 @@ As funcoes instrumentadas registram `GEAPA-PORTAL-PERF` com:
 - abertura do Registry/key;
 - abertura da planilha v2;
 - leitura de views/abas;
+- origem da resposta, cache ou planilha;
+- tamanho aproximado do payload;
 - montagem de indices;
 - escrita de views;
 - montagem da resposta;
@@ -83,6 +87,6 @@ Antes de criar nova funcionalidade, responder:
 1. Rodar setup v2 para criar `PORTAL_ATIVIDADES_DETALHES`.
 2. Rodar gerador da view de detalhes.
 3. Publicar algumas atividades DEV e medir lista/detalhe.
-4. No repo `geapa-portal`, trocar a aba Atividades para consumir bundle.
-5. Adicionar cache em `sessionStorage` no front-end para lista e detalhes.
+4. No repo `geapa-portal`, usar `atividadesV2_portalGetCalendario()` no primeiro render e `atividadesV2_portalGetAtividadesDetalhes()` no preload.
+5. Adicionar ou manter cache em `sessionStorage` no front-end para lista e detalhes.
 6. Avaliar endpoint `portalGetBootstrap` no backend do portal.

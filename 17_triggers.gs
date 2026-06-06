@@ -26,6 +26,8 @@ function onEditAtividades(e) {
   return atividades_runWithOperationalGuard_('GERAL', null, function() {
     atividades_onEditConfigInheritance_(e);
     atividades_onEditPeriodoSync_(e);
+    atividades_onEditConfirmacaoConvidados_(e);
+    atividades_onEditConvidados_(e);
     atividades_onEditApresentacoes_(e);
     atividades_onEditJustificativas_(e);
     atividades_onEditPresencas_(e);

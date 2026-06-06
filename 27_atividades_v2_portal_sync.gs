@@ -296,6 +296,7 @@ function atividadesV2_buildPortalDetalheRow_(atividade, apresentacao, syncDate) 
     STATUS_OPERACIONAL: String(atividade.STATUS_OPERACIONAL || '').trim(),
     STATUS_PUBLICACAO_PORTAL: String(atividade.STATUS_PUBLICACAO_PORTAL || '').trim(),
     NOME_APRESENTADOR_PUBLICO: apresentacao ? atividades_sanitizePortalText_(apresentacao.NOME_MEMBRO, 180) : '',
+    ID_PESSOA_APRESENTADOR: apresentacao ? String(apresentacao.ID_PESSOA || '').trim() : '',
     RGA_APRESENTADOR: apresentacao ? String(apresentacao.RGA || '').trim() : '',
     EMAIL_APRESENTADOR: apresentacao ? String(apresentacao.EMAIL_MEMBRO || '').trim() : '',
     TITULO_APRESENTACAO: apresentacao ? atividades_sanitizePortalText_(apresentacao.TITULO_APRESENTACAO, 240) : '',

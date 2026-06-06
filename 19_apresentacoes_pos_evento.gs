@@ -481,6 +481,83 @@ function atividades_listarEventosPendentesArquivoApresentacoes_() {
   return events;
 }
 
+/**
+ * Indica se um evento pendente da Central pode representar envio por link do Drive.
+ * @param {Object} eventRecord Registro da aba MAIL_EVENTOS.
+ * @return {boolean} Verdadeiro quando o evento e uma entrada AARQ sem anexo real, mas com link do Drive.
+ */
+function atividades_eventoPodeConterDriveLinkArquivo_(eventRecord) {
+  if (!eventRecord) return false;
+  if (!atividades_parseArquivoCorrelationKey_(eventRecord.correlationKey || '')) return false;
+  if (atividades_normalizeTextUpper_(eventRecord.direction || '') !== 'ENTRADA') return false;
+  if (Number(eventRecord.attachmentCount || 0) > 0) return false;
+
+  var text = [
+    eventRecord.subject,
+    eventRecord.snippet,
+    eventRecord.plainBody
+  ].join(' ');
+
+  return /drive\.google\.com/i.test(text);
+}
+
+/**
+ * Lista eventos pendentes de envio de arquivo que chegaram como link do Drive em vez de anexo.
+ * @return {Object[]} Registros da Central de Mensageria candidatos ao processamento.
+ */
+function atividades_listarEventosPendentesDriveLinkArquivoApresentacoes_() {
+  var sheet = GEAPA_CORE.coreGetSheetByKey('MAIL_EVENTOS');
+  if (!sheet || sheet.getLastRow() < 2) return [];
+
+  var headerMap = GEAPA_CORE.coreHeaderMap(sheet, 1);
+  var lastRow = sheet.getLastRow();
+  var lastCol = sheet.getLastColumn();
+  var rows = sheet.getRange(2, 1, lastRow - 1, lastCol).getValues();
+  var events = [];
+
+  function cell(row, headerName) {
+    var col = GEAPA_CORE.coreGetCol(headerMap, headerName);
+    return col ? row[col - 1] : '';
+  }
+
+  rows.forEach(function(row, index) {
+    var moduleName = atividades_normalizeTextUpper_(cell(row, 'Modulo Dono'));
+    var status = atividades_normalizeTextUpper_(cell(row, 'Status Processamento'));
+    if (moduleName !== 'ATIVIDADES' || status !== 'PENDENTE') return;
+
+    var record = {
+      eventId: String(cell(row, 'Id Evento') || '').trim(),
+      messageId: String(cell(row, 'Id Mensagem Gmail') || '').trim(),
+      threadId: String(cell(row, 'Id Thread Gmail') || '').trim(),
+      correlationKey: String(cell(row, 'Chave de Correlacao') || '').trim(),
+      direction: String(cell(row, 'Direcao') || '').trim(),
+      eventType: String(cell(row, 'Tipo Evento') || '').trim(),
+      subject: String(cell(row, 'Assunto') || '').trim(),
+      fromEmail: String(cell(row, 'Email Remetente') || '').trim(),
+      fromName: String(cell(row, 'Nome Remetente') || '').trim(),
+      snippet: String(cell(row, 'Trecho Corpo') || '').trim(),
+      plainBody: String(cell(row, 'Corpo Texto') || '').trim(),
+      receivedAt: cell(row, 'Data Hora Evento'),
+      ingestedAt: cell(row, 'Criado Em'),
+      hasAttachments: String(cell(row, 'Possui Anexos') || '').trim(),
+      attachmentCount: Number(cell(row, 'Quantidade Anexos') || 0),
+      rowNumber: index + 2
+    };
+
+    if (atividades_eventoPodeConterDriveLinkArquivo_(record)) {
+      events.push(record);
+    }
+  });
+
+  events.sort(function(a, b) {
+    var aDate = atividades_parseDateOrNull_(a.receivedAt || a.ingestedAt);
+    var bDate = atividades_parseDateOrNull_(b.receivedAt || b.ingestedAt);
+    return (bDate ? bDate.getTime() : 0) - (aDate ? aDate.getTime() : 0);
+  });
+
+  return events.slice(0, 300);
+}
+
 function atividades_encontrarLinhaPendenteArquivoPorCoreEvent_(eventRecord, attachments) {
   attachments = Array.isArray(attachments) ? attachments : [];
   var correlation = atividades_parseArquivoCorrelationKey_(
@@ -588,7 +665,6 @@ function atividades_ingestirInboxArquivoApresentacoes_(opts) {
     'newer_than:' + days + 'd',
     '-in:trash',
     '-in:spam',
-    'has:attachment',
     'subject:"' + ATIVIDADES_CFG.APRESENTACOES_POS_EVENTO.ARQUIVO_INBOX_SUBJECT + '"'
   ].join(' ');
 
@@ -1147,6 +1223,126 @@ function atividades_anexoEhArquivoApresentacao_(att) {
   return /\.pdf$/i.test(nome) || mime === 'application/pdf' || mime.indexOf('pdf') !== -1;
 }
 
+/**
+ * Extrai IDs de arquivos do Google Drive presentes em textos ou HTML de mensagens.
+ * @param {*} text Texto de origem.
+ * @return {string[]} IDs unicos de arquivos do Drive.
+ */
+function atividades_extrairDriveFileIdsDeTexto_(text) {
+  var raw = String(text || '');
+  var ids = [];
+  var seen = Object.create(null);
+  var patterns = [
+    /https?:\/\/drive\.google\.com\/file\/d\/([a-zA-Z0-9_-]+)/g,
+    /https?:\/\/drive\.google\.com\/open\?id=([a-zA-Z0-9_-]+)/g,
+    /https?:\/\/drive\.google\.com\/uc\?[^ \n\r\t<>)]*id=([a-zA-Z0-9_-]+)/g
+  ];
+
+  patterns.forEach(function(pattern) {
+    var match;
+    while ((match = pattern.exec(raw)) !== null) {
+      var id = String(match[1] || '').trim();
+      if (!id || seen[id]) continue;
+      seen[id] = true;
+      ids.push(id);
+    }
+  });
+
+  return ids;
+}
+
+/**
+ * Monta o texto usado para procurar links do Drive combinando dados da Central e da mensagem Gmail.
+ * @param {Object} eventRecord Registro da Central de Mensageria.
+ * @param {GmailMessage=} msg Mensagem Gmail original, quando disponivel.
+ * @return {string} Texto agregado para varredura.
+ */
+function atividades_getTextoMensagemParaDriveLinks_(eventRecord, msg) {
+  var parts = [
+    eventRecord && eventRecord.subject,
+    eventRecord && eventRecord.snippet,
+    eventRecord && eventRecord.plainBody
+  ];
+
+  if (msg) {
+    try {
+      parts.push(msg.getPlainBody());
+    } catch (ignorePlainErr) {
+      // segue com os demais campos
+    }
+    try {
+      parts.push(msg.getBody());
+    } catch (ignoreHtmlErr) {
+      // segue com os demais campos
+    }
+  }
+
+  return parts.join('\n');
+}
+
+/**
+ * Verifica se um arquivo do Drive e um PDF aceitavel como arquivo de apresentacao.
+ * @param {File} file Arquivo retornado pelo DriveApp.
+ * @return {boolean} Verdadeiro quando nome ou MIME indicam PDF.
+ */
+function atividades_driveFileEhPdfApresentacao_(file) {
+  if (!file) return false;
+  var nome = String(file.getName() || '');
+  var mime = String(file.getMimeType() || '');
+  return /\.pdf$/i.test(nome) || mime === MimeType.PDF || mime === 'application/pdf' || mime.indexOf('pdf') !== -1;
+}
+
+/**
+ * Resolve links do Drive encontrados na mensagem, separando PDFs validos de links invalidos.
+ * @param {Object} eventRecord Registro da Central de Mensageria.
+ * @param {GmailMessage=} msg Mensagem Gmail original, quando disponivel.
+ * @return {{ids:string[], arquivos:File[], invalidos:Object[]}} Resultado da resolucao dos links.
+ */
+function atividades_resolverDrivePdfLinksArquivoApresentacao_(eventRecord, msg) {
+  var text = atividades_getTextoMensagemParaDriveLinks_(eventRecord, msg);
+  var ids = atividades_extrairDriveFileIdsDeTexto_(text);
+  var arquivos = [];
+  var invalidos = [];
+
+  ids.forEach(function(fileId) {
+    try {
+      var file = DriveApp.getFileById(fileId);
+      if (atividades_driveFileEhPdfApresentacao_(file)) {
+        arquivos.push(file);
+      } else {
+        invalidos.push({
+          id: fileId,
+          name: String(file.getName() || '').trim(),
+          mimeType: String(file.getMimeType() || '').trim(),
+          reason: 'nao_pdf'
+        });
+      }
+    } catch (err) {
+      invalidos.push({
+        id: fileId,
+        reason: err && err.message ? err.message : String(err)
+      });
+    }
+  });
+
+  return {
+    ids: ids,
+    arquivos: arquivos,
+    invalidos: invalidos
+  };
+}
+
+/**
+ * Copia o arquivo PDF compartilhado para a pasta final arquivada da apresentacao.
+ * @param {File} file Arquivo original apontado pelo link do Drive.
+ * @param {Folder} folder Pasta definitiva da apresentacao.
+ * @return {File} Copia criada dentro da pasta definitiva.
+ */
+function atividades_copiarDriveFileParaPastaApresentacao_(file, folder) {
+  var name = String(file.getName() || '').trim() || 'apresentacao.pdf';
+  return file.makeCopy(name, folder);
+}
+
 function atividades_mensagemTemSomenteAnexoInvalido_(msg) {
   var anexos = msg.getAttachments({ includeInlineImages: false, includeAttachments: true }) || [];
   if (!anexos.length) return false;
@@ -1262,6 +1458,84 @@ function atividades_getMessageFromThreadByIdArquivoApresentacao_(thread, message
   }
 
   return messages.length ? messages[messages.length - 1] : null;
+}
+
+/**
+ * Processa um evento da Central cujo envio do arquivo veio por link do Drive.
+ * @param {Object} eventRecord Registro pendente da Central de Mensageria.
+ * @return {Object} Resultado do processamento para logs e consolidacao do job.
+ */
+function atividades_processarEventoDriveLinkArquivoApresentacoes_(eventRecord) {
+  if (!eventRecord) {
+    return { ok: false, action: 'skip', reason: 'evento_ausente' };
+  }
+
+  var item = atividades_encontrarLinhaPendenteArquivoPorCoreEvent_(eventRecord, []);
+  if (!item) {
+    return { ok: false, action: 'skip', reason: 'sem_linha_compativel' };
+  }
+
+  var thread = atividades_getThreadByIdArquivoApresentacao_(eventRecord.threadId);
+  var message = atividades_getMessageFromThreadByIdArquivoApresentacao_(thread, eventRecord.messageId);
+  var processorName = 'atividades_processarInboxArquivoApresentacoes_';
+  var driveLinks = atividades_resolverDrivePdfLinksArquivoApresentacao_(eventRecord, message);
+
+  if (driveLinks.arquivos.length) {
+    var pastaFinal = atividades_getOuCriarPastaFinalApresentacao_(item.record);
+    var arquivosSalvos = [];
+
+    driveLinks.arquivos.forEach(function(file) {
+      var saved = atividades_copiarDriveFileParaPastaApresentacao_(file, pastaFinal);
+      arquivosSalvos.push({
+        name: saved.getName(),
+        id: saved.getId(),
+        url: saved.getUrl(),
+        sourceId: file.getId()
+      });
+    });
+
+    atividades_marcarArquivoRecebidoApresentacao_(item.rowNumber, pastaFinal.getUrl());
+    GEAPA_CORE.coreMailMarkEventProcessed(eventRecord.eventId, processorName);
+    if (thread) {
+      atividades_responderArquivoRecebidoComSucesso_(thread, item.record, message);
+      atividades_marcarThreadArquivoProcessada_(thread);
+    }
+
+    return {
+      ok: true,
+      action: 'processed',
+      mode: 'central_drive_link',
+      rowNumber: item.rowNumber,
+      idAtividade: String(item.record.ID_ATIVIDADE || '').trim(),
+      folderUrl: pastaFinal.getUrl(),
+      arquivosSalvos: arquivosSalvos
+    };
+  }
+
+  if (driveLinks.ids.length) {
+    GEAPA_CORE.coreMailMarkEventProcessed(eventRecord.eventId, processorName);
+    if (thread) {
+      atividades_responderArquivoInvalido_(thread, item.record, message);
+      atividades_marcarThreadArquivoProcessada_(thread);
+    }
+
+    return {
+      ok: false,
+      action: 'skip',
+      mode: 'central_drive_link',
+      reason: 'drive_link_sem_pdf_valido',
+      rowNumber: item.rowNumber,
+      idAtividade: String(item.record.ID_ATIVIDADE || '').trim(),
+      invalidos: driveLinks.invalidos
+    };
+  }
+
+  return {
+    ok: false,
+    action: 'skip',
+    mode: 'central_drive_link',
+    reason: 'sem_drive_link'
+  };
 }
 
 function atividades_processarEventoCentralArquivoApresentacoes_(eventBundle) {
@@ -1396,6 +1670,56 @@ function atividades_processarThreadArquivoApresentacoes_(thread) {
       };
     }
 
+    var driveLinks = atividades_resolverDrivePdfLinksArquivoApresentacao_({
+      subject: msg.getSubject(),
+      snippet: '',
+      plainBody: '',
+      threadId: thread.getId(),
+      messageId: msg.getId(),
+      receivedAt: msg.getDate(),
+      fromEmail: msg.getFrom()
+    }, msg);
+
+    if (driveLinks.arquivos.length > 0) {
+      var pastaFinalDrive = atividades_getOuCriarPastaFinalApresentacao_(record);
+      var arquivosDriveSalvos = [];
+      driveLinks.arquivos.forEach(function(file) {
+        var saved = atividades_copiarDriveFileParaPastaApresentacao_(file, pastaFinalDrive);
+        arquivosDriveSalvos.push({
+          name: saved.getName(),
+          id: saved.getId(),
+          url: saved.getUrl(),
+          sourceId: file.getId()
+        });
+      });
+
+      atividades_marcarArquivoRecebidoApresentacao_(item.rowNumber, pastaFinalDrive.getUrl());
+      atividades_responderArquivoRecebidoComSucesso_(thread, record, msg);
+      atividades_marcarThreadArquivoProcessada_(thread);
+
+      return {
+        ok: true,
+        action: 'processed',
+        mode: 'gmail_drive_link',
+        rowNumber: item.rowNumber,
+        idAtividade: String(record.ID_ATIVIDADE || '').trim(),
+        folderUrl: pastaFinalDrive.getUrl(),
+        arquivosSalvos: arquivosDriveSalvos
+      };
+    }
+
+    if (driveLinks.ids.length) {
+      atividades_responderArquivoInvalido_(thread, record, msg);
+      atividades_marcarThreadArquivoProcessada_(thread);
+      return {
+        ok: false,
+        action: 'skip',
+        reason: 'drive_link_sem_pdf_valido',
+        rowNumber: item.rowNumber,
+        idAtividade: String(record.ID_ATIVIDADE || '').trim()
+      };
+    }
+
     if (atividades_mensagemTemSomenteAnexoInvalido_(msg)) {
       atividades_responderArquivoInvalido_(thread, record, msg);
       return {
@@ -1456,7 +1780,31 @@ function atividades_processarInboxArquivoApresentacoes_(opts) {
     }
   });
 
-  if (!processed.length && !eventosPendentes.length && allowGmailFallback) {
+  var eventosDriveLinkPendentes = [];
+  try {
+    eventosDriveLinkPendentes = atividades_listarEventosPendentesDriveLinkArquivoApresentacoes_();
+  } catch (err) {
+    errors.push('central_drive_link_list_failed: ' + (err && err.message ? err.message : String(err)));
+    eventosDriveLinkPendentes = [];
+  }
+
+  eventosDriveLinkPendentes.forEach(function(eventRecord) {
+    try {
+      var result = atividades_processarEventoDriveLinkArquivoApresentacoes_(eventRecord);
+      if (result && result.action === 'processed') {
+        processed.push(result);
+      } else {
+        skipped++;
+      }
+    } catch (err) {
+      var eventId = eventRecord ? String(eventRecord.eventId || '').trim() : '';
+      errors.push((eventId ? (eventId + ': ') : '') + (err && err.message ? err.message : String(err)));
+    }
+  });
+
+  var semCandidatosCentrais = !eventosPendentes.length && !eventosDriveLinkPendentes.length;
+
+  if (!processed.length && semCandidatosCentrais && allowGmailFallback) {
     modeUsed = 'gmail_fallback';
     var threads = atividades_buscarThreadsArquivoApresentacoes_();
 
@@ -1479,7 +1827,7 @@ function atividades_processarInboxArquivoApresentacoes_(opts) {
     });
   }
 
-  if (!processed.length && !eventosPendentes.length && !allowGmailFallback) {
+  if (!processed.length && semCandidatosCentrais && !allowGmailFallback) {
     modeUsed = 'central_only';
   }
 
