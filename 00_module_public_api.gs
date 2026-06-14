@@ -74,6 +74,160 @@ function atividadesV2_runTestePortalChamadaDev() {
   return atividadesV2_runTestePortalChamadaDev_();
 }
 
+function atividadesV2_diagnostico() {
+  return atividades_runWithOperationalGuard_('CONFERENCIA_V2', null, function() {
+    return atividadesV2_diagnostico_();
+  }, { entrypoint: 'atividadesV2_diagnostico' });
+}
+
+function atividadesV2_conferirConsistencia(options) {
+  return atividades_runWithOperationalGuard_('CONFERENCIA_V2', null, function() {
+    return atividadesV2_conferirConsistencia_(options || {});
+  }, { entrypoint: 'atividadesV2_conferirConsistencia' });
+}
+
+function atividadesV2_atualizarPortalCalendario(options) {
+  return atividades_runWithOperationalGuard_('ATUALIZACAO_PORTAL_V2', null, function() {
+    return atividadesV2_atualizarPortalCalendario_(options || {});
+  }, { entrypoint: 'atividadesV2_atualizarPortalCalendario' });
+}
+
+function atividadesV2_atualizarPortalDetalhes(options) {
+  return atividades_runWithOperationalGuard_('ATUALIZACAO_PORTAL_V2', null, function() {
+    return atividadesV2_atualizarPortalDetalhes_(options || {});
+  }, { entrypoint: 'atividadesV2_atualizarPortalDetalhes' });
+}
+
+function atividadesV2_atualizarPortalApresentacoes(options) {
+  return atividades_runWithOperationalGuard_('ATUALIZACAO_PORTAL_V2', null, function() {
+    return atividadesV2_atualizarPortalApresentacoes_(options || {});
+  }, { entrypoint: 'atividadesV2_atualizarPortalApresentacoes' });
+}
+
+function atividadesV2_recalcularFrequenciaMembros(options) {
+  return atividades_runWithOperationalGuard_('FREQUENCIA_V2', null, function() {
+    return atividadesV2_recalcularFrequenciaMembros_(options || {});
+  }, { entrypoint: 'atividadesV2_recalcularFrequenciaMembros' });
+}
+
+function atividadesV2_atualizarPortalJustificativas(options) {
+  return atividades_runWithOperationalGuard_('ATUALIZACAO_PORTAL_V2', null, function() {
+    return atividadesV2_atualizarPortalJustificativas_(options || {});
+  }, { entrypoint: 'atividadesV2_atualizarPortalJustificativas' });
+}
+
+function atividadesV2_atualizarPendenciasDiretoria(options) {
+  return atividades_runWithOperationalGuard_('ATUALIZACAO_PORTAL_V2', null, function() {
+    return atividadesV2_atualizarPendenciasDiretoria_(options || {});
+  }, { entrypoint: 'atividadesV2_atualizarPendenciasDiretoria' });
+}
+
+function atividadesV2_atualizarPortalStatus(options) {
+  return atividades_runWithOperationalGuard_('ATUALIZACAO_PORTAL_V2', null, function() {
+    return atividadesV2_atualizarPortalStatus_(options || {});
+  }, { entrypoint: 'atividadesV2_atualizarPortalStatus' });
+}
+
+function atividadesV2_atualizarViewsPortal(options) {
+  return atividades_runWithOperationalGuard_('ATUALIZACAO_PORTAL_V2', null, function() {
+    return atividadesV2_atualizarViewsPortal_(options || {});
+  }, { entrypoint: 'atividadesV2_atualizarViewsPortal' });
+}
+
+function atividadesV2_runTesteAtualizacaoPortalDev() {
+  return atividades_runWithOperationalGuard_('CONFERENCIA_V2', null, function() {
+    return atividadesV2_runTesteAtualizacaoPortalDev_();
+  }, { entrypoint: 'atividadesV2_runTesteAtualizacaoPortalDev' });
+}
+
+function atividadesV2_runTesteDiagnostico() {
+  return atividades_runWithOperationalGuard_('CONFERENCIA_V2', null, function() {
+    return atividadesV2_runTesteDiagnostico_();
+  }, { entrypoint: 'atividadesV2_runTesteDiagnostico' });
+}
+
+function atividadesV2_runTesteAtualizacaoPortalDryRun() {
+  return atividades_runWithOperationalGuard_('ATUALIZACAO_PORTAL_V2', null, function() {
+    return atividadesV2_runTesteAtualizacaoPortalDryRun_();
+  }, { entrypoint: 'atividadesV2_runTesteAtualizacaoPortalDryRun' });
+}
+
+function atividadesV2_runTesteFrequenciaDryRun() {
+  return atividades_runWithOperationalGuard_('FREQUENCIA_V2', null, function() {
+    return atividadesV2_runTesteFrequenciaDryRun_();
+  }, { entrypoint: 'atividadesV2_runTesteFrequenciaDryRun' });
+}
+
+function atividadesV2_runTesteJobPortalDryRun() {
+  return atividades_runWithOperationalGuard_('ATUALIZACAO_PORTAL_V2', null, function() {
+    return atividadesV2_runTesteJobPortalDryRun_();
+  }, { entrypoint: 'atividadesV2_runTesteJobPortalDryRun' });
+}
+
+function atividadesV2_jobPortal(options) {
+  options = options || {};
+  return atividades_runWithOperationalGuard_('ATUALIZACAO_PORTAL_V2', null, function(guard) {
+    return atividadesV2_jobPortal_(atividadesV2_jobPortalOptions_(options, guard));
+  }, {
+    entrypoint: 'atividadesV2_jobPortal',
+    executionType: String(options.executionType || 'MANUAL').trim().toUpperCase()
+  });
+}
+
+function atividadesV2_conferirPortal(options) {
+  return atividades_runWithOperationalGuard_('CONFERENCIA_V2', null, function() {
+    return atividadesV2_conferirPortal_(options || {});
+  }, { entrypoint: 'atividadesV2_conferirPortal' });
+}
+
+function atividadesV2_instalarTriggerJobPortal(options) {
+  return atividadesV2_instalarTriggerJobPortal_(options || {});
+}
+
+function atividadesV2_removerTriggerJobPortal() {
+  return atividadesV2_removerTriggerJobPortal_();
+}
+
+function atividadesV2_listarTriggerJobPortal() {
+  return atividadesV2_listarTriggerJobPortal_();
+}
+
+function atividadesV2_sincronizarBrutasDev(options) {
+  return atividades_runWithOperationalGuard_('MIGRACAO_V2_DEV', null, function() {
+    return atividadesV2_sincronizarBrutasDev_(options || {});
+  }, { entrypoint: 'atividadesV2_sincronizarBrutasDev' });
+}
+
+function atividadesV2_sincronizarBrutasDevDryRun() {
+  return atividades_runWithOperationalGuard_('MIGRACAO_V2_DEV', null, function() {
+    return atividadesV2_sincronizarBrutasDev_({ dryRun: true });
+  }, { entrypoint: 'atividadesV2_sincronizarBrutasDevDryRun' });
+}
+
+function atividadesV2_preverSincronizacaoBrutasDev() {
+  return atividades_runWithOperationalGuard_('MIGRACAO_V2_DEV', null, function() {
+    return atividadesV2_sincronizarBrutasDev_({ dryRun: true });
+  }, { entrypoint: 'atividadesV2_preverSincronizacaoBrutasDev' });
+}
+
+function atividadesV2_sincronizarFaltantesBrutasDev() {
+  return atividades_runWithOperationalGuard_('MIGRACAO_V2_DEV', null, function() {
+    return atividadesV2_sincronizarBrutasDev_({ dryRun: false });
+  }, { entrypoint: 'atividadesV2_sincronizarFaltantesBrutasDev' });
+}
+
+function atividadesV2_sincronizarBrutasEViewsDev(options) {
+  return atividades_runWithOperationalGuard_('MIGRACAO_V2_DEV', null, function() {
+    return atividadesV2_sincronizarBrutasEViewsDev_(options || {});
+  }, { entrypoint: 'atividadesV2_sincronizarBrutasEViewsDev' });
+}
+
+function atividadesV2_sincronizarFaltantesBrutasEAtualizarViewsDev() {
+  return atividades_runWithOperationalGuard_('MIGRACAO_V2_DEV', null, function() {
+    return atividadesV2_sincronizarBrutasEViewsDev_({ dryRun: false });
+  }, { entrypoint: 'atividadesV2_sincronizarFaltantesBrutasEAtualizarViewsDev' });
+}
+
 function atividades_setupV1() {
   return atividades_runWithOperationalGuard_('SETUP_V1', null, function() {
     return atividades_setupV1_();

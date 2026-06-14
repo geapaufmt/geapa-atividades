@@ -2,23 +2,63 @@ function atividades_buildLogId_() {
   return 'ATL-' + Utilities.getUuid().slice(0, 8).toUpperCase();
 }
 
+function atividades_truncateLogCellValue_(value) {
+  var text = value === null || typeof value === 'undefined' ? '' : String(value);
+  var maxLength = 5000;
+  if (text.length <= maxLength) return text;
+  return text.slice(0, maxLength) + '...[TRUNCADO_LOG_ATIVIDADES length=' + text.length + ']';
+}
+
+function atividades_buildFallbackLogPayload_(rowPayload, error) {
+  return {
+    ID_LOG: rowPayload.ID_LOG || atividades_buildLogId_(),
+    ID_ATIVIDADE: atividades_truncateLogCellValue_(rowPayload.ID_ATIVIDADE || ''),
+    TIPO_EVENTO_LOG: atividades_truncateLogCellValue_(rowPayload.TIPO_EVENTO_LOG || 'LOG_FALLBACK'),
+    STATUS: 'ERRO_LOG',
+    ACAO_EXECUTADA: atividades_truncateLogCellValue_(rowPayload.ACAO_EXECUTADA || ''),
+    RESULTADO: atividades_truncateLogCellValue_(rowPayload.RESULTADO || ''),
+    ID_SAIDA_CENTRAL: '',
+    ID_THREAD_GMAIL: '',
+    ID_MENSAGEM_GMAIL: '',
+    OBSERVACOES: atividades_truncateLogCellValue_(
+      'Log original reduzido apos falha de escrita. erro=' +
+      (error && error.message ? error.message : String(error || 'erro_desconhecido')) +
+      ' | observacoes_original_length=' + String(rowPayload.OBSERVACOES || '').length
+    ),
+    CRIADO_EM: new Date()
+  };
+}
+
 function atividades_logEvento_(payload) {
   var sheet = atividades_getLogSheet_();
   var rowPayload = {
     ID_LOG: atividades_buildLogId_(),
-    ID_ATIVIDADE: payload && payload.ID_ATIVIDADE ? payload.ID_ATIVIDADE : '',
-    TIPO_EVENTO_LOG: payload && payload.TIPO_EVENTO_LOG ? payload.TIPO_EVENTO_LOG : '',
-    STATUS: payload && payload.STATUS ? payload.STATUS : '',
-    ACAO_EXECUTADA: payload && payload.ACAO_EXECUTADA ? payload.ACAO_EXECUTADA : '',
-    RESULTADO: payload && payload.RESULTADO ? payload.RESULTADO : '',
-    ID_SAIDA_CENTRAL: payload && payload.ID_SAIDA_CENTRAL ? payload.ID_SAIDA_CENTRAL : '',
-    ID_THREAD_GMAIL: payload && payload.ID_THREAD_GMAIL ? payload.ID_THREAD_GMAIL : '',
-    ID_MENSAGEM_GMAIL: payload && payload.ID_MENSAGEM_GMAIL ? payload.ID_MENSAGEM_GMAIL : '',
-    OBSERVACOES: payload && payload.OBSERVACOES ? payload.OBSERVACOES : '',
+    ID_ATIVIDADE: atividades_truncateLogCellValue_(payload && payload.ID_ATIVIDADE ? payload.ID_ATIVIDADE : ''),
+    TIPO_EVENTO_LOG: atividades_truncateLogCellValue_(payload && payload.TIPO_EVENTO_LOG ? payload.TIPO_EVENTO_LOG : ''),
+    STATUS: atividades_truncateLogCellValue_(payload && payload.STATUS ? payload.STATUS : ''),
+    ACAO_EXECUTADA: atividades_truncateLogCellValue_(payload && payload.ACAO_EXECUTADA ? payload.ACAO_EXECUTADA : ''),
+    RESULTADO: atividades_truncateLogCellValue_(payload && payload.RESULTADO ? payload.RESULTADO : ''),
+    ID_SAIDA_CENTRAL: atividades_truncateLogCellValue_(payload && payload.ID_SAIDA_CENTRAL ? payload.ID_SAIDA_CENTRAL : ''),
+    ID_THREAD_GMAIL: atividades_truncateLogCellValue_(payload && payload.ID_THREAD_GMAIL ? payload.ID_THREAD_GMAIL : ''),
+    ID_MENSAGEM_GMAIL: atividades_truncateLogCellValue_(payload && payload.ID_MENSAGEM_GMAIL ? payload.ID_MENSAGEM_GMAIL : ''),
+    OBSERVACOES: atividades_truncateLogCellValue_(payload && payload.OBSERVACOES ? payload.OBSERVACOES : ''),
     CRIADO_EM: new Date()
   };
 
-  GEAPA_CORE.coreAppendObjectByHeaders(sheet, rowPayload, { headerRow: 1 });
+  try {
+    GEAPA_CORE.coreAppendObjectByHeaders(sheet, rowPayload, { headerRow: 1 });
+  } catch (e) {
+    var fallbackPayload = atividades_buildFallbackLogPayload_(rowPayload, e);
+    try {
+      GEAPA_CORE.coreAppendObjectByHeaders(sheet, fallbackPayload, { headerRow: 1 });
+      return fallbackPayload;
+    } catch (fallbackError) {
+      Logger.log('GEAPA-ATIVIDADES: falha ao registrar log operacional. erro=' + fallbackError.message);
+      rowPayload.LOG_SKIPPED = true;
+      rowPayload.LOG_ERROR = fallbackError.message;
+    }
+  }
+
   return rowPayload;
 }
 

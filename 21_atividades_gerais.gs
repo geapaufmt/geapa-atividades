@@ -994,17 +994,39 @@ function atividades_enviarConvocacoesAtividadesGerais_(opts) {
   var duplicates = 0;
   var deferred = 0;
   var skipped = [];
+  var skippedReasons = {};
+
+  function skipConvocacao_(record, reason) {
+    var normalizedReason = String(reason || 'skip').trim();
+    skippedReasons[normalizedReason] = (skippedReasons[normalizedReason] || 0) + 1;
+    skipped.push({
+      idAtividade: String(record && record.ID_ATIVIDADE || '').trim(),
+      reason: normalizedReason
+    });
+  }
 
   atividades_listGeneralActivityRowsWithNumbers_().forEach(function(item) {
     var record = item.record || {};
-    if (!atividades_isConfirmedLikeGeneralActivityStatus_(record.STATUS)) return;
-    if (!atividades_isTruthySim_(record.EXIGE_CONVOCACAO)) return;
-    if (atividades_parseDateOrNull_(record.DATA_CONVOCACAO)) return;
-    if (!atividades_parseDateOrNull_(record.DATA_ATIVIDADE)) return;
+    if (!atividades_isConfirmedLikeGeneralActivityStatus_(record.STATUS)) {
+      skipConvocacao_(record, 'status_nao_confirmado');
+      return;
+    }
+    if (!atividades_isTruthySim_(record.EXIGE_CONVOCACAO)) {
+      skipConvocacao_(record, 'exige_convocacao_nao');
+      return;
+    }
+    if (atividades_parseDateOrNull_(record.DATA_CONVOCACAO)) {
+      skipConvocacao_(record, 'convocacao_ja_registrada');
+      return;
+    }
+    if (!atividades_parseDateOrNull_(record.DATA_ATIVIDADE)) {
+      skipConvocacao_(record, 'sem_data_atividade');
+      return;
+    }
 
     var resolved = atividades_resolverDestinatariosAtividadeGeral_(record);
     if (!resolved.count) {
-      skipped.push({ idAtividade: String(record.ID_ATIVIDADE || '').trim(), reason: 'sem_destinatarios' });
+      skipConvocacao_(record, 'sem_destinatarios');
       return;
     }
 
@@ -1035,7 +1057,11 @@ function atividades_enviarConvocacoesAtividadesGerais_(opts) {
     RESULTADO: 'queued=' + queued.length + ' | duplicates=' + duplicates + ' | deferred=' + deferred + ' | skipped=' + skipped.length,
     OBSERVACOES: queued.slice(0, 20).map(function(item) {
       return item.idAtividade + ':destinatarios=' + item.toCount;
-    }).join(' | ')
+    }).join(' | ') + (Object.keys(skippedReasons).length
+      ? ' || skipped_reasons=' + Object.keys(skippedReasons).sort().map(function(reason) {
+        return reason + ':' + skippedReasons[reason];
+      }).join(', ')
+      : '')
   });
 
   return {
@@ -1044,6 +1070,7 @@ function atividades_enviarConvocacoesAtividadesGerais_(opts) {
     duplicateCount: duplicates,
     deferredCount: deferred,
     skippedCount: skipped.length,
+    skippedReasons: skippedReasons,
     queued: queued,
     skipped: skipped,
     outbox: opts.processOutbox === false ? { ok: true, skipped: true, reason: 'process_outbox_disabled' } : atividades_processOutboxForGeneralActivities_([{
@@ -1060,18 +1087,43 @@ function atividades_enviarLembretesAtividadesGerais_(opts) {
   var duplicates = 0;
   var deferred = 0;
   var skipped = [];
+  var skippedReasons = {};
+
+  function skipLembrete_(record, reason) {
+    var normalizedReason = String(reason || 'skip').trim();
+    skippedReasons[normalizedReason] = (skippedReasons[normalizedReason] || 0) + 1;
+    skipped.push({
+      idAtividade: String(record && record.ID_ATIVIDADE || '').trim(),
+      reason: normalizedReason
+    });
+  }
 
   atividades_listGeneralActivityRowsWithNumbers_().forEach(function(item) {
     var record = item.record || {};
-    if (!atividades_isConfirmedLikeGeneralActivityStatus_(record.STATUS)) return;
-    if (!atividades_isTruthySim_(record.EXIGE_LEMBRETE)) return;
-    if (atividades_parseDateOrNull_(record.DATA_LEMBRETE)) return;
-    if (!atividades_parseDateOrNull_(record.DATA_ATIVIDADE)) return;
-    if (!atividades_isActivityTodayOrTomorrow_(record)) return;
+    if (!atividades_isConfirmedLikeGeneralActivityStatus_(record.STATUS)) {
+      skipLembrete_(record, 'status_nao_confirmado');
+      return;
+    }
+    if (!atividades_isTruthySim_(record.EXIGE_LEMBRETE)) {
+      skipLembrete_(record, 'exige_lembrete_nao');
+      return;
+    }
+    if (atividades_parseDateOrNull_(record.DATA_LEMBRETE)) {
+      skipLembrete_(record, 'lembrete_ja_registrado');
+      return;
+    }
+    if (!atividades_parseDateOrNull_(record.DATA_ATIVIDADE)) {
+      skipLembrete_(record, 'sem_data_atividade');
+      return;
+    }
+    if (!atividades_isActivityTodayOrTomorrow_(record)) {
+      skipLembrete_(record, 'fora_da_janela_lembrete');
+      return;
+    }
 
     var resolved = atividades_resolverDestinatariosAtividadeGeral_(record);
     if (!resolved.count) {
-      skipped.push({ idAtividade: String(record.ID_ATIVIDADE || '').trim(), reason: 'sem_destinatarios' });
+      skipLembrete_(record, 'sem_destinatarios');
       return;
     }
 
@@ -1123,7 +1175,11 @@ function atividades_enviarLembretesAtividadesGerais_(opts) {
     RESULTADO: 'queued=' + queued.length + ' | duplicates=' + duplicates + ' | deferred=' + deferred + ' | skipped=' + skipped.length,
     OBSERVACOES: queued.slice(0, 20).map(function(item) {
       return item.idAtividade + ':destinatarios=' + item.toCount;
-    }).join(' | ')
+    }).join(' | ') + (Object.keys(skippedReasons).length
+      ? ' || skipped_reasons=' + Object.keys(skippedReasons).sort().map(function(reason) {
+        return reason + ':' + skippedReasons[reason];
+      }).join(', ')
+      : '')
   });
 
   return {
@@ -1132,6 +1188,7 @@ function atividades_enviarLembretesAtividadesGerais_(opts) {
     duplicateCount: duplicates,
     deferredCount: deferred,
     skippedCount: skipped.length,
+    skippedReasons: skippedReasons,
     queued: queued,
     skipped: skipped,
     outbox: opts.processOutbox === false ? { ok: true, skipped: true, reason: 'process_outbox_disabled' } : atividades_processOutboxForGeneralActivities_([{

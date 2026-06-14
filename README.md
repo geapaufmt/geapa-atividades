@@ -739,6 +739,32 @@ Quando o `contexto` nao for informado, o acesso e tratado como `MEMBRO`. Para me
 
 Nesta V1 os campos de acao retornam sempre sem operacao efetiva: `podeJustificarFalta`, `podeRegistrarChamada` e `podeEditar` permanecem `false`. A criacao, edicao, chamada e justificativa pelo portal ficam para etapas futuras.
 
+### Atividades v2 e views do portal
+
+A base `ATIVIDADES INTERNAS GEAPA v2 - DEV` possui rotinas manuais para materializar views `PORTAL_*` sem alterar producao:
+
+- `atividadesV2_diagnostico()`;
+- `atividadesV2_conferirConsistencia(options)`;
+- `atividadesV2_preverSincronizacaoBrutasDev()`;
+- `atividadesV2_sincronizarFaltantesBrutasDev()`;
+- `atividadesV2_sincronizarFaltantesBrutasEAtualizarViewsDev()`;
+- `atividadesV2_sincronizarBrutasDevDryRun()`; // alias legado
+- `atividadesV2_sincronizarBrutasDev(options)`;
+- `atividadesV2_sincronizarBrutasEViewsDev(options)`;
+- `atividadesV2_atualizarViewsPortal(options)`;
+- `atividadesV2_jobPortal(options)`;
+- `atividadesV2_conferirPortal(options)`;
+- `atividadesV2_instalarTriggerJobPortal(options)`;
+- `atividadesV2_removerTriggerJobPortal()`;
+- `atividadesV2_listarTriggerJobPortal()`;
+- `atividadesV2_runTesteDiagnostico()`;
+- `atividadesV2_runTesteAtualizacaoPortalDryRun()`;
+- `atividadesV2_runTesteFrequenciaDryRun()`;
+- `atividadesV2_runTesteJobPortalDryRun()`;
+- `atividadesV2_runTesteAtualizacaoPortalDev()`.
+
+As rotinas aceitam `dryRun`, usam `LockService` em escrita e passam pelos fluxos `MIGRACAO_V2_DEV`, `ATUALIZACAO_PORTAL_V2`, `FREQUENCIA_V2` e `CONFERENCIA_V2` do controle operacional. A sincronizacao incremental das bases brutas insere faltantes por padrao e preserva registros ja curados na v2. O job `atividadesV2_jobPortal(options)` usa escrita nao destrutiva por upsert nas views. Detalhes: [`docs/atividades-v2-rotinas-portal.md`](docs/atividades-v2-rotinas-portal.md). Roteiro de homologacao: [`docs/atividades-v2-homologacao.md`](docs/atividades-v2-homologacao.md).
+
 ## Fluxo de virada de periodo
 
 1. o modulo resolve o periodo vigente;

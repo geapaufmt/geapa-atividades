@@ -4,6 +4,13 @@
 
 O Portal GEAPA deve ler preferencialmente views `PORTAL_*`. Abas operacionais como `Atividades` e `Atividades_Apresentacoes` ficam como banco interno e fonte das rotinas de materializacao.
 
+As rotinas manuais atuais estao documentadas em [`atividades-v2-rotinas-portal.md`](atividades-v2-rotinas-portal.md). Para atualizar todas as views em DEV, use:
+
+```js
+atividadesV2_atualizarViewsPortal({ dryRun: true })
+atividadesV2_atualizarViewsPortal({ dryRun: false })
+```
+
 ## Views Atuais
 
 ### PORTAL_ATIVIDADES_CALENDARIO

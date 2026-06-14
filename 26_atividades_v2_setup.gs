@@ -314,6 +314,68 @@ function atividadesV2_migrarTesteDev() {
 }
 
 /**
+ * Sincroniza para a v2 DEV apenas registros brutos que ainda faltam.
+ *
+ * Diferente da migracao de teste completa, esta rotina preserva registros ja
+ * existentes por padrao. Isso evita sobrescrever campos curados na v2, como
+ * status de publicacao, visibilidade, textos publicos ou ajustes operacionais.
+ *
+ * Opcoes:
+ * - dryRun: true para simular sem escrita.
+ * - atualizarExistentes: true para tambem atualizar registros existentes.
+ * - includeBlankPresence: true para migrar celulas vazias de presenca.
+ * - includeConfig: true para incluir Atividades_Config.
+ */
+function atividadesV2_sincronizarBrutasDev_(options) {
+  var opts = options || {};
+  var dryRun = opts.dryRun === true;
+  var lock = null;
+
+  if (!dryRun) {
+    lock = LockService.getScriptLock();
+    if (!lock.tryLock(30000)) {
+      return {
+        ok: false,
+        dryRun: false,
+        errorCode: 'LOCK_INDISPONIVEL',
+        message: 'Nao foi possivel obter lock para sincronizar bases brutas v2 DEV.'
+      };
+    }
+  }
+
+  try {
+    return atividadesV2_sincronizarBrutasDevSemLock_(opts);
+  } finally {
+    if (lock) lock.releaseLock();
+  }
+}
+
+/**
+ * Sincroniza bases brutas faltantes e, em seguida, atualiza as views PORTAL_*.
+ */
+function atividadesV2_sincronizarBrutasEViewsDev_(options) {
+  var opts = Object.assign({}, options || {});
+  var rawResult = atividadesV2_sincronizarBrutasDev_(opts);
+  var viewsResult = null;
+
+  if (rawResult.ok && opts.atualizarViews !== false) {
+    viewsResult = atividadesV2_atualizarViewsPortal_({
+      dryRun: opts.dryRun === true,
+      stopOnError: opts.stopOnError !== false
+    });
+  }
+
+  return {
+    ok: rawResult.ok && (!viewsResult || viewsResult.ok),
+    dryRun: opts.dryRun === true,
+    brutas: rawResult,
+    views: viewsResult,
+    avisos: (rawResult.avisos || []).concat(viewsResult && viewsResult.avisos || []),
+    erros: (rawResult.erros || []).concat(viewsResult && viewsResult.erros || [])
+  };
+}
+
+/**
  * Diagnostica os IDs atuais da v2 DEV sem alterar dados.
  */
 function atividadesV2_diagnosticarIdsDev() {
@@ -469,6 +531,146 @@ function atividadesV2_normalizarIdsDev() {
   });
 
   return result;
+}
+
+function atividadesV2_sincronizarBrutasDevSemLock_(opts) {
+  opts = opts || {};
+  atividades_assertCoreLibrary_();
+
+  var dryRun = opts.dryRun === true;
+  var insertOnly = opts.atualizarExistentes !== true;
+  var targetSpreadsheet = atividadesV2_getDatabaseSpreadsheetDev_();
+  var sourceSpreadsheet = atividades_getOperationalHolder_().spreadsheet;
+  var activityIdMap = {};
+  var result = {
+    ok: true,
+    dryRun: dryRun,
+    insertOnly: insertOnly,
+    mode: insertOnly ? 'INSERIR_FALTANTES' : 'INSERIR_E_ATUALIZAR_EXISTENTES',
+    sourceSpreadsheetId: sourceSpreadsheet.getId(),
+    targetSpreadsheetId: targetSpreadsheet.getId(),
+    syncedAt: new Date(),
+    sheets: {},
+    totals: {
+      inputRows: 0,
+      inserts: 0,
+      updates: 0,
+      skipped: 0,
+      skippedExisting: 0
+    },
+    avisos: [],
+    erros: []
+  };
+
+  try {
+    var commonUpsertOpts = {
+      dryRun: dryRun,
+      insertOnly: insertOnly
+    };
+
+    var atividadesRows = atividadesV2_buildAtividadesMigrationRows_(activityIdMap);
+    result.sheets.Atividades = atividadesV2_upsertObjectsByKey_(
+      atividadesV2_getTargetSheet_(targetSpreadsheet, ATIVIDADES_V2_SHEETS.ATIVIDADES),
+      atividadesRows,
+      'ID_ATIVIDADE',
+      commonUpsertOpts
+    );
+
+    var apresentacoesRows = atividadesV2_buildApresentacoesMigrationRows_(activityIdMap);
+    result.sheets.Atividades_Apresentacoes = atividadesV2_upsertObjectsByKey_(
+      atividadesV2_getTargetSheet_(targetSpreadsheet, ATIVIDADES_V2_SHEETS.APRESENTACOES),
+      apresentacoesRows,
+      'ID_APRESENTACAO',
+      commonUpsertOpts
+    );
+
+    var convitesRows = atividadesV2_buildConvitesMigrationRows_(activityIdMap);
+    result.sheets.Atividades_Convites = atividadesV2_upsertObjectsByKey_(
+      atividadesV2_getTargetSheet_(targetSpreadsheet, ATIVIDADES_V2_SHEETS.CONVITES),
+      convitesRows,
+      'ID_CONVITE_ATIVIDADE',
+      commonUpsertOpts
+    );
+
+    var justificativasRows = atividadesV2_buildJustificativasMigrationRows_(activityIdMap);
+    result.sheets.Justificativas_Faltas = atividadesV2_upsertObjectsByKey_(
+      atividadesV2_getTargetSheet_(targetSpreadsheet, ATIVIDADES_V2_SHEETS.JUSTIFICATIVAS),
+      justificativasRows,
+      'ID_JUSTIFICATIVA',
+      commonUpsertOpts
+    );
+
+    if (opts.includeConfig === true) {
+      var configRows = atividadesV2_buildConfigMigrationRows_();
+      result.sheets.Atividades_Config = atividadesV2_upsertObjectsByKey_(
+        atividadesV2_getTargetSheet_(targetSpreadsheet, ATIVIDADES_V2_SHEETS.CONFIG),
+        configRows,
+        'ID_CONFIG',
+        commonUpsertOpts
+      );
+    }
+
+    var presencasRows = atividadesV2_buildPresencasMigrationRows_(sourceSpreadsheet, activityIdMap, {
+      includeBlankPresence: opts.includeBlankPresence === true
+    });
+    result.sheets.Atividades_Presencas_Registros = atividadesV2_upsertObjectsByKey_(
+      atividadesV2_getTargetSheet_(targetSpreadsheet, ATIVIDADES_V2_SHEETS.PRESENCAS_REGISTROS),
+      presencasRows,
+      'ID_REGISTRO_PRESENCA',
+      commonUpsertOpts
+    );
+  } catch (e) {
+    result.ok = false;
+    result.erros.push(e && e.message ? e.message : String(e));
+  }
+
+  atividadesV2_collectRawSyncTotals_(result);
+
+  if (!dryRun && result.ok) {
+    atividadesV2_appendV2Log_(targetSpreadsheet, {
+      FLUXO: 'MIGRACAO_V2_DEV',
+      ACAO: 'Sincronizar bases brutas faltantes da v2 DEV',
+      NIVEL: result.avisos.length ? 'WARN' : 'INFO',
+      STATUS: 'OK',
+      MENSAGEM: 'Bases brutas v2 DEV sincronizadas a partir da V1 sem alterar a origem.',
+      DETALHES_JSON: atividadesV2_safeLogData_({
+        mode: result.mode,
+        inserts: result.totals.inserts,
+        updates: result.totals.updates,
+        skippedExisting: result.totals.skippedExisting,
+        sheets: Object.keys(result.sheets).length
+      })
+    });
+    if (typeof atividadesV2_limparCachePortalDev_ === 'function' && result.totals.inserts + result.totals.updates > 0) {
+      atividadesV2_limparCachePortalDev_();
+    }
+  }
+
+  atividadesV2_logSetup_(result.ok ? 'INFO' : 'WARN', 'Sincronizacao incremental V1 -> bases brutas v2 DEV finalizada.', {
+    dryRun: dryRun,
+    mode: result.mode,
+    inserts: result.totals.inserts,
+    updates: result.totals.updates,
+    skippedExisting: result.totals.skippedExisting,
+    erros: result.erros.length,
+    avisos: result.avisos.length
+  });
+
+  return result;
+}
+
+function atividadesV2_collectRawSyncTotals_(result) {
+  Object.keys(result.sheets || {}).forEach(function(sheetName) {
+    var summary = result.sheets[sheetName] || {};
+    result.totals.inputRows += Number(summary.inputRows || 0);
+    result.totals.inserts += Number(summary.inserts || 0);
+    result.totals.updates += Number(summary.updates || 0);
+    result.totals.skipped += Number(summary.skipped || 0);
+    result.totals.skippedExisting += Number(summary.skippedExisting || 0);
+    result.avisos = result.avisos.concat((summary.avisos || []).map(function(message) {
+      return sheetName + ': ' + message;
+    }));
+  });
 }
 
 function atividadesV2_migrarTesteDev_(opts) {
@@ -1126,6 +1328,7 @@ function atividadesV2_buildPeriodActivityMap_(sheet) {
 function atividadesV2_upsertObjectsByKey_(sheet, objects, keyHeader, opts) {
   opts = opts || {};
   var dryRun = opts.dryRun !== false;
+  var insertOnly = opts.insertOnly === true;
   var headers = atividadesV2_getSheetHeaders_(sheet).filter(function(header) { return !!header; });
   var headerMap = {};
   headers.forEach(function(header, index) {
@@ -1138,6 +1341,7 @@ function atividadesV2_upsertObjectsByKey_(sheet, objects, keyHeader, opts) {
   var inserts = [];
   var updates = [];
   var skipped = 0;
+  var skippedExisting = 0;
   var avisos = [];
   var plannedKeys = {};
   var duplicatePayloadKeys = {};
@@ -1157,6 +1361,10 @@ function atividadesV2_upsertObjectsByKey_(sheet, objects, keyHeader, opts) {
     plannedKeys[key] = true;
 
     if (existing.byKey[key]) {
+      if (insertOnly) {
+        skippedExisting++;
+        return;
+      }
       updates.push({
         rowNumber: existing.byKey[key],
         object: obj
@@ -1184,12 +1392,14 @@ function atividadesV2_upsertObjectsByKey_(sheet, objects, keyHeader, opts) {
   return {
     ok: true,
     dryRun: dryRun,
+    insertOnly: insertOnly,
     sheetName: sheet.getName(),
     keyHeader: keyHeader,
     inputRows: objects.length,
     inserts: inserts.length,
     updates: updates.length,
     skipped: skipped,
+    skippedExisting: skippedExisting,
     existingRows: existing.total,
     duplicateTargetKeys: existing.duplicates,
     duplicatePayloadKeys: duplicatePayloadList,

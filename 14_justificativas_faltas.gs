@@ -392,9 +392,9 @@ function atividades_importarJustificativasFaltas_() {
       ' | Atualizadas=' + updated +
       ' | Ignoradas=' + skipped.length +
       (skipped.length ? ' | skipped_reasons=' + skipped.slice(0, 20).map(function(item) {
-        return (item.rga || 'SEM_RGA') + ':' +
-          (item.codigoAtividade || 'SEM_CODIGO') + ':' +
-          item.reason;
+        return atividades_truncateLogCellValue_(item.rga || 'SEM_RGA') + ':' +
+          atividades_truncateLogCellValue_(item.codigoAtividade || 'SEM_CODIGO') + ':' +
+          atividades_truncateLogCellValue_(item.reason);
       }).join(' | ') : '')
   });
 
