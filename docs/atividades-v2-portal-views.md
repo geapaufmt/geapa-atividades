@@ -139,6 +139,27 @@ Retorna:
 
 Objetivo: manter compatibilidade com consumidores antigos. Para primeira renderizacao, prefira calendario separado e preload separado.
 
+### Views read-only do Portal
+
+```js
+atividadesV2_portalGetMinhaFrequencia(contexto)
+atividadesV2_portalGetMinhasApresentacoes(contexto)
+atividadesV2_portalGetMinhasJustificativas(contexto)
+atividadesV2_portalGetPendenciasDiretoria(contexto)
+atividadesV2_portalGetStatusViews(contexto)
+```
+
+Esses contratos leem diretamente as views `PORTAL_FREQUENCIA_MEMBROS`,
+`PORTAL_APRESENTACOES`, `PORTAL_JUSTIFICATIVAS`,
+`PORTAL_PENDENCIAS_DIRETORIA` e `PORTAL_STATUS_ATIVIDADES` na base v2 DEV.
+Eles nao escrevem em planilhas, nao executam triggers e nao criam acoes
+operacionais.
+
+As consultas individuais filtram por `ID_PESSOA`, RGA ou e-mail recebidos no
+contexto seguro do backend do Portal. As consultas de diretoria exigem perfil
+operacional privilegiado (`SECRETARIO`, `DIRETORIA` ou `ADMIN_TECNICO`) tambem
+no modulo Atividades.
+
 ## Regras para Novas Views
 
 - Criar view `PORTAL_*` quando a tela exigir leitura frequente.

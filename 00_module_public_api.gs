@@ -54,6 +54,26 @@ function atividadesV2_portalGetAtividadesBundle(contexto) {
   return atividadesV2_portalGetAtividadesBundle_(contexto);
 }
 
+function atividadesV2_portalGetMinhaFrequencia(contexto) {
+  return atividadesV2_portalGetMinhaFrequencia_(contexto);
+}
+
+function atividadesV2_portalGetMinhasApresentacoes(contexto) {
+  return atividadesV2_portalGetMinhasApresentacoes_(contexto);
+}
+
+function atividadesV2_portalGetMinhasJustificativas(contexto) {
+  return atividadesV2_portalGetMinhasJustificativas_(contexto);
+}
+
+function atividadesV2_portalGetPendenciasDiretoria(contexto) {
+  return atividadesV2_portalGetPendenciasDiretoria_(contexto);
+}
+
+function atividadesV2_portalGetStatusViews(contexto) {
+  return atividadesV2_portalGetStatusViews_(contexto);
+}
+
 function atividadesV2_limparCachePortalDev() {
   return atividadesV2_limparCachePortalDev_();
 }

@@ -8,15 +8,25 @@
 
 function atividades_normalizePortalContext_(contexto) {
   var raw = contexto || {};
-  var perfil = atividades_normalizeTextUpper_(raw.perfil || 'MEMBRO');
+  var perfil = atividades_normalizeTextUpper_(
+    raw.perfil ||
+    raw.perfilPortalEfetivo ||
+    raw.perfilPortal ||
+    'MEMBRO'
+  );
   var allowedProfiles = ['MEMBRO', 'SECRETARIO', 'DIRETORIA', 'ADMIN_TECNICO'];
 
+  if (perfil === 'SECRETARIA') perfil = 'SECRETARIO';
+  if (perfil === 'PRESIDENCIA' || perfil === 'PRESIDENTE') perfil = 'DIRETORIA';
   if (allowedProfiles.indexOf(perfil) === -1) perfil = 'MEMBRO';
 
   return {
     perfil: perfil,
+    idPessoa: String(raw.idPessoa || raw.ID_PESSOA || '').trim(),
     rga: String(raw.rga || '').trim(),
     email: String(raw.email || '').trim(),
+    perfisPortal: Array.isArray(raw.perfisPortal) ? raw.perfisPortal.slice() : [],
+    permissoes: Array.isArray(raw.permissoes) ? raw.permissoes.slice() : [],
     somenteVisiveis: raw.somenteVisiveis === false ? false : true
   };
 }
@@ -24,6 +34,292 @@ function atividades_normalizePortalContext_(contexto) {
 function atividades_isPrivilegedPortalProfile_(contexto) {
   var perfil = atividades_normalizeTextUpper_(contexto && contexto.perfil);
   return ['SECRETARIO', 'DIRETORIA', 'ADMIN_TECNICO'].indexOf(perfil) >= 0;
+}
+
+function atividadesV2_portalGetMinhaFrequencia_(contexto) {
+  return atividadesV2_portalReadOwnView_({
+    label: 'atividadesV2_portalGetMinhaFrequencia',
+    sheetName: ATIVIDADES_V2_SHEETS.PORTAL_FREQUENCIA_MEMBROS,
+    listField: 'registros',
+    summaryFields: ['TOTAL_PRESENCAS', 'TOTAL_FALTAS', 'TOTAL_JUSTIFICADAS', 'FALTAS_LIQUIDAS', 'PERCENTUAL_FREQUENCIA'],
+    mapper: atividadesV2_portalMapFrequenciaMembro_
+  }, contexto);
+}
+
+function atividadesV2_portalGetMinhasApresentacoes_(contexto) {
+  return atividadesV2_portalReadOwnView_({
+    label: 'atividadesV2_portalGetMinhasApresentacoes',
+    sheetName: ATIVIDADES_V2_SHEETS.PORTAL_APRESENTACOES,
+    listField: 'apresentacoes',
+    summaryFields: [],
+    mapper: atividadesV2_portalMapApresentacao_
+  }, contexto);
+}
+
+function atividadesV2_portalGetMinhasJustificativas_(contexto) {
+  return atividadesV2_portalReadOwnView_({
+    label: 'atividadesV2_portalGetMinhasJustificativas',
+    sheetName: ATIVIDADES_V2_SHEETS.PORTAL_JUSTIFICATIVAS,
+    listField: 'justificativas',
+    summaryFields: [],
+    mapper: atividadesV2_portalMapJustificativa_
+  }, contexto);
+}
+
+function atividadesV2_portalGetPendenciasDiretoria_(contexto) {
+  return atividadesV2_portalReadPrivilegedView_({
+    label: 'atividadesV2_portalGetPendenciasDiretoria',
+    sheetName: ATIVIDADES_V2_SHEETS.PORTAL_PENDENCIAS_DIRETORIA,
+    listField: 'pendencias',
+    mapper: atividadesV2_portalMapPendenciaDiretoria_
+  }, contexto);
+}
+
+function atividadesV2_portalGetStatusViews_(contexto) {
+  return atividadesV2_portalReadPrivilegedView_({
+    label: 'atividadesV2_portalGetStatusViews',
+    sheetName: ATIVIDADES_V2_SHEETS.PORTAL_STATUS_ATIVIDADES,
+    listField: 'views',
+    mapper: atividadesV2_portalMapStatusView_
+  }, contexto);
+}
+
+function atividadesV2_portalReadOwnView_(config, contexto) {
+  var perf = portalPerfStart_(config.label);
+
+  try {
+    var ctx = atividades_normalizePortalContext_(contexto);
+    var records = atividadesV2_portalReadViewRecords_(config.sheetName, perf)
+      .filter(function(record) {
+        return atividadesV2_portalRecordBelongsToContext_(record, ctx);
+      });
+    var mapped = records.map(config.mapper);
+    var data = atividadesV2_portalBuildReadonlyPayload_(config, records, mapped);
+    var perfResult = portalPerfEnd_(perf);
+
+    return {
+      ok: true,
+      data: data,
+      origem: 'atividades-v2:' + config.sheetName,
+      tempoTotalMs: perfResult ? perfResult.totalMs : ''
+    };
+  } catch (err) {
+    var errorPerf = portalPerfEnd_(perf);
+    return atividadesV2_portalReadonlyError_(config.label, err, errorPerf);
+  }
+}
+
+function atividadesV2_portalReadPrivilegedView_(config, contexto) {
+  var perf = portalPerfStart_(config.label);
+
+  try {
+    var ctx = atividades_normalizePortalContext_(contexto);
+
+    if (!atividades_isPrivilegedPortalProfile_(ctx)) {
+      return {
+        ok: false,
+        errorCode: 'PERMISSAO_INSUFICIENTE',
+        message: 'Perfil sem permissao para consultar esta view do portal.'
+      };
+    }
+
+    var records = atividadesV2_portalReadViewRecords_(config.sheetName, perf);
+    var mapped = records.map(config.mapper);
+    var data = atividadesV2_portalBuildReadonlyPayload_(config, records, mapped);
+    var perfResult = portalPerfEnd_(perf);
+
+    return {
+      ok: true,
+      data: data,
+      origem: 'atividades-v2:' + config.sheetName,
+      tempoTotalMs: perfResult ? perfResult.totalMs : ''
+    };
+  } catch (err) {
+    var errorPerf = portalPerfEnd_(perf);
+    return atividadesV2_portalReadonlyError_(config.label, err, errorPerf);
+  }
+}
+
+function atividadesV2_portalReadViewRecords_(sheetName, perf) {
+  var ss = atividadesV2_getDatabaseSpreadsheetDev_();
+  var sheet = atividadesV2_getTargetSheet_(ss, sheetName);
+  var records = atividadesV2_readSheetObjects_(sheet)
+    .filter(function(record) {
+      return atividadesV2_portalRecordHasContent_(record);
+    });
+
+  if (perf) portalPerfMark_(perf, 'ler_' + sheetName, { linhas: records.length });
+  return records;
+}
+
+function atividadesV2_portalRecordHasContent_(record) {
+  var values = record && record._values;
+
+  if (!Array.isArray(values)) return false;
+  return values.some(function(value) {
+    return String(value || '').trim();
+  });
+}
+
+function atividadesV2_portalRecordBelongsToContext_(record, ctx) {
+  var idPessoa = String(record.ID_PESSOA || '').trim();
+  var rga = String(record.RGA || '').trim().toLowerCase();
+  var email = String(record.EMAIL || record.EMAIL_MEMBRO || '').trim().toLowerCase();
+  var ctxIdPessoa = String(ctx.idPessoa || '').trim();
+  var ctxRga = String(ctx.rga || '').trim().toLowerCase();
+  var ctxEmail = String(ctx.email || '').trim().toLowerCase();
+
+  if (idPessoa && ctxIdPessoa && idPessoa === ctxIdPessoa) return true;
+  if (rga && ctxRga && rga === ctxRga) return true;
+  if (email && ctxEmail && email === ctxEmail) return true;
+  return false;
+}
+
+function atividadesV2_portalBuildReadonlyPayload_(config, records, mapped) {
+  return {
+    resumo: atividadesV2_portalBuildResumo_(mapped, config.summaryFields),
+    ultimaAtualizacao: atividadesV2_portalLatestUpdate_(records),
+    [config.listField]: mapped
+  };
+}
+
+function atividadesV2_portalBuildResumo_(records, summaryFields) {
+  var resumo = {
+    total: records.length
+  };
+
+  (summaryFields || []).forEach(function(field) {
+    var camel = atividadesV2_portalCamelCase_(field);
+    var total = 0;
+    var found = false;
+
+    records.forEach(function(record) {
+      var value = Number(String(record[camel] || '').replace(',', '.'));
+      if (isFinite(value)) {
+        total += value;
+        found = true;
+      }
+    });
+
+    if (found) resumo[camel] = total;
+  });
+
+  return resumo;
+}
+
+function atividadesV2_portalLatestUpdate_(records) {
+  var latest = '';
+
+  (records || []).forEach(function(record) {
+    var value = String(record.ULTIMA_ATUALIZACAO || record.DATA_HORA_ATUALIZACAO || '').trim();
+    if (value && (!latest || value > latest)) latest = value;
+  });
+
+  return latest;
+}
+
+function atividadesV2_portalReadonlyError_(label, err, perf) {
+  return {
+    ok: false,
+    errorCode: 'ERRO_VIEW_PORTAL_V2',
+    message: 'Nao foi possivel consultar a view V2 para o portal.',
+    details: err && err.message ? err.message : String(err),
+    origem: label,
+    tempoTotalMs: perf ? perf.totalMs : ''
+  };
+}
+
+function atividadesV2_portalMapFrequenciaMembro_(record) {
+  return {
+    idPessoa: String(record.ID_PESSOA || '').trim(),
+    rga: String(record.RGA || '').trim(),
+    email: String(record.EMAIL || '').trim(),
+    ciclo: String(record.CICLO || '').trim(),
+    totalPresencas: record.TOTAL_PRESENCAS || '',
+    totalFaltas: record.TOTAL_FALTAS || '',
+    totalJustificadas: record.TOTAL_JUSTIFICADAS || '',
+    totalAbonadas: record.TOTAL_ABONADAS || '',
+    faltasLiquidas: record.FALTAS_LIQUIDAS || '',
+    limiteFaltasPeriodo: record.LIMITE_FALTAS_PERIODO || '',
+    percentualFrequencia: record.PERCENTUAL_FREQUENCIA || '',
+    percentualUsoLimite: record.PERCENTUAL_USO_LIMITE || '',
+    situacaoDisciplinar: String(record.SITUACAO_DISCIPLINAR || '').trim(),
+    cargaHorariaTotal: record.CARGA_HORARIA_TOTAL || '',
+    elegivelCertificado: String(record.ELEGIVEL_CERTIFICADO || '').trim(),
+    motivoInelegibilidade: atividades_sanitizePortalText_(record.MOTIVO_INELEGIBILIDADE, 240),
+    mensagemPortal: atividades_sanitizePortalText_(record.MENSAGEM_PORTAL, 240),
+    ultimaAtualizacao: String(record.ULTIMA_ATUALIZACAO || '').trim()
+  };
+}
+
+function atividadesV2_portalMapApresentacao_(record) {
+  return {
+    idPessoa: String(record.ID_PESSOA || '').trim(),
+    rga: String(record.RGA || '').trim(),
+    idApresentacao: String(record.ID_APRESENTACAO || '').trim(),
+    idAtividade: String(record.ID_ATIVIDADE || '').trim(),
+    dataAtividade: atividades_formatPortalDateIso_(record.DATA_ATIVIDADE),
+    tituloPublico: atividades_sanitizePortalText_(record.TITULO_APRESENTACAO, 240),
+    tema: atividades_sanitizePortalText_(record.TITULO_APRESENTACAO, 240),
+    eixoTematicoPrincipal: String(record.EIXO_TEMATICO_PRINCIPAL || '').trim(),
+    eixoTematicoSecundario: String(record.EIXO_TEMATICO_SECUNDARIO || '').trim(),
+    statusPublico: String(record.STATUS_PUBLICO || '').trim(),
+    statusApresentacao: String(record.STATUS_PUBLICO || '').trim(),
+    statusArquivoPublico: String(record.STATUS_ARQUIVO_PUBLICO || '').trim(),
+    linkArquivoPublico: atividades_sanitizePortalUrl_(record.LINK_ARQUIVO_PUBLICO),
+    ultimaAtualizacao: String(record.ULTIMA_ATUALIZACAO || '').trim()
+  };
+}
+
+function atividadesV2_portalMapJustificativa_(record) {
+  return {
+    idPessoa: String(record.ID_PESSOA || '').trim(),
+    rga: String(record.RGA || '').trim(),
+    idJustificativa: String(record.ID_JUSTIFICATIVA || '').trim(),
+    idAtividade: String(record.ID_ATIVIDADE || '').trim(),
+    dataAtividade: atividades_formatPortalDateIso_(record.DATA_ATIVIDADE),
+    tituloPublico: atividades_sanitizePortalText_(record.TITULO_ATIVIDADE, 240),
+    motivoCategoria: String(record.MOTIVO_DECLARADO || '').trim(),
+    statusJustificativa: String(record.STATUS_ANALISE || '').trim(),
+    statusPublico: String(record.STATUS_ANALISE || '').trim(),
+    decisaoAplicada: String(record.DECISAO_APLICADA || '').trim(),
+    enviadaEm: atividades_formatPortalDateIso_(record.DATA_ENVIO),
+    observacaoPublica: atividades_sanitizePortalText_(record.OBSERVACAO_PUBLICA, 240),
+    ultimaAtualizacao: String(record.ULTIMA_ATUALIZACAO || '').trim()
+  };
+}
+
+function atividadesV2_portalMapPendenciaDiretoria_(record) {
+  return {
+    idPendencia: String(record.ID_PENDENCIA || '').trim(),
+    tipo: String(record.TIPO_PENDENCIA || '').trim(),
+    titulo: atividades_sanitizePortalText_(record.TITULO_ATIVIDADE || record.ID_ATIVIDADE, 240),
+    descricaoPublica: atividades_sanitizePortalText_(record.DESCRICAO_PENDENCIA, 500),
+    status: String(record.STATUS_PENDENCIA || '').trim(),
+    severidade: String(record.GRAVIDADE || '').trim(),
+    responsavelGrupo: String(record.RESPONSAVEL_SUGERIDO || '').trim(),
+    prazo: atividades_formatPortalDateIso_(record.PRAZO),
+    atualizadaEm: String(record.ULTIMA_ATUALIZACAO || '').trim()
+  };
+}
+
+function atividadesV2_portalMapStatusView_(record) {
+  return {
+    view: String(record.ID_STATUS || '').trim(),
+    nome: String(record.ID_STATUS || '').trim(),
+    status: String(record.STATUS_GERAL || '').trim(),
+    ok: String(record.STATUS_GERAL || '').trim().toUpperCase() === 'OK',
+    linhas: record.TOTAL_ATIVIDADES || '',
+    atualizadaEm: String(record.DATA_HORA_ATUALIZACAO || '').trim(),
+    origem: 'ATIVIDADES_V2',
+    mensagem: atividades_sanitizePortalText_(record.OBSERVACOES || record.ULTIMO_ERRO, 500)
+  };
+}
+
+function atividadesV2_portalCamelCase_(value) {
+  return String(value || '').toLowerCase().replace(/_([a-z0-9])/g, function(_, letter) {
+    return letter.toUpperCase();
+  });
 }
 
 function atividades_isPortalBlockedStatus_(status) {
