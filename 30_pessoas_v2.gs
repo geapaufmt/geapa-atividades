@@ -666,7 +666,9 @@ function atividadesV2_processarIdPessoaDev_(options) {
 
 function atividadesV2_getPessoaCompletionSheetNames_() {
   return [
+    ATIVIDADES_V2_SHEETS.ATIVIDADES,
     ATIVIDADES_V2_SHEETS.APRESENTACOES,
+    ATIVIDADES_V2_SHEETS.ENVOLVIDOS,
     ATIVIDADES_V2_SHEETS.PRESENCAS_REGISTROS,
     ATIVIDADES_V2_SHEETS.JUSTIFICATIVAS,
     ATIVIDADES_V2_SHEETS.PORTAL_APRESENTACOES,
@@ -689,10 +691,23 @@ function atividadesV2_normalizeSheetNamesFilter_(value) {
 function atividadesV2_getPessoaCompletionTargets_() {
   return [
     {
+      sheetName: ATIVIDADES_V2_SHEETS.ATIVIDADES,
+      schema: ATIVIDADES_V2_SCHEMA.ATIVIDADES,
+      idHeader: 'ID_PESSOA_PRINCIPAL',
+      sourceHeaders: ['RGA_PESSOA_PRINCIPAL', 'EMAIL_PESSOA_PRINCIPAL', 'NOME_PESSOA_PRINCIPAL_PUBLICO']
+    },
+    {
       sheetName: ATIVIDADES_V2_SHEETS.APRESENTACOES,
       schema: ATIVIDADES_V2_SCHEMA.APRESENTACOES,
       idHeader: 'ID_PESSOA',
-      sourceHeaders: ['RGA', 'EMAIL_MEMBRO', 'NOME_MEMBRO']
+      sourceHeaders: ['RGA', 'EMAIL_MEMBRO', 'NOME_MEMBRO'],
+      optionalHeader: true
+    },
+    {
+      sheetName: ATIVIDADES_V2_SHEETS.ENVOLVIDOS,
+      schema: ATIVIDADES_V2_SCHEMA.ENVOLVIDOS,
+      idHeader: 'ID_PESSOA',
+      sourceHeaders: ['RGA', 'EMAIL', 'NOME_PUBLICO']
     },
     {
       sheetName: ATIVIDADES_V2_SHEETS.PRESENCAS_REGISTROS,
@@ -752,7 +767,9 @@ function atividadesV2_processarIdPessoaSheet_(sheet, target, options) {
   var idCol = headerMap[target.idHeader] || 0;
   if (!idCol) {
     report.status = 'CABECALHO_ID_AUSENTE';
-    report.avisos.push('Cabecalho ausente: ' + target.idHeader);
+    if (!target.optionalHeader) {
+      report.avisos.push('Cabecalho ausente: ' + target.idHeader);
+    }
     return report;
   }
 

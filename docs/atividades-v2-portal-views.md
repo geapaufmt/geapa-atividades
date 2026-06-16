@@ -15,19 +15,23 @@ atividadesV2_atualizarViewsPortal({ dryRun: false })
 
 ### PORTAL_ATIVIDADES_CALENDARIO
 
-Fonte: `Atividades`.
+Fonte principal: `Atividades`.
+
+Fonte auxiliar: `Atividades_Apresentacoes` apenas para `ID_APRESENTACAO` e metadados operacionais quando a atividade usar fluxo de apresentacao.
 
 Uso:
 
 - lista/calendario de atividades;
 - cards da aba Atividades;
-- proximas atividades em futuras telas.
+- proximas atividades;
+- apresentacoes futuras dentro da agenda unica.
 
 Caracteristicas:
 
 - contem apenas campos seguros para listagem;
 - filtra atividades publicaveis;
 - nao expoe observacoes internas, logs ou presenca nominal.
+- usa titulo, eixo, pessoa principal, data, horario, local e formato de `Atividades`.
 
 Gerador:
 
@@ -37,7 +41,9 @@ atividadesV2_sincronizarPortalAtividadesCalendarioDev()
 
 ### PORTAL_ATIVIDADES_DETALHES
 
-Fonte: `Atividades` + `Atividades_Apresentacoes`.
+Fonte principal: `Atividades`.
+
+Fontes auxiliares: `Atividades_Envolvidos` e `Atividades_Apresentacoes`.
 
 Uso:
 
@@ -48,8 +54,9 @@ Uso:
 Caracteristicas:
 
 - consolida campos publicos/operacionais necessarios ao detalhe;
+- inclui envolvidos publicos em `ENVOLVIDOS_PUBLICOS_JSON`;
 - gera linha comum para atividade sem apresentacao vinculada;
-- gera linha com dados de apresentacao quando houver vinculo por `ID_ATIVIDADE`;
+- gera linha com dados operacionais de apresentacao quando houver vinculo por `ID_ATIVIDADE`;
 - deve ser usada no clique/preload do portal sem cruzar abas operacionais em tempo real.
 
 Gerador:
@@ -60,7 +67,13 @@ atividadesV2_atualizarPortalAtividadesDetalhesDev()
 
 ### PORTAL_APRESENTACOES
 
-Reservada para lista/resumo publico de apresentacoes e arquivos.
+Reservada para historico/acervo publico de apresentacoes e arquivos. Nao e agenda futura.
+
+Fonte principal dos dados publicos: `Atividades`.
+
+Fonte dos dados operacionais de acervo: `Atividades_Apresentacoes`.
+
+Ela deve buscar de `Atividades` data, horario, titulo, eixo, apresentador e publicacao. De `Atividades_Apresentacoes`, usa somente status do fluxo, arquivo/material, sync historico e permissao de publicar dados especificos da apresentacao.
 
 ### PORTAL_FREQUENCIA_MEMBROS
 
@@ -167,3 +180,10 @@ no modulo Atividades.
 - Evitar e-mails, observacoes internas e dados sensiveis em views consumidas pelo portal.
 - Nao remover views sem migracao documentada.
 - Documentar fonte, destino, gerador, filtros e cache.
+
+## Modelagem para apresentacoes futuras
+
+- Apresentacoes de membros sao atividades com `SUBTIPO_ATIVIDADE` como `APRESENTACAO_MEMBRO` ou `APRESENTACAO_REPOSICAO`.
+- O card futuro aparece em `PORTAL_ATIVIDADES_CALENDARIO`.
+- O detalhe vem de `PORTAL_ATIVIDADES_DETALHES`.
+- `PORTAL_APRESENTACOES` fica para historico/acervo e nao deve ser usada para montar a agenda de proximas atividades.

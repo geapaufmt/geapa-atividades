@@ -376,6 +376,283 @@ function atividadesV2_sincronizarBrutasEViewsDev_(options) {
 }
 
 /**
+ * Simula a migracao da modelagem de apresentacoes para Atividades/Envolvidos.
+ *
+ * Use antes da execucao real para revisar conflitos e contadores sem escrever
+ * em nenhuma aba da base v2 DEV.
+ */
+function atividadesV2_migrarApresentacoesParaAtividadesDevDryRun_() {
+  return atividadesV2_migrarApresentacoesParaAtividadesDev_({ dryRun: true });
+}
+
+/**
+ * Preenche campos centrais em Atividades e cria envolvidos a partir das linhas
+ * legadas de Atividades_Apresentacoes, sem alterar bases antigas.
+ */
+function atividadesV2_migrarApresentacoesParaAtividadesDev_(options) {
+  var opts = options || {};
+  var dryRun = opts.dryRun !== false;
+  var lock = null;
+
+  if (!dryRun) {
+    lock = LockService.getScriptLock();
+    if (!lock.tryLock(30000)) {
+      return {
+        ok: false,
+        dryRun: false,
+        errorCode: 'LOCK_INDISPONIVEL',
+        message: 'Nao foi possivel obter lock para migrar apresentacoes para Atividades v2 DEV.'
+      };
+    }
+  }
+
+  try {
+    return atividadesV2_migrarApresentacoesParaAtividadesDevSemLock_(Object.assign({}, opts, {
+      dryRun: dryRun
+    }));
+  } finally {
+    if (lock) lock.releaseLock();
+  }
+}
+
+function atividadesV2_migrarApresentacoesParaAtividadesDevSemLock_(opts) {
+  var dryRun = opts.dryRun === true;
+  var ss = atividadesV2_getDatabaseSpreadsheetDev_();
+  var atividadesSheet = atividadesV2_getTargetSheet_(ss, ATIVIDADES_V2_SHEETS.ATIVIDADES);
+  var apresentacoesSheet = atividadesV2_getTargetSheet_(ss, ATIVIDADES_V2_SHEETS.APRESENTACOES);
+  var envolvidosSheet = atividadesV2_getTargetSheet_(ss, ATIVIDADES_V2_SHEETS.ENVOLVIDOS);
+
+  atividadesV2_applyHeadersIfMissing_(atividadesSheet, ATIVIDADES_V2_SCHEMA.ATIVIDADES);
+  atividadesV2_applyHeadersIfMissing_(envolvidosSheet, ATIVIDADES_V2_SCHEMA.ENVOLVIDOS);
+
+  var atividades = atividadesV2_readSheetObjects_(atividadesSheet);
+  var apresentacoes = atividadesV2_readSheetObjects_(apresentacoesSheet);
+  var atividadesById = atividadesV2_indexByField_(atividades, 'ID_ATIVIDADE');
+  var existentesEnvolvidos = atividadesV2_readSheetObjects_(envolvidosSheet);
+  var existentesEnvolvidosById = atividadesV2_indexByField_(existentesEnvolvidos, 'ID_ENVOLVIDO');
+  var existentesEnvolvidosByNaturalKey = atividadesV2_indexEnvolvidosMigrationNaturalKey_(existentesEnvolvidos);
+  var atividadeHeaders = atividadesV2_getSheetHeaders_(atividadesSheet).filter(function(header) { return !!header; });
+  var atividadeHeaderMap = atividadesV2_simpleHeaderMap_(atividadeHeaders);
+  var atividadeValues = atividadesSheet.getLastRow() > 1
+    ? atividadesSheet.getRange(2, 1, atividadesSheet.getLastRow() - 1, atividadeHeaders.length).getValues()
+    : [];
+  var atividadeChangedRows = {};
+  var envolvidosPayload = [];
+  var processedActivities = {};
+  var report = {
+    ok: true,
+    dryRun: dryRun,
+    modo: 'DEV',
+    totalApresentacoesLidas: apresentacoes.length,
+    totalAtividadesEncontradas: 0,
+    totalAtividadesAtualizadas: 0,
+    totalLinhasCriadasEmEnvolvidos: 0,
+    totalEnvolvidosJaExistentes: 0,
+    apresentacoesSemIdAtividade: [],
+    apresentacoesComIdAtividadeInvalido: [],
+    apresentacoesComIdAtividadeNaoEncontrado: [],
+    conflitos: [],
+    avisos: [],
+    erros: []
+  };
+
+  apresentacoes.forEach(function(apresentacao) {
+    if (atividades_normalizeTextUpper_(apresentacao.ATIVO || 'SIM') === 'NAO') return;
+
+    var idAtividade = String(apresentacao.ID_ATIVIDADE || '').trim();
+    if (!idAtividade) {
+      report.apresentacoesSemIdAtividade.push(atividadesV2_migrationPresentationRef_(apresentacao));
+      return;
+    }
+    if (!atividadesV2_isCanonicalActivityId_(idAtividade)) {
+      report.apresentacoesComIdAtividadeInvalido.push(atividadesV2_migrationPresentationRef_(apresentacao));
+      return;
+    }
+
+    var atividade = atividadesById[idAtividade];
+    if (!atividade) {
+      report.apresentacoesComIdAtividadeNaoEncontrado.push(atividadesV2_migrationPresentationRef_(apresentacao));
+      return;
+    }
+
+    if (!processedActivities[idAtividade]) {
+      report.totalAtividadesEncontradas++;
+      processedActivities[idAtividade] = true;
+    }
+
+    var rowIndex = atividade._rowNumber - 2;
+    var changed = atividadesV2_applyApresentacaoToAtividadeRow_(atividadeValues[rowIndex], atividadeHeaders, atividadeHeaderMap, atividade, apresentacao, report);
+    if (changed) atividadeChangedRows[rowIndex] = true;
+
+    var envolvido = atividadesV2_buildEnvolvidoFromApresentacao_(atividade, apresentacao);
+    var naturalKey = atividadesV2_buildEnvolvidoMigrationNaturalKey_(envolvido);
+    if (existentesEnvolvidosById[envolvido.ID_ENVOLVIDO] || existentesEnvolvidosByNaturalKey[naturalKey]) {
+      report.totalEnvolvidosJaExistentes++;
+      return;
+    }
+    existentesEnvolvidosById[envolvido.ID_ENVOLVIDO] = envolvido;
+    existentesEnvolvidosByNaturalKey[naturalKey] = envolvido;
+    envolvidosPayload.push(envolvido);
+  });
+
+  report.totalAtividadesAtualizadas = Object.keys(atividadeChangedRows).length;
+  report.totalLinhasCriadasEmEnvolvidos = envolvidosPayload.length;
+
+  if (!dryRun) {
+    if (report.totalAtividadesAtualizadas > 0 && atividadeValues.length) {
+      atividadesSheet.getRange(2, 1, atividadeValues.length, atividadeHeaders.length).setValues(atividadeValues);
+    }
+    atividadesV2_upsertObjectsByKey_(envolvidosSheet, envolvidosPayload, 'ID_ENVOLVIDO', {
+      dryRun: false,
+      insertOnly: true
+    });
+    atividadesV2_appendV2Log_(ss, {
+      FLUXO: 'MIGRACAO_MODELAGEM_V2_DEV',
+      ACAO: 'Migrar dados de apresentacoes para Atividades e Envolvidos',
+      NIVEL: report.conflitos.length ? 'WARN' : 'INFO',
+      STATUS: report.erros.length ? 'ERRO' : 'OK',
+      MENSAGEM: 'Modelagem v2 de apresentacoes migrada para fonte principal em Atividades.',
+      DETALHES_JSON: atividadesV2_safeLogData_({
+        atividadesAtualizadas: report.totalAtividadesAtualizadas,
+        envolvidosCriados: report.totalLinhasCriadasEmEnvolvidos,
+        conflitos: report.conflitos.length
+      })
+    });
+    if (typeof atividadesV2_limparCachePortalDev_ === 'function') atividadesV2_limparCachePortalDev_();
+  }
+
+  report.ok = report.erros.length === 0;
+  return report;
+}
+
+function atividadesV2_applyApresentacaoToAtividadeRow_(row, headers, headerMap, atividade, apresentacao, report) {
+  var changed = false;
+  var idAtividade = String(atividade.ID_ATIVIDADE || '').trim();
+  var isApresentacao = atividadesV2_isFluxoApresentacao_(atividade);
+  var tituloApresentacao = String(apresentacao.TITULO_APRESENTACAO || '').trim();
+
+  if (isApresentacao && tituloApresentacao) {
+    changed = atividadesV2_fillActivityFieldFromMigration_(row, headers, headerMap, atividade, 'TITULO', tituloApresentacao, report, idAtividade, true) || changed;
+    changed = atividadesV2_fillActivityFieldFromMigration_(row, headers, headerMap, atividade, 'TITULO_PUBLICO', tituloApresentacao, report, idAtividade, true) || changed;
+  }
+
+  [
+    ['EIXO_TEMATICO_PRINCIPAL', apresentacao.EIXO_TEMATICO_PRINCIPAL],
+    ['EIXO_TEMATICO_SECUNDARIO', apresentacao.EIXO_TEMATICO_SECUNDARIO],
+    ['ID_PESSOA_PRINCIPAL', apresentacao.ID_PESSOA],
+    ['NOME_PESSOA_PRINCIPAL_PUBLICO', apresentacao.NOME_MEMBRO],
+    ['RGA_PESSOA_PRINCIPAL', apresentacao.RGA],
+    ['EMAIL_PESSOA_PRINCIPAL', apresentacao.EMAIL_MEMBRO],
+    ['TIPO_PESSOA_PRINCIPAL', 'MEMBRO'],
+    ['PAPEL_PESSOA_PRINCIPAL', 'APRESENTADOR']
+  ].forEach(function(item) {
+    changed = atividadesV2_fillActivityFieldFromMigration_(row, headers, headerMap, atividade, item[0], item[1], report, idAtividade, false) || changed;
+  });
+
+  return changed;
+}
+
+function atividadesV2_fillActivityFieldFromMigration_(row, headers, headerMap, atividade, field, value, report, idAtividade, allowGenericOverwrite) {
+  var col = headerMap[field] || 0;
+  if (!col) return false;
+
+  var incoming = String(value || '').trim();
+  if (!incoming) return false;
+
+  var current = String(row[col - 1] || '').trim();
+  if (!current || (allowGenericOverwrite && atividadesV2_isGenericActivityTitle_(current))) {
+    row[col - 1] = value;
+    atividade[field] = value;
+    return true;
+  }
+
+  if (atividadesV2_normalizeComparable_(current) !== atividadesV2_normalizeComparable_(incoming)) {
+    report.conflitos.push({
+      idAtividade: idAtividade,
+      campo: field,
+      valorAtual: atividadesV2_truncateForReport_(current),
+      valorOrigemApresentacao: atividadesV2_truncateForReport_(incoming)
+    });
+  }
+  return false;
+}
+
+function atividadesV2_buildEnvolvidoFromApresentacao_(atividade, apresentacao) {
+  var idAtividade = String(atividade.ID_ATIVIDADE || apresentacao.ID_ATIVIDADE || '').trim();
+  var idPessoa = String(apresentacao.ID_PESSOA || atividade.ID_PESSOA_PRINCIPAL || '').trim();
+  var rga = String(apresentacao.RGA || atividade.RGA_PESSOA_PRINCIPAL || '').trim();
+  var email = String(apresentacao.EMAIL_MEMBRO || atividade.EMAIL_PESSOA_PRINCIPAL || '').trim();
+  var nome = String(apresentacao.NOME_MEMBRO || atividade.NOME_PESSOA_PRINCIPAL_PUBLICO || '').trim();
+  var idRef = idPessoa || rga || email || nome || apresentacao.ID_APRESENTACAO || apresentacao._rowNumber;
+  return {
+    ID_ENVOLVIDO: atividadesV2_buildDeterministicId_('ENV', [idAtividade, 'APRESENTADOR', idRef]),
+    ID_ATIVIDADE: idAtividade,
+    ORDEM_EXIBICAO: 1,
+    PAPEL_NA_ATIVIDADE: 'APRESENTADOR',
+    TIPO_PESSOA: 'MEMBRO',
+    ID_PESSOA: idPessoa,
+    NOME_PUBLICO: nome,
+    RGA: rga,
+    EMAIL: email,
+    INSTITUICAO: String(atividade.INSTITUICAO_PESSOA_PRINCIPAL || '').trim(),
+    CARGO_OU_FUNCAO: '',
+    EXIBIR_NO_PORTAL: 'SIM',
+    VISIBILIDADE_PORTAL: String(atividade.VISIBILIDADE_PORTAL || 'MEMBROS').trim(),
+    OBSERVACOES: atividadesV2_appendMigrationObs_('', 'Origem: Atividades_Apresentacoes / ' + String(apresentacao.ID_APRESENTACAO || apresentacao._rowNumber || '').trim()),
+    ATIVO: 'SIM'
+  };
+}
+
+function atividadesV2_indexEnvolvidosMigrationNaturalKey_(envolvidos) {
+  var index = {};
+  (envolvidos || []).forEach(function(envolvido) {
+    var key = atividadesV2_buildEnvolvidoMigrationNaturalKey_(envolvido);
+    if (key && !index[key]) index[key] = envolvido;
+  });
+  return index;
+}
+
+function atividadesV2_buildEnvolvidoMigrationNaturalKey_(envolvido) {
+  var idRef = String(envolvido.ID_PESSOA || envolvido.RGA || envolvido.EMAIL || envolvido.NOME_PUBLICO || '').trim();
+  return [
+    String(envolvido.ID_ATIVIDADE || '').trim(),
+    atividadesV2_sanitizeIdToken_(envolvido.PAPEL_NA_ATIVIDADE || ''),
+    atividadesV2_sanitizeIdToken_(idRef)
+  ].join('|');
+}
+
+function atividadesV2_isGenericActivityTitle_(value) {
+  var normalized = atividadesV2_normalizeComparable_(value);
+  return !normalized ||
+    normalized === 'ATIVIDADE DO GEAPA' ||
+    normalized === 'APRESENTACAO DE MEMBRO' ||
+    normalized === 'APRESENTACAO' ||
+    normalized === 'REUNIAO GEAPA';
+}
+
+function atividadesV2_normalizeComparable_(value) {
+  return String(value || '')
+    .trim()
+    .toUpperCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/\s+/g, ' ');
+}
+
+function atividadesV2_truncateForReport_(value) {
+  var text = String(value || '').trim();
+  return text.length > 180 ? text.slice(0, 180) + '...' : text;
+}
+
+function atividadesV2_migrationPresentationRef_(apresentacao) {
+  return {
+    rowNumber: apresentacao._rowNumber || '',
+    idApresentacao: String(apresentacao.ID_APRESENTACAO || '').trim(),
+    idAtividade: String(apresentacao.ID_ATIVIDADE || '').trim()
+  };
+}
+
+/**
  * Diagnostica os IDs atuais da v2 DEV sem alterar dados.
  */
 function atividadesV2_diagnosticarIdsDev() {
@@ -1464,6 +1741,7 @@ function atividadesV2_readSheetObjects_(sheet) {
   return sheet.getRange(2, 1, lastRow - 1, lastColumn).getValues().map(function(row, index) {
     var obj = {
       _rowNumber: index + 2,
+      _sheetName: sheet.getName(),
       _values: row
     };
     headers.forEach(function(header, colIndex) {
@@ -1672,6 +1950,7 @@ function atividadesV2_normalizeRelatedActivitySheet_(ss, sheetName, activityMap,
 function atividadesV2_getActivityReferenceSheetNames_() {
   return [
     ATIVIDADES_V2_SHEETS.APRESENTACOES,
+    ATIVIDADES_V2_SHEETS.ENVOLVIDOS,
     ATIVIDADES_V2_SHEETS.PRESENCAS_REGISTROS,
     ATIVIDADES_V2_SHEETS.CONVITES,
     ATIVIDADES_V2_SHEETS.JUSTIFICATIVAS,
@@ -2347,12 +2626,25 @@ function atividadesV2_buildValidationRules_(sheetName) {
     'PERMITE_CONVIDADOS',
     'PERMITE_EXTERNOS',
     'PERMITE_JUSTIFICATIVA',
+    'EXIGE_EIXO_TEMATICO',
+    'PERMITE_EIXO_SECUNDARIO',
+    'EXIGE_PESSOA_PRINCIPAL',
+    'EXIGE_TITULO_PUBLICO',
+    'USA_FLUXO_APRESENTACAO',
+    'EXIBE_NO_PORTAL',
+    'GERA_CARD_AGENDA',
+    'EXIBIR_NO_PORTAL',
     'PODE_VER_DETALHES'
   ].forEach(function(header) {
     atividadesV2_addRule_(rules, header, enums.SIM_NAO, 'Valores sugeridos: SIM ou NAO.');
   });
 
   atividadesV2_addRule_(rules, 'TIPO_PARTICIPANTE', enums.TIPO_PARTICIPANTE, 'Tipo principal de participante na atividade.');
+  atividadesV2_addRule_(rules, 'TIPO_PESSOA', enums.TIPO_PESSOA, 'Tipo da pessoa envolvida na atividade.');
+  atividadesV2_addRule_(rules, 'TIPO_PESSOA_PRINCIPAL', enums.TIPO_PESSOA, 'Tipo da pessoa principal da atividade.');
+  atividadesV2_addRule_(rules, 'PAPEL_NA_ATIVIDADE', enums.PAPEL_NA_ATIVIDADE, 'Papel da pessoa envolvida na atividade.');
+  atividadesV2_addRule_(rules, 'PAPEL_PESSOA_PRINCIPAL', enums.PAPEL_NA_ATIVIDADE, 'Papel publico/operacional da pessoa principal.');
+  atividadesV2_addRule_(rules, 'PAPEL_PADRAO_PESSOA_PRINCIPAL', enums.PAPEL_NA_ATIVIDADE, 'Papel padrao da pessoa principal para este subtipo.');
   atividadesV2_addRule_(rules, 'STATUS_PRESENCA', enums.STATUS_PRESENCA, 'Estado da presenca no registro permanente.');
   atividadesV2_addRule_(rules, 'CODIGO_PRESENCA', enums.CODIGO_PRESENCA, 'Codigo curto de presenca: P, R, F, J, A ou N/A.');
   atividadesV2_addRule_(rules, 'MODALIDADE_PRESENCA', enums.MODALIDADE_PRESENCA, 'Modalidade considerada para o registro.');

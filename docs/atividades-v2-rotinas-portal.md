@@ -25,6 +25,19 @@ Opcoes principais:
 
 `atividadesV2_sincronizarBrutasEViewsDev(options)` executa a sincronizacao incremental e, se ela terminar com sucesso, roda `atividadesV2_atualizarViewsPortal(options)`. E o caminho recomendado para testar rapidamente se os novos dados brutos aparecem nas views do Portal.
 
+## Migracao da modelagem de apresentacoes
+
+Antes da homologacao, a v2 passa a tratar apresentacoes como subtipo de atividade. `Atividades` deve ser a fonte principal de agenda, titulo, eixo e pessoa principal; `Atividades_Apresentacoes` fica como extensao operacional; `Atividades_Envolvidos` guarda os vinculos individuais.
+
+Use:
+
+```js
+atividadesV2_migrarApresentacoesParaAtividadesDevDryRun()
+atividadesV2_migrarApresentacoesParaAtividadesDev()
+```
+
+O dry-run retorna total de apresentacoes lidas, atividades encontradas, atividades que seriam atualizadas, envolvidos que seriam criados, IDs invalidos/ausentes e conflitos. A execucao real escreve apenas na base v2 DEV, usando `LockService`, sem alterar V1 nem producao.
+
 ## Funcoes publicas
 
 Conferencia:
@@ -42,6 +55,13 @@ Sincronizacao V1 -> bases brutas v2 DEV:
 atividadesV2_preverSincronizacaoBrutasDev()
 atividadesV2_sincronizarFaltantesBrutasDev()
 atividadesV2_sincronizarFaltantesBrutasEAtualizarViewsDev()
+```
+
+Migracao da modelagem de apresentacoes:
+
+```js
+atividadesV2_migrarApresentacoesParaAtividadesDevDryRun()
+atividadesV2_migrarApresentacoesParaAtividadesDev()
 ```
 
 Atualizacao de views:
@@ -122,6 +142,11 @@ O job `atividadesV2_jobPortal(options)` sempre chama a agregadora com `nonDestru
 - atividade publicada sem visibilidade;
 - atividade que gera certificado sem carga horaria;
 - atividade que conta falta sem configuracao clara de presenca;
+- atividade academica/formativa sem eixo tematico;
+- apresentacao sem eixo, titulo publico ou pessoa principal em `Atividades`;
+- atividade com fluxo de apresentacao sem linha correspondente em `Atividades_Apresentacoes`;
+- linha de `Atividades_Apresentacoes` sem `ID_ATIVIDADE` valido;
+- atividade com envolvidos duplicados;
 - presenca vinculada a atividade inexistente;
 - presenca de membro sem identificador suficiente para validacao;
 - apresentacao sem atividade vinculada;
@@ -134,6 +159,7 @@ O job `atividadesV2_jobPortal(options)` sempre chama a agregadora com `nonDestru
 Incluido nesta fase:
 
 - materializacao manual das views `PORTAL_*`;
+- migracao manual da modelagem de apresentacoes para `Atividades` e `Atividades_Envolvidos`;
 - conferencia estrutural;
 - suporte a `dryRun`;
 - locks em escrita;

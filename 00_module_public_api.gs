@@ -248,6 +248,18 @@ function atividadesV2_sincronizarFaltantesBrutasEAtualizarViewsDev() {
   }, { entrypoint: 'atividadesV2_sincronizarFaltantesBrutasEAtualizarViewsDev' });
 }
 
+function atividadesV2_migrarApresentacoesParaAtividadesDevDryRun() {
+  return atividades_runWithOperationalGuard_('MIGRACAO_V2_DEV', null, function() {
+    return atividadesV2_migrarApresentacoesParaAtividadesDevDryRun_();
+  }, { entrypoint: 'atividadesV2_migrarApresentacoesParaAtividadesDevDryRun' });
+}
+
+function atividadesV2_migrarApresentacoesParaAtividadesDev() {
+  return atividades_runWithOperationalGuard_('MIGRACAO_V2_DEV', null, function() {
+    return atividadesV2_migrarApresentacoesParaAtividadesDev_({ dryRun: false });
+  }, { entrypoint: 'atividadesV2_migrarApresentacoesParaAtividadesDev' });
+}
+
 function atividades_setupV1() {
   return atividades_runWithOperationalGuard_('SETUP_V1', null, function() {
     return atividades_setupV1_();

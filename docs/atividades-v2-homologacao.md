@@ -23,24 +23,30 @@ As funcoes abaixo devem existir em `00_module_public_api.gs`:
 - `atividadesV2_runTesteAtualizacaoPortalDryRun`
 - `atividadesV2_runTesteFrequenciaDryRun`
 - `atividadesV2_runTesteJobPortalDryRun`
+- `atividadesV2_migrarApresentacoesParaAtividadesDevDryRun`
+- `atividadesV2_migrarApresentacoesParaAtividadesDev`
 
 ## Checklist de homologacao manual
 
 ### Ordem recomendada
 
 1. Rodar `atividadesV2_runTesteDiagnostico()`.
-2. Rodar `atividadesV2_runTesteAtualizacaoPortalDryRun()`.
-3. Rodar `atividadesV2_runTesteFrequenciaDryRun()`.
-4. Rodar `atividadesV2_runTesteJobPortalDryRun()`.
-5. Se os testes estiverem sem erros bloqueantes, rodar `atividadesV2_atualizarViewsPortal({ dryRun: false })`.
-6. Conferir as abas `PORTAL_*` no Google Drive.
-7. Rodar `atividadesV2_jobPortal({ dryRun: true })` para validar o contrato que o Core pode chamar.
-8. So depois de homologado, decidir se o Core chamara `atividadesV2_jobPortal({ dryRun: false })` ou se permanecera em dry-run operacional.
+2. Rodar `atividadesV2_migrarApresentacoesParaAtividadesDevDryRun()`.
+3. Conferir conflitos e contadores do dry-run.
+4. Se estiver correto, rodar `atividadesV2_migrarApresentacoesParaAtividadesDev()`.
+5. Rodar `atividadesV2_runTesteAtualizacaoPortalDryRun()`.
+6. Rodar `atividadesV2_runTesteFrequenciaDryRun()`.
+7. Rodar `atividadesV2_runTesteJobPortalDryRun()`.
+8. Se os testes estiverem sem erros bloqueantes, rodar `atividadesV2_atualizarViewsPortal({ dryRun: false })`.
+9. Conferir as abas `PORTAL_*` no Google Drive.
+10. Rodar `atividadesV2_jobPortal({ dryRun: true })` para validar o contrato que o Core pode chamar.
+11. So depois de homologado, decidir se o Core chamara `atividadesV2_jobPortal({ dryRun: false })` ou se permanecera em dry-run operacional.
 
 ### Abas para conferir no Google Drive
 
 - `Atividades`
 - `Atividades_Apresentacoes`
+- `Atividades_Envolvidos`
 - `Atividades_Presencas_Registros`
 - `Justificativas_Faltas`
 - `PORTAL_ATIVIDADES_CALENDARIO`
@@ -58,6 +64,9 @@ As funcoes abaixo devem existir em `00_module_public_api.gs`:
 - As views `PORTAL_*` nao expoem observacoes internas, logs privados, e-mails indevidos ou dados pessoais desnecessarios.
 - `ID_ATIVIDADE` segue o padrao `ATV-AAAA-S-NNNN`.
 - Views usam `ID_ATIVIDADE`, nao IDs antigos.
+- `Atividades` e a fonte de data, horario, local, formato, titulo, eixo e pessoa principal.
+- `Atividades_Apresentacoes` contem apenas extensao operacional do fluxo de apresentacao.
+- `Atividades_Envolvidos` tem um apresentador para atividades de apresentacao migradas, quando houver dados suficientes.
 - Frequencia usa `ID_PESSOA` quando disponivel e preserva `RGA` apenas como auxiliar.
 - O `dryRun` gera contadores e nao escreve linhas.
 - Escritas reais usam `LockService`.
@@ -72,7 +81,7 @@ As funcoes abaixo devem existir em `00_module_public_api.gs`:
 - Atividade sem `DATA_ATIVIDADE`.
 - Presenca vinculada a atividade inexistente.
 - Apresentacao sem atividade vinculada.
-- Apresentacao sem apresentador.
+- Linha de apresentacao com `ID_ATIVIDADE` invalido.
 - Justificativa sem atividade correspondente.
 - Qualquer retorno `ok: false` nos testes de dry-run.
 - Qualquer escrita apontando para base antiga ou ambiente diferente de DEV.
@@ -83,6 +92,9 @@ As funcoes abaixo devem existir em `00_module_public_api.gs`:
 - Atividade publicada sem visibilidade, desde que ainda nao esteja sendo consumida pelo Portal.
 - Atividade que gera certificado sem carga horaria, enquanto certificados ainda estiverem fora de escopo.
 - Presenca de membro sem `ID_PESSOA`, desde que `RGA` esteja preservado para conciliacao.
+- Apresentacao sem apresentador, titulo publico ou eixo na fase inicial, desde que apareca no relatorio e seja corrigida antes de publicar no Portal.
+- Atividade academica sem eixo, quando ainda estiver em saneamento de dados.
+- Envolvido duplicado, se houver plano claro de deduplicacao antes da homologacao final.
 - Justificativa sem presenca correspondente quando vier de legado incompleto.
 - Pendencia de diretoria ainda nao refletida, desde que apareca no dry-run de pendencias.
 - Limites disciplinares e elegibilidade de certificado ainda simplificados.

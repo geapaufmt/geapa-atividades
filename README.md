@@ -751,6 +751,8 @@ A base `ATIVIDADES INTERNAS GEAPA v2 - DEV` possui rotinas manuais para material
 - `atividadesV2_sincronizarBrutasDevDryRun()`; // alias legado
 - `atividadesV2_sincronizarBrutasDev(options)`;
 - `atividadesV2_sincronizarBrutasEViewsDev(options)`;
+- `atividadesV2_migrarApresentacoesParaAtividadesDevDryRun()`;
+- `atividadesV2_migrarApresentacoesParaAtividadesDev()`;
 - `atividadesV2_atualizarViewsPortal(options)`;
 - `atividadesV2_jobPortal(options)`;
 - `atividadesV2_conferirPortal(options)`;
@@ -763,7 +765,7 @@ A base `ATIVIDADES INTERNAS GEAPA v2 - DEV` possui rotinas manuais para material
 - `atividadesV2_runTesteJobPortalDryRun()`;
 - `atividadesV2_runTesteAtualizacaoPortalDev()`.
 
-As rotinas aceitam `dryRun`, usam `LockService` em escrita e passam pelos fluxos `MIGRACAO_V2_DEV`, `ATUALIZACAO_PORTAL_V2`, `FREQUENCIA_V2` e `CONFERENCIA_V2` do controle operacional. A sincronizacao incremental das bases brutas insere faltantes por padrao e preserva registros ja curados na v2. O job `atividadesV2_jobPortal(options)` usa escrita nao destrutiva por upsert nas views. Detalhes: [`docs/atividades-v2-rotinas-portal.md`](docs/atividades-v2-rotinas-portal.md). Roteiro de homologacao: [`docs/atividades-v2-homologacao.md`](docs/atividades-v2-homologacao.md).
+As rotinas aceitam `dryRun`, usam `LockService` em escrita e passam pelos fluxos `MIGRACAO_V2_DEV`, `ATUALIZACAO_PORTAL_V2`, `FREQUENCIA_V2` e `CONFERENCIA_V2` do controle operacional. A sincronizacao incremental das bases brutas insere faltantes por padrao e preserva registros ja curados na v2. A migracao de modelagem copia dados legados de apresentacoes para `Atividades` e `Atividades_Envolvidos`, mantendo `Atividades` como fonte principal de agenda, titulo, eixo e pessoa principal. O job `atividadesV2_jobPortal(options)` usa escrita nao destrutiva por upsert nas views. Detalhes: [`docs/atividades-v2-rotinas-portal.md`](docs/atividades-v2-rotinas-portal.md). Modelagem: [`docs/atividades-v2-modelagem.md`](docs/atividades-v2-modelagem.md). Roteiro de homologacao: [`docs/atividades-v2-homologacao.md`](docs/atividades-v2-homologacao.md).
 
 ## Fluxo de virada de periodo
 
