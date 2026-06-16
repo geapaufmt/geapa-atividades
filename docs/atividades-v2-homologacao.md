@@ -10,9 +10,9 @@ As funcoes abaixo devem existir em `00_module_public_api.gs`:
 
 - `atividadesV2_diagnostico`
 - `atividadesV2_conferirConsistencia`
+- `atividadesV2_conferirContratoPortalAtivo`
 - `atividadesV2_atualizarPortalCalendario`
 - `atividadesV2_atualizarPortalDetalhes`
-- `atividadesV2_atualizarPortalApresentacoes`
 - `atividadesV2_recalcularFrequenciaMembros`
 - `atividadesV2_atualizarPortalJustificativas`
 - `atividadesV2_atualizarPendenciasDiretoria`
@@ -23,6 +23,7 @@ As funcoes abaixo devem existir em `00_module_public_api.gs`:
 - `atividadesV2_runTesteAtualizacaoPortalDryRun`
 - `atividadesV2_runTesteFrequenciaDryRun`
 - `atividadesV2_runTesteJobPortalDryRun`
+- `atividadesV2_runTesteContratoPortalAtivo`
 - `atividadesV2_migrarApresentacoesParaAtividadesDevDryRun`
 - `atividadesV2_migrarApresentacoesParaAtividadesDev`
 
@@ -51,7 +52,6 @@ As funcoes abaixo devem existir em `00_module_public_api.gs`:
 - `Justificativas_Faltas`
 - `PORTAL_ATIVIDADES_CALENDARIO`
 - `PORTAL_ATIVIDADES_DETALHES`
-- `PORTAL_APRESENTACOES` apenas se houver contrato legado a conferir; a view esta deprecated
 - `PORTAL_FREQUENCIA_MEMBROS`
 - `PORTAL_JUSTIFICATIVAS`
 - `PORTAL_PENDENCIAS_DIRETORIA`
@@ -69,7 +69,7 @@ As funcoes abaixo devem existir em `00_module_public_api.gs`:
 - `Atividades_Envolvidos` tem um apresentador para atividades de apresentacao migradas, quando houver dados suficientes.
 - `PORTAL_ATIVIDADES_DETALHES` tem uma unica linha por `ID_ATIVIDADE`.
 - Atividades com apresentacoes possuem `APRESENTACOES_PUBLICAS_JSON`, `QTD_APRESENTACOES` e `RESUMO_APRESENTACOES_PUBLICO` coerentes.
-- `atividadesV2_portalGetMinhasApresentacoes()` deriva dados de `PORTAL_ATIVIDADES_DETALHES`, nao de `PORTAL_APRESENTACOES`.
+- `atividadesV2_portalGetMinhasApresentacoes()` deriva dados de `PORTAL_ATIVIDADES_DETALHES`.
 - Frequencia usa `ID_PESSOA` quando disponivel e preserva `RGA` apenas como auxiliar.
 - O `dryRun` gera contadores e nao escreve linhas.
 - Escritas reais usam `LockService`.

@@ -40,7 +40,7 @@ Ela e materializada a partir da aba `Atividades` da base v2 DEV pela funcao manu
 
 `PORTAL_ATIVIDADES_DETALHES` consolida os detalhes de uma atividade a partir de `Atividades`, `Atividades_Envolvidos` e, quando houver vinculo, da extensao operacional em `Atividades_Apresentacoes`. Ela tem uma linha por `ID_ATIVIDADE`; multiplas apresentacoes ficam em `APRESENTACOES_PUBLICAS_JSON`.
 
-`PORTAL_APRESENTACOES` e legada/deprecated. Novos contratos do Portal nao devem depender dela para agenda, historico, acervo principal ou "Minhas apresentacoes".
+A antiga view `PORTAL_APRESENTACOES` foi removida do contrato ativo. Novas rotinas nao devem cria-la, atualizar, reparar, expor endpoint publico nem usa-la como fonte. Agenda, historico, acervo principal e "Minhas apresentacoes" usam `PORTAL_ATIVIDADES_CALENDARIO` e `PORTAL_ATIVIDADES_DETALHES`.
 
 `PORTAL_FREQUENCIA_MEMBROS` consolida frequencia por membro e periodo.
 

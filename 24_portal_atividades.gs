@@ -73,7 +73,6 @@ function atividadesV2_portalGetMinhasApresentacoes_(contexto) {
         apresentacoes: apresentacoes
       },
       origem: 'atividades-v2:' + ATIVIDADES_V2_SHEETS.PORTAL_ATIVIDADES_DETALHES,
-      deprecatedSource: ATIVIDADES_V2_SHEETS.PORTAL_APRESENTACOES,
       tempoTotalMs: perfResult ? perfResult.totalMs : ''
     };
   } catch (err) {

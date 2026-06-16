@@ -11,7 +11,7 @@ atividadesV2_atualizarViewsPortal({ dryRun: true })
 atividadesV2_atualizarViewsPortal({ dryRun: false })
 ```
 
-## Views Atuais
+## Views Ativas
 
 ### PORTAL_ATIVIDADES_CALENDARIO
 
@@ -69,18 +69,6 @@ Gerador:
 ```js
 atividadesV2_atualizarPortalAtividadesDetalhesDev()
 ```
-
-### PORTAL_APRESENTACOES
-
-Deprecated. View legada mantida apenas para compatibilidade temporaria. Nao deve ser usada por novos contratos do Portal.
-
-Fonte principal dos dados publicos: `Atividades`.
-
-Fonte dos dados operacionais de acervo: `Atividades_Apresentacoes`.
-
-Historico de atividades, historico de apresentacoes, proximas atividades e "Minhas apresentacoes" devem ser derivados de `PORTAL_ATIVIDADES_CALENDARIO` e `PORTAL_ATIVIDADES_DETALHES`.
-
-Se a funcao manual `atividadesV2_atualizarPortalApresentacoes(options)` for chamada, ela retorna aviso de deprecated. A rotina geral `atividadesV2_atualizarViewsPortal(options)` nao atualiza mais essa view.
 
 ### PORTAL_FREQUENCIA_MEMBROS
 
@@ -175,7 +163,7 @@ Esses contratos leem diretamente as views `PORTAL_FREQUENCIA_MEMBROS`,
 Eles nao escrevem em planilhas, nao executam triggers e nao criam acoes
 operacionais.
 
-`atividadesV2_portalGetMinhasApresentacoes(contexto)` nao le mais `PORTAL_APRESENTACOES`; ela le `PORTAL_ATIVIDADES_DETALHES`, interpreta `APRESENTACOES_PUBLICAS_JSON` e filtra por `ID_PESSOA`/RGA do contexto seguro.
+`atividadesV2_portalGetMinhasApresentacoes(contexto)` le `PORTAL_ATIVIDADES_DETALHES`, interpreta `APRESENTACOES_PUBLICAS_JSON` e filtra por `ID_PESSOA`/RGA do contexto seguro.
 
 As consultas individuais filtram por `ID_PESSOA`, RGA ou e-mail recebidos no contexto seguro do backend do Portal. As consultas de diretoria exigem perfil operacional privilegiado (`SECRETARIO`, `DIRETORIA` ou `ADMIN_TECNICO`) tambem no modulo Atividades.
 
@@ -192,4 +180,7 @@ As consultas individuais filtram por `ID_PESSOA`, RGA ou e-mail recebidos no con
 - Apresentacoes de membros sao atividades com `SUBTIPO_ATIVIDADE` como `APRESENTACAO_MEMBRO` ou `APRESENTACAO_REPOSICAO`.
 - O card futuro aparece em `PORTAL_ATIVIDADES_CALENDARIO`.
 - O detalhe vem de `PORTAL_ATIVIDADES_DETALHES`.
-- `PORTAL_APRESENTACOES` esta em descontinuacao e nao deve ser usada para montar agenda, historico ou minhas apresentacoes.
+
+## View Historica Removida do Contrato
+
+`PORTAL_APRESENTACOES` existiu como view de transicao, mas nao e mais contrato ativo. O modulo Atividades nao deve cria-la, atualizar, reparar, expor endpoint publico nem usa-la como fonte. Agenda, historico, proximas atividades e "Minhas apresentacoes" devem ser derivados somente de `PORTAL_ATIVIDADES_CALENDARIO` e `PORTAL_ATIVIDADES_DETALHES`.

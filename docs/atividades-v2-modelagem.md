@@ -21,7 +21,7 @@ Na v2, `Atividades` e a fonte oficial do evento. Ela concentra agenda, titulo, d
 - Apresentacoes aparecem dentro da agenda/historico geral como subtipo de atividade.
 - `PORTAL_ATIVIDADES_DETALHES` consolida `Atividades`, `Atividades_Envolvidos` e a extensao operacional de apresentacao em uma linha por `ID_ATIVIDADE`.
 - Multiplas apresentacoes da mesma atividade ficam serializadas em `APRESENTACOES_PUBLICAS_JSON`.
-- `PORTAL_APRESENTACOES` esta deprecated. Novos contratos nao devem depender dela.
+- A antiga view `PORTAL_APRESENTACOES` foi removida do contrato ativo. Agenda, historico, detalhes e "Minhas apresentacoes" usam somente calendario e detalhes.
 
 ## Migracao DEV
 

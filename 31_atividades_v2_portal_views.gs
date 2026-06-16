@@ -153,7 +153,7 @@ function atividadesV2_conferirConsistencia_(options) {
 
     var parsed = atividadesV2_parsePublicJsonArray_(record.APRESENTACOES_PUBLICAS_JSON);
     var rawJson = String(record.APRESENTACOES_PUBLICAS_JSON || '').trim();
-    if (rawJson && !parsed.length) atividadesV2_addConsistencyIssue_(issues, 'ERRO', 'APRESENTACOES_PUBLICAS_JSON_INVALIDO', 'APRESENTACOES_PUBLICAS_JSON invalido ou vazio apos parse.', record);
+    if (rawJson && !atividadesV2_isJsonArrayString_(rawJson)) atividadesV2_addConsistencyIssue_(issues, 'ERRO', 'APRESENTACOES_PUBLICAS_JSON_INVALIDO', 'APRESENTACOES_PUBLICAS_JSON invalido.', record);
 
     var qtd = Number(record.QTD_APRESENTACOES || 0);
     if (qtd !== parsed.length) atividadesV2_addConsistencyIssue_(issues, 'AVISO', 'QTD_APRESENTACOES_DIVERGENTE_JSON', 'QTD_APRESENTACOES diferente da quantidade no JSON.', record);
@@ -186,6 +186,107 @@ function atividadesV2_conferirConsistencia_(options) {
   };
 }
 
+function atividadesV2_conferirContratoPortalAtivo_(options) {
+  var opts = options || {};
+  var ss = atividadesV2_getDatabaseSpreadsheetDev_();
+  var detalhesSheet = atividadesV2_getTargetSheet_(ss, ATIVIDADES_V2_SHEETS.PORTAL_ATIVIDADES_DETALHES);
+  var calendarioSheet = atividadesV2_getTargetSheet_(ss, ATIVIDADES_V2_SHEETS.PORTAL_ATIVIDADES_CALENDARIO);
+  var detalhes = atividadesV2_readSheetObjects_(detalhesSheet);
+  var calendario = atividadesV2_readSheetObjects_(calendarioSheet);
+  var checks = [];
+  var exemplos = {
+    atividadeSemApresentacao: null,
+    atividadeComUmaApresentacao: null,
+    atividadeComMultiplasApresentacoes: null,
+    detalheJsonVazio: null,
+    detalheJsonValido: null
+  };
+
+  detalhes.forEach(function(record) {
+    var parsed = atividadesV2_parsePublicJsonArray_(record.APRESENTACOES_PUBLICAS_JSON);
+    var sample = atividadesV2_sanitizePortalViewPreviewRecord_(record);
+    if (!parsed.length && !exemplos.atividadeSemApresentacao) exemplos.atividadeSemApresentacao = sample;
+    if (parsed.length === 1 && !exemplos.atividadeComUmaApresentacao) exemplos.atividadeComUmaApresentacao = sample;
+    if (parsed.length > 1 && !exemplos.atividadeComMultiplasApresentacoes) exemplos.atividadeComMultiplasApresentacoes = sample;
+    if (!String(record.APRESENTACOES_PUBLICAS_JSON || '').trim() && !exemplos.detalheJsonVazio) exemplos.detalheJsonVazio = sample;
+    if (String(record.APRESENTACOES_PUBLICAS_JSON || '').trim() && parsed.length && !exemplos.detalheJsonValido) exemplos.detalheJsonValido = sample;
+  });
+
+  atividadesV2_addContractCheck_(checks, 'CALENDARIO_EXISTE', !!calendarioSheet, 'View de lista/cards/historico disponivel.');
+  atividadesV2_addContractCheck_(checks, 'DETALHES_EXISTE', !!detalhesSheet, 'View de detalhe completo disponivel.');
+  atividadesV2_addContractCheck_(checks, 'DETALHES_JSON_VALIDO', detalhes.every(function(record) {
+    var raw = String(record.APRESENTACOES_PUBLICAS_JSON || '').trim();
+    return !raw || atividadesV2_isJsonArrayString_(raw);
+  }), 'Detalhes nao possuem JSON invalido de apresentacoes.');
+  atividadesV2_addContractCheck_(checks, 'ENVOLVIDOS_JSON_VALIDO', detalhes.every(function(record) {
+    var raw = String(record.ENVOLVIDOS_PUBLICOS_JSON || '').trim();
+    return !raw || atividadesV2_isJsonArrayString_(raw);
+  }), 'Detalhes aceitam envolvidos publicos serializados.');
+  atividadesV2_addContractCheck_(checks, 'DRY_RUN_SEM_ESCRITA', opts.dryRun !== false, 'Conferencia e somente leitura.');
+
+  var failed = checks.filter(function(check) { return !check.ok; });
+  return {
+    ok: failed.length === 0,
+    dryRun: true,
+    modo: 'DEV',
+    contratoAtivoPortal: [
+      ATIVIDADES_V2_SHEETS.PORTAL_ATIVIDADES_CALENDARIO,
+      ATIVIDADES_V2_SHEETS.PORTAL_ATIVIDADES_DETALHES
+    ],
+    abasLidas: [
+      ATIVIDADES_V2_SHEETS.PORTAL_ATIVIDADES_CALENDARIO,
+      ATIVIDADES_V2_SHEETS.PORTAL_ATIVIDADES_DETALHES
+    ],
+    abasEscritas: [],
+    abasOperacionaisProtegidas: atividadesV2_getProtectedOperationalSheetNames_(),
+    totalCalendario: calendario.length,
+    totalDetalhes: detalhes.length,
+    checks: checks,
+    exemplos: exemplos,
+    riscoSobrescreverDadosManuais: false,
+    mensagemRisco: 'Conferencia somente leitura; atualizacoes normais escrevem apenas em views materializadas.',
+    avisos: failed.map(function(check) { return check.code + ': ' + check.message; }),
+    erros: []
+  };
+}
+
+function atividadesV2_addContractCheck_(checks, code, ok, message) {
+  checks.push({
+    code: code,
+    ok: ok === true,
+    message: message
+  });
+}
+
+function atividadesV2_isJsonArrayString_(value) {
+  try {
+    return Array.isArray(JSON.parse(String(value || '')));
+  } catch (e) {
+    return false;
+  }
+}
+
+function atividadesV2_getProtectedOperationalSheetNames_() {
+  return [
+    ATIVIDADES_V2_SHEETS.ATIVIDADES,
+    ATIVIDADES_V2_SHEETS.APRESENTACOES,
+    ATIVIDADES_V2_SHEETS.ENVOLVIDOS,
+    ATIVIDADES_V2_SHEETS.CONFIG,
+    ATIVIDADES_V2_SHEETS.PRESENCAS_REGISTROS,
+    ATIVIDADES_V2_SHEETS.JUSTIFICATIVAS
+  ];
+}
+
+function atividadesV2_getPortalViewSourceSheetNames_() {
+  return [
+    ATIVIDADES_V2_SHEETS.ATIVIDADES,
+    ATIVIDADES_V2_SHEETS.APRESENTACOES,
+    ATIVIDADES_V2_SHEETS.ENVOLVIDOS,
+    ATIVIDADES_V2_SHEETS.PRESENCAS_REGISTROS,
+    ATIVIDADES_V2_SHEETS.JUSTIFICATIVAS
+  ];
+}
+
 function atividadesV2_atualizarPortalCalendario_(options) {
   return atividadesV2_updatePortalViewWithLock_('PORTAL_ATIVIDADES_CALENDARIO', options, function(ss, opts) {
     var atividades = atividadesV2_readSheetObjects_(atividadesV2_getTargetSheet_(ss, ATIVIDADES_V2_SHEETS.ATIVIDADES));
@@ -205,6 +306,7 @@ function atividadesV2_atualizarPortalCalendario_(options) {
       rows.push(atividadesV2_buildPortalCalendarRow_(record, syncDate, apresentacoesPorAtividade[String(record.ID_ATIVIDADE || '').trim()] || []));
     });
     return atividadesV2_finishPortalViewUpdate_(ss, opts, ATIVIDADES_V2_SHEETS.PORTAL_ATIVIDADES_CALENDARIO, ATIVIDADES_V2_SCHEMA.PORTAL_ATIVIDADES_CALENDARIO, rows, {
+      abasLidas: [ATIVIDADES_V2_SHEETS.ATIVIDADES, ATIVIDADES_V2_SHEETS.APRESENTACOES],
       totalLidas: atividades.length,
       totalPublicadas: rows.length,
       totalIgnoradas: ignored,
@@ -234,52 +336,12 @@ function atividadesV2_atualizarPortalDetalhes_(options) {
       rows.push(atividadesV2_buildPortalDetalheRow_(atividade, list, syncDate, envolvidosPorAtividade[idAtividade] || []));
     });
     return atividadesV2_finishPortalViewUpdate_(ss, opts, ATIVIDADES_V2_SHEETS.PORTAL_ATIVIDADES_DETALHES, ATIVIDADES_V2_SCHEMA.PORTAL_ATIVIDADES_DETALHES, rows, {
+      abasLidas: [ATIVIDADES_V2_SHEETS.ATIVIDADES, ATIVIDADES_V2_SHEETS.APRESENTACOES, ATIVIDADES_V2_SHEETS.ENVOLVIDOS],
       totalAtividadesLidas: atividades.length,
       totalApresentacoesLidas: apresentacoes.length,
       totalDetalhesGerados: rows.length,
       totalApresentacoesVinculadas: vinculadas,
       atividadesSemApresentacaoVinculada: semVinculo
-    });
-  });
-}
-
-function atividadesV2_atualizarPortalApresentacoes_(options) {
-  var safeOptions = Object.assign({}, options || {}, { nonDestructive: true });
-  return atividadesV2_updatePortalViewWithLock_('PORTAL_APRESENTACOES', safeOptions, function(ss, opts) {
-    var atividades = atividadesV2_indexByField_(atividadesV2_readSheetObjects_(atividadesV2_getTargetSheet_(ss, ATIVIDADES_V2_SHEETS.ATIVIDADES)), 'ID_ATIVIDADE');
-    var apresentacoes = atividadesV2_readSheetObjects_(atividadesV2_getTargetSheet_(ss, ATIVIDADES_V2_SHEETS.APRESENTACOES));
-    var now = new Date();
-    var rows = apresentacoes.filter(function(record) {
-      if (atividades_normalizeTextUpper_(record.ATIVO) === 'NAO') return false;
-      var activity = atividades[String(record.ID_ATIVIDADE || '').trim()] || {};
-      return atividades_normalizeTextUpper_(record.PUBLICAR_NO_PORTAL || 'SIM') !== 'NAO' &&
-        atividades_normalizeTextUpper_(activity.ATIVO || 'SIM') !== 'NAO';
-    }).map(function(record) {
-      var activity = atividades[String(record.ID_ATIVIDADE || '').trim()] || {};
-      return {
-        ID_APRESENTACAO: record.ID_APRESENTACAO || '',
-        ID_ATIVIDADE: record.ID_ATIVIDADE || '',
-        DATA_ATIVIDADE: activity.DATA_ATIVIDADE || record.DATA_ATIVIDADE || '',
-        HORARIO_INICIO: activity.HORARIO_INICIO || record.HORARIO_INICIO || '',
-        HORARIO_FIM: activity.HORARIO_FIM || record.HORARIO_FIM || '',
-        NOME_MEMBRO_PUBLICO: atividades_sanitizePortalText_(activity.NOME_PESSOA_PRINCIPAL_PUBLICO || record.NOME_MEMBRO, 180),
-        ID_PESSOA: activity.ID_PESSOA_PRINCIPAL || record.ID_PESSOA || '',
-        RGA: activity.RGA_PESSOA_PRINCIPAL || record.RGA || '',
-        TITULO_APRESENTACAO: atividades_sanitizePortalText_(atividadesV2_getTituloConteudoPublico_(activity, record), 240),
-        EIXO_TEMATICO_PRINCIPAL: activity.EIXO_TEMATICO_PRINCIPAL || record.EIXO_TEMATICO_PRINCIPAL || '',
-        EIXO_TEMATICO_SECUNDARIO: activity.EIXO_TEMATICO_SECUNDARIO || record.EIXO_TEMATICO_SECUNDARIO || '',
-        STATUS_PUBLICO: record.STATUS_APRESENTACAO || activity.STATUS_PUBLICACAO_PORTAL || '',
-        STATUS_ARQUIVO_PUBLICO: record.STATUS_ENVIO_ARQUIVO || '',
-        LINK_ARQUIVO_PUBLICO: atividades_sanitizePortalUrl_(record.LINK_ARQUIVO_DRIVE),
-        LINK_PAGINA_APRESENTACAO: '',
-        SYNC_HISTORICO_PUBLICO: record.SYNC_HISTORICO_PUBLICO || '',
-        ULTIMA_ATUALIZACAO: record.ATUALIZADO_EM || now
-      };
-    });
-    return atividadesV2_finishPortalViewUpdate_(ss, opts, ATIVIDADES_V2_SHEETS.PORTAL_APRESENTACOES, ATIVIDADES_V2_SCHEMA.PORTAL_APRESENTACOES, rows, {
-      totalApresentacoesLidas: apresentacoes.length,
-      totalApresentacoesPublicadas: rows.length,
-      avisos: ['PORTAL_APRESENTACOES e legada/deprecated e sera removida da rotina geral em versao futura. Use PORTAL_ATIVIDADES_DETALHES.APRESENTACOES_PUBLICAS_JSON.']
     });
   });
 }
@@ -303,253 +365,11 @@ function atividadesV2_recalcularFrequenciaMembros_(options) {
       return atividadesV2_buildFrequencyPortalRow_(grouped[key], now);
     });
     return atividadesV2_finishPortalViewUpdate_(ss, opts, ATIVIDADES_V2_SHEETS.PORTAL_FREQUENCIA_MEMBROS, ATIVIDADES_V2_SCHEMA.PORTAL_FREQUENCIA_MEMBROS, rows, {
+      abasLidas: [ATIVIDADES_V2_SHEETS.PRESENCAS_REGISTROS],
       totalPresencasLidas: presencas.length,
       totalMembrosCiclo: rows.length
     });
   });
-}
-
-function atividadesV2_migrarPortalApresentacoesParaViewsDev_(options) {
-  var opts = options || {};
-  var dryRun = opts.dryRun !== false;
-  var lock = null;
-
-  if (!dryRun) {
-    lock = LockService.getScriptLock();
-    if (!lock.tryLock(30000)) {
-      return {
-        ok: false,
-        dryRun: false,
-        modo: 'DEV',
-        errorCode: 'LOCK_INDISPONIVEL',
-        message: 'Nao foi possivel obter lock para migrar PORTAL_APRESENTACOES para as views do Portal.'
-      };
-    }
-  }
-
-  try {
-    return atividadesV2_migrarPortalApresentacoesParaViewsDevSemLock_(opts, dryRun);
-  } finally {
-    if (lock) lock.releaseLock();
-  }
-}
-
-function atividadesV2_migrarPortalApresentacoesParaViewsDevSemLock_(opts, dryRun) {
-  var ss = atividadesV2_getDatabaseSpreadsheetDev_();
-  var apresentacoesSheet = atividadesV2_getTargetSheet_(ss, ATIVIDADES_V2_SHEETS.PORTAL_APRESENTACOES);
-  var detalhesSheet = atividadesV2_getTargetSheet_(ss, ATIVIDADES_V2_SHEETS.PORTAL_ATIVIDADES_DETALHES);
-  var calendarioSheet = atividadesV2_getTargetSheet_(ss, ATIVIDADES_V2_SHEETS.PORTAL_ATIVIDADES_CALENDARIO);
-
-  atividadesV2_applyHeadersIfMissing_(detalhesSheet, ATIVIDADES_V2_SCHEMA.PORTAL_ATIVIDADES_DETALHES);
-  atividadesV2_applyHeadersIfMissing_(calendarioSheet, ATIVIDADES_V2_SCHEMA.PORTAL_ATIVIDADES_CALENDARIO);
-
-  var portalApresentacoes = atividadesV2_readSheetObjects_(apresentacoesSheet);
-  var detalhes = atividadesV2_readSheetObjects_(detalhesSheet);
-  var calendario = atividadesV2_readSheetObjects_(calendarioSheet);
-  var detalhesById = atividadesV2_indexByField_(detalhes, 'ID_ATIVIDADE');
-  var calendarioById = atividadesV2_indexByField_(calendario, 'ID_ATIVIDADE');
-  var grupos = atividadesV2_groupPortalApresentacoesByAtividade_(portalApresentacoes);
-  var ids = Object.keys(grupos).sort();
-  var detalhesRows = [];
-  var calendarioRows = [];
-  var avisos = [];
-
-  ids.forEach(function(idAtividade) {
-    var list = grupos[idAtividade];
-    var detalheAtual = detalhesById[idAtividade] || {};
-    var calendarioAtual = calendarioById[idAtividade] || {};
-    detalhesRows.push(atividadesV2_buildDetalhesPatchFromPortalApresentacoes_(idAtividade, list, detalheAtual));
-    calendarioRows.push(atividadesV2_buildCalendarioPatchFromPortalApresentacoes_(idAtividade, list, calendarioAtual));
-    if (!detalheAtual.ID_ATIVIDADE) avisos.push('Detalhe inexistente sera criado de forma minima para ' + idAtividade + '.');
-    if (!calendarioAtual.ID_ATIVIDADE) avisos.push('Calendario inexistente sera criado de forma minima para ' + idAtividade + '.');
-  });
-
-  var detalhesWrite = null;
-  var calendarioWrite = null;
-  if (!dryRun) {
-    detalhesWrite = atividadesV2_upsertPortalRowsByKey_(detalhesSheet, ATIVIDADES_V2_SCHEMA.PORTAL_ATIVIDADES_DETALHES, detalhesRows, ['ID_ATIVIDADE']);
-    calendarioWrite = atividadesV2_upsertPortalRowsByKey_(calendarioSheet, ATIVIDADES_V2_SCHEMA.PORTAL_ATIVIDADES_CALENDARIO, calendarioRows, ['ID_ATIVIDADE']);
-    atividadesV2_appendV2Log_(ss, {
-      FLUXO: 'ATUALIZACAO_PORTAL_V2',
-      ACAO: 'Migrar PORTAL_APRESENTACOES para detalhes/calendario',
-      NIVEL: 'INFO',
-      STATUS: 'OK',
-      MENSAGEM: 'PORTAL_APRESENTACOES usada como fonte de recuperacao das views do Portal.',
-      DETALHES_JSON: atividadesV2_safeLogData_({
-        apresentacoesLidas: portalApresentacoes.length,
-        atividadesComApresentacoes: ids.length,
-        detalhes: detalhesWrite,
-        calendario: calendarioWrite
-      })
-    });
-    if (typeof atividadesV2_limparCachePortalDev_ === 'function') atividadesV2_limparCachePortalDev_();
-  }
-
-  return {
-    ok: true,
-    dryRun: dryRun,
-    modo: 'DEV',
-    origem: ATIVIDADES_V2_SHEETS.PORTAL_APRESENTACOES,
-    destinos: [
-      ATIVIDADES_V2_SHEETS.PORTAL_ATIVIDADES_DETALHES,
-      ATIVIDADES_V2_SHEETS.PORTAL_ATIVIDADES_CALENDARIO
-    ],
-    totalPortalApresentacoesLidas: portalApresentacoes.length,
-    totalPortalApresentacoesComIdAtividade: ids.reduce(function(total, id) { return total + grupos[id].length; }, 0),
-    totalAtividadesComApresentacoes: ids.length,
-    detalhesGerados: detalhesRows.length,
-    calendarioGerado: calendarioRows.length,
-    escritaDetalhes: detalhesWrite,
-    escritaCalendario: calendarioWrite,
-    previewDetalhes: detalhesRows.slice(0, 5),
-    previewCalendario: calendarioRows.slice(0, 5),
-    avisos: avisos,
-    erros: []
-  };
-}
-
-function atividadesV2_groupPortalApresentacoesByAtividade_(rows) {
-  var grupos = {};
-  (rows || []).forEach(function(row) {
-    var idAtividade = String(row.ID_ATIVIDADE || '').trim();
-    if (!idAtividade) return;
-    if (!grupos[idAtividade]) grupos[idAtividade] = [];
-    grupos[idAtividade].push(row);
-  });
-  Object.keys(grupos).forEach(function(idAtividade) {
-    grupos[idAtividade].sort(function(a, b) {
-      return String(a.ID_APRESENTACAO || '').localeCompare(String(b.ID_APRESENTACAO || ''));
-    });
-  });
-  return grupos;
-}
-
-function atividadesV2_buildDetalhesPatchFromPortalApresentacoes_(idAtividade, list, current) {
-  var first = list[0] || {};
-  var publicas = atividadesV2_mergeApresentacoesPublicasFromPortal_(current.APRESENTACOES_PUBLICAS_JSON, list);
-  var resumo = atividadesV2_buildResumoApresentacoesPublico_(publicas.map(function(item) {
-    return { publico: item };
-  }));
-  var patch = {
-    ID_ATIVIDADE: idAtividade,
-    ID_APRESENTACAO: String(first.ID_APRESENTACAO || current.ID_APRESENTACAO || '').trim(),
-    EH_APRESENTACAO: publicas.length ? 'SIM' : (current.EH_APRESENTACAO || ''),
-    APRESENTACOES_PUBLICAS_JSON: atividadesV2_stringifyPublicJson_(publicas),
-    QTD_APRESENTACOES: publicas.length,
-    RESUMO_APRESENTACOES_PUBLICO: resumo,
-    POSSUI_APRESENTACOES: publicas.length ? 'SIM' : '',
-    ULTIMA_ATUALIZACAO: new Date()
-  };
-
-  atividadesV2_setIfUseful_(patch, 'DATA_ATIVIDADE', current.DATA_ATIVIDADE || first.DATA_ATIVIDADE);
-  atividadesV2_setIfUseful_(patch, 'HORARIO_INICIO', current.HORARIO_INICIO || first.HORARIO_INICIO);
-  atividadesV2_setIfUseful_(patch, 'HORARIO_FIM', current.HORARIO_FIM || first.HORARIO_FIM);
-  atividadesV2_setIfUseful_(patch, 'TITULO_PUBLICO', current.TITULO_PUBLICO || first.TITULO_APRESENTACAO);
-  atividadesV2_setIfUseful_(patch, 'TITULO_CONTEUDO_PUBLICO', first.TITULO_APRESENTACAO || current.TITULO_CONTEUDO_PUBLICO);
-  atividadesV2_setIfUseful_(patch, 'TIPO_PUBLICO', current.TIPO_PUBLICO || 'Apresentacao');
-  atividadesV2_setIfUseful_(patch, 'SUBTIPO_ATIVIDADE', current.SUBTIPO_ATIVIDADE || 'APRESENTACAO_MEMBRO');
-  atividadesV2_setIfUseful_(patch, 'NOME_APRESENTADOR_PUBLICO', first.NOME_MEMBRO_PUBLICO);
-  atividadesV2_setIfUseful_(patch, 'ID_PESSOA_APRESENTADOR', first.ID_PESSOA);
-  atividadesV2_setIfUseful_(patch, 'RGA_APRESENTADOR', first.RGA);
-  atividadesV2_setIfUseful_(patch, 'TITULO_APRESENTACAO', first.TITULO_APRESENTACAO);
-  atividadesV2_setIfUseful_(patch, 'EIXO_TEMATICO_PRINCIPAL', first.EIXO_TEMATICO_PRINCIPAL);
-  atividadesV2_setIfUseful_(patch, 'EIXO_TEMATICO_SECUNDARIO', first.EIXO_TEMATICO_SECUNDARIO);
-  atividadesV2_setIfUseful_(patch, 'STATUS_APRESENTACAO_PUBLICO', first.STATUS_PUBLICO);
-  atividadesV2_setIfUseful_(patch, 'STATUS_ARQUIVO_PUBLICO', first.STATUS_ARQUIVO_PUBLICO);
-  atividadesV2_setIfUseful_(patch, 'LINK_ARQUIVO_PUBLICO', atividades_sanitizePortalUrl_(first.LINK_ARQUIVO_PUBLICO));
-  atividadesV2_setIfUseful_(patch, 'LINK_MATERIAL_PUBLICO', atividades_sanitizePortalUrl_(first.LINK_ARQUIVO_PUBLICO));
-  atividadesV2_setIfUseful_(patch, 'ID_PESSOA_PRINCIPAL', current.ID_PESSOA_PRINCIPAL || first.ID_PESSOA);
-  atividadesV2_setIfUseful_(patch, 'NOME_PESSOA_PRINCIPAL_PUBLICO', current.NOME_PESSOA_PRINCIPAL_PUBLICO || first.NOME_MEMBRO_PUBLICO);
-  atividadesV2_setIfUseful_(patch, 'RGA_PESSOA_PRINCIPAL', current.RGA_PESSOA_PRINCIPAL || first.RGA);
-  atividadesV2_setIfUseful_(patch, 'TIPO_PESSOA_PRINCIPAL', current.TIPO_PESSOA_PRINCIPAL || 'MEMBRO');
-  atividadesV2_setIfUseful_(patch, 'PAPEL_PESSOA_PRINCIPAL', current.PAPEL_PESSOA_PRINCIPAL || 'APRESENTADOR');
-  return patch;
-}
-
-function atividadesV2_buildCalendarioPatchFromPortalApresentacoes_(idAtividade, list, current) {
-  var first = list[0] || {};
-  var publicas = atividadesV2_mergeApresentacoesPublicasFromPortal_('', list);
-  var resumo = atividadesV2_buildResumoApresentacoesPublico_(publicas.map(function(item) {
-    return { publico: item };
-  }));
-  var patch = {
-    ID_ATIVIDADE: idAtividade,
-    QTD_APRESENTACOES: publicas.length,
-    RESUMO_APRESENTACOES_PUBLICO: resumo,
-    POSSUI_APRESENTACOES: publicas.length ? 'SIM' : '',
-    PODE_VER_DETALHES: current.PODE_VER_DETALHES || 'SIM',
-    ULTIMA_ATUALIZACAO: new Date()
-  };
-  atividadesV2_setIfUseful_(patch, 'DATA_ATIVIDADE', current.DATA_ATIVIDADE || first.DATA_ATIVIDADE);
-  atividadesV2_setIfUseful_(patch, 'HORARIO_INICIO', current.HORARIO_INICIO || first.HORARIO_INICIO);
-  atividadesV2_setIfUseful_(patch, 'HORARIO_FIM', current.HORARIO_FIM || first.HORARIO_FIM);
-  atividadesV2_setIfUseful_(patch, 'TITULO_PUBLICO', current.TITULO_PUBLICO || first.TITULO_APRESENTACAO);
-  atividadesV2_setIfUseful_(patch, 'TITULO_CONTEUDO_PUBLICO', first.TITULO_APRESENTACAO || current.TITULO_CONTEUDO_PUBLICO);
-  atividadesV2_setIfUseful_(patch, 'TIPO_PUBLICO', current.TIPO_PUBLICO || 'Apresentacao');
-  atividadesV2_setIfUseful_(patch, 'SUBTIPO_ATIVIDADE', current.SUBTIPO_ATIVIDADE || 'APRESENTACAO_MEMBRO');
-  atividadesV2_setIfUseful_(patch, 'EIXO_TEMATICO_PRINCIPAL', first.EIXO_TEMATICO_PRINCIPAL);
-  atividadesV2_setIfUseful_(patch, 'EIXO_TEMATICO_SECUNDARIO', first.EIXO_TEMATICO_SECUNDARIO);
-  atividadesV2_setIfUseful_(patch, 'ID_PESSOA_PRINCIPAL', current.ID_PESSOA_PRINCIPAL || first.ID_PESSOA);
-  atividadesV2_setIfUseful_(patch, 'NOME_PESSOA_PRINCIPAL_PUBLICO', current.NOME_PESSOA_PRINCIPAL_PUBLICO || first.NOME_MEMBRO_PUBLICO);
-  atividadesV2_setIfUseful_(patch, 'PAPEL_PESSOA_PRINCIPAL', current.PAPEL_PESSOA_PRINCIPAL || 'APRESENTADOR');
-  atividadesV2_setIfUseful_(patch, 'TIPO_PESSOA_PRINCIPAL', current.TIPO_PESSOA_PRINCIPAL || 'MEMBRO');
-  return patch;
-}
-
-function atividadesV2_mergeApresentacoesPublicasFromPortal_(existingJson, portalRows) {
-  var out = [];
-  var seen = {};
-  atividadesV2_parsePublicJsonArray_(existingJson).forEach(function(item) {
-    atividadesV2_addPublicPresentationIfMissing_(out, seen, item);
-  });
-  (portalRows || []).forEach(function(row) {
-    atividadesV2_addPublicPresentationIfMissing_(out, seen, atividadesV2_portalApresentacaoToPublicJson_(row));
-  });
-  return out;
-}
-
-function atividadesV2_addPublicPresentationIfMissing_(out, seen, item) {
-  if (!item) return;
-  var normalized = {
-    idApresentacao: String(item.idApresentacao || item.ID_APRESENTACAO || '').trim(),
-    idAtividade: String(item.idAtividade || item.ID_ATIVIDADE || '').trim(),
-    idPessoa: String(item.idPessoa || item.ID_PESSOA || '').trim(),
-    rga: String(item.rga || item.RGA || '').trim(),
-    nomeApresentador: atividades_sanitizePortalText_(item.nomeApresentador || item.NOME_MEMBRO_PUBLICO || item.NOME_MEMBRO || '', 180),
-    titulo: atividades_sanitizePortalText_(item.titulo || item.TITULO_APRESENTACAO || '', 240),
-    eixoTematicoPrincipal: String(item.eixoTematicoPrincipal || item.EIXO_TEMATICO_PRINCIPAL || '').trim(),
-    eixoTematicoSecundario: String(item.eixoTematicoSecundario || item.EIXO_TEMATICO_SECUNDARIO || '').trim(),
-    statusApresentacao: String(item.statusApresentacao || item.STATUS_PUBLICO || '').trim(),
-    statusTituloEixo: String(item.statusTituloEixo || item.STATUS_TITULO_EIXO || '').trim(),
-    statusArquivo: String(item.statusArquivo || item.STATUS_ARQUIVO_PUBLICO || '').trim(),
-    linkArquivoPublico: atividades_sanitizePortalUrl_(item.linkArquivoPublico || item.LINK_ARQUIVO_PUBLICO || '')
-  };
-  var key = normalized.idApresentacao ||
-    [normalized.idAtividade, normalized.idPessoa || normalized.rga, normalized.titulo].join('|');
-  if (!key || seen[key]) return;
-  seen[key] = true;
-  out.push(normalized);
-}
-
-function atividadesV2_portalApresentacaoToPublicJson_(row) {
-  return {
-    idApresentacao: row.ID_APRESENTACAO,
-    idAtividade: row.ID_ATIVIDADE,
-    idPessoa: row.ID_PESSOA,
-    rga: row.RGA,
-    nomeApresentador: row.NOME_MEMBRO_PUBLICO,
-    titulo: row.TITULO_APRESENTACAO,
-    eixoTematicoPrincipal: row.EIXO_TEMATICO_PRINCIPAL,
-    eixoTematicoSecundario: row.EIXO_TEMATICO_SECUNDARIO,
-    statusApresentacao: row.STATUS_PUBLICO,
-    statusArquivo: row.STATUS_ARQUIVO_PUBLICO,
-    linkArquivoPublico: row.LINK_ARQUIVO_PUBLICO
-  };
-}
-
-function atividadesV2_setIfUseful_(target, field, value) {
-  var text = String(value || '').trim();
-  if (text) target[field] = value;
 }
 
 function atividadesV2_atualizarPortalJustificativas_(options) {
@@ -576,6 +396,7 @@ function atividadesV2_atualizarPortalJustificativas_(options) {
       };
     });
     return atividadesV2_finishPortalViewUpdate_(ss, opts, ATIVIDADES_V2_SHEETS.PORTAL_JUSTIFICATIVAS, ATIVIDADES_V2_SCHEMA.PORTAL_JUSTIFICATIVAS, rows, {
+      abasLidas: [ATIVIDADES_V2_SHEETS.JUSTIFICATIVAS],
       totalJustificativasLidas: justificativas.length,
       totalJustificativasPublicadas: rows.length
     });
@@ -587,6 +408,7 @@ function atividadesV2_atualizarPendenciasDiretoria_(options) {
     var data = atividadesV2_readPortalViewsSourceData_(ss);
     var rows = atividadesV2_buildPendenciasDiretoriaRows_(data, new Date());
     return atividadesV2_finishPortalViewUpdate_(ss, opts, ATIVIDADES_V2_SHEETS.PORTAL_PENDENCIAS_DIRETORIA, ATIVIDADES_V2_SCHEMA.PORTAL_PENDENCIAS_DIRETORIA, rows, {
+      abasLidas: atividadesV2_getPortalViewSourceSheetNames_(),
       totalPendencias: rows.length
     });
   });
@@ -614,6 +436,7 @@ function atividadesV2_atualizarPortalStatus_(options) {
       OBSERVACOES: 'Atualizado por rotina manual v2 DEV.'
     }];
     return atividadesV2_finishPortalViewUpdate_(ss, opts, ATIVIDADES_V2_SHEETS.PORTAL_STATUS_ATIVIDADES, ATIVIDADES_V2_SCHEMA.PORTAL_STATUS_ATIVIDADES, rows, {
+      abasLidas: atividadesV2_getPortalViewSourceSheetNames_().concat([ATIVIDADES_V2_SHEETS.PORTAL_PENDENCIAS_DIRETORIA]),
       totalStatus: rows.length
     });
   });
@@ -690,11 +513,16 @@ function atividadesV2_finishPortalViewUpdate_(ss, opts, sheetName, headers, rows
     dryRun: dryRun,
     modo: 'DEV',
     destino: sheetName,
+    abasLidas: extra && extra.abasLidas || [],
+    abasEscritas: dryRun ? [] : [sheetName],
+    abasQueSeriamEscritas: dryRun ? [sheetName] : [],
     totalLinhasGeradas: rows.length,
     totalLinhasEscritas: dryRun ? 0 : rows.length,
     modoEscrita: dryRun ? 'DRY_RUN' : (writeResult && writeResult.mode || 'REPLACE'),
     escrita: writeResult,
-    preview: rows.slice(0, 5),
+    preview: atividadesV2_sanitizePortalViewPreview_(rows),
+    riscoSobrescreverDadosManuais: false,
+    mensagemRisco: 'Rotina restrita a view materializada; abas operacionais manuais nao sao limpas nem sobrescritas.',
     avisos: [],
     erros: []
   }, extra || {});
@@ -709,6 +537,26 @@ function atividadesV2_finishPortalViewUpdate_(ss, opts, sheetName, headers, rows
     });
   }
   return result;
+}
+
+function atividadesV2_sanitizePortalViewPreview_(rows) {
+  return (rows || []).slice(0, 5).map(atividadesV2_sanitizePortalViewPreviewRecord_);
+}
+
+function atividadesV2_sanitizePortalViewPreviewRecord_(record) {
+  return {
+    ID_ATIVIDADE: record.ID_ATIVIDADE || '',
+    ID_APRESENTACAO: record.ID_APRESENTACAO || '',
+    DATA_ATIVIDADE: record.DATA_ATIVIDADE || '',
+    TITULO_PUBLICO: atividades_sanitizePortalText_(record.TITULO_PUBLICO || record.TITULO_ATIVIDADE || '', 120),
+    TIPO_PUBLICO: record.TIPO_PUBLICO || '',
+    STATUS_PUBLICO: record.STATUS_PUBLICO || '',
+    VISIBILIDADE_PORTAL: record.VISIBILIDADE_PORTAL || '',
+    QTD_APRESENTACOES: record.QTD_APRESENTACOES || '',
+    POSSUI_APRESENTACOES: record.POSSUI_APRESENTACOES || '',
+    TOTAL_PRESENCAS: record.TOTAL_PRESENCAS || '',
+    TOTAL_FALTAS: record.TOTAL_FALTAS || ''
+  };
 }
 
 function atividadesV2_upsertPortalRows_(sheet, headers, records) {
@@ -749,55 +597,6 @@ function atividadesV2_upsertPortalRows_(sheet, headers, records) {
     written: updated + appended,
     preservedExistingRows: Math.max(existing.length - updated, 0)
   };
-}
-
-function atividadesV2_upsertPortalRowsByKey_(sheet, headers, records, keyFields) {
-  var writableHeaders = atividadesV2_getPortalWritableHeaders_(sheet, headers);
-  var existing = atividadesV2_readSheetObjects_(sheet);
-  var existingByKey = {};
-  existing.forEach(function(record) {
-    var key = atividadesV2_buildExplicitUpsertKey_(record, keyFields);
-    if (key && !existingByKey[key]) existingByKey[key] = record;
-  });
-
-  var updated = 0;
-  var appended = 0;
-  var appendValues = [];
-  (records || []).forEach(function(record) {
-    var key = atividadesV2_buildExplicitUpsertKey_(record, keyFields);
-    var current = key ? existingByKey[key] : null;
-    if (current && current._rowNumber) {
-      var merged = Object.assign({}, current, record);
-      sheet.getRange(current._rowNumber, 1, 1, writableHeaders.length).setValues([
-        atividadesV2_recordToHeaderRow_(merged, writableHeaders)
-      ]);
-      updated++;
-      return;
-    }
-    appendValues.push(atividadesV2_recordToHeaderRow_(record, writableHeaders));
-    appended++;
-  });
-
-  if (appendValues.length) {
-    sheet.getRange(sheet.getLastRow() + 1, 1, appendValues.length, writableHeaders.length).setValues(appendValues);
-  }
-
-  return {
-    mode: 'UPSERT_BY_KEY',
-    keyFields: keyFields,
-    updated: updated,
-    appended: appended,
-    written: updated + appended,
-    preservedExistingRows: Math.max(existing.length - updated, 0)
-  };
-}
-
-function atividadesV2_buildExplicitUpsertKey_(record, keyFields) {
-  var parts = (keyFields || []).map(function(field) {
-    return String(record && record[field] || '').trim();
-  });
-  if (!parts.length || parts.some(function(value) { return !value; })) return '';
-  return keyFields.join('+') + ':' + parts.join('|');
 }
 
 function atividadesV2_diagnosticarDesalinhamentoViewsPortalDev_() {
@@ -910,7 +709,6 @@ function atividadesV2_getRepairablePortalViewNames_() {
   return [
     ATIVIDADES_V2_SHEETS.PORTAL_ATIVIDADES_CALENDARIO,
     ATIVIDADES_V2_SHEETS.PORTAL_ATIVIDADES_DETALHES,
-    ATIVIDADES_V2_SHEETS.PORTAL_APRESENTACOES,
     ATIVIDADES_V2_SHEETS.PORTAL_FREQUENCIA_MEMBROS,
     ATIVIDADES_V2_SHEETS.PORTAL_JUSTIFICATIVAS,
     ATIVIDADES_V2_SHEETS.PORTAL_PENDENCIAS_DIRETORIA,

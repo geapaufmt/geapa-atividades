@@ -50,7 +50,7 @@ atividadesV2_complementarIdPessoaTodasAbasDev()
 
 `atividadesV2_complementarIdPessoaDev()` preenche apenas campos tecnicos de pessoa vazios, usando dados ja existentes na linha, como RGA, e-mail e nome. Por padrao, nao sobrescreve `ID_PESSOA` ja preenchido.
 
-`atividadesV2_complementarIdPessoaTodasAbasDev()` e a funcao manual recomendada para uso normal. Ela percorre `Atividades`, `Atividades_Envolvidos`, `Atividades_Presencas_Registros`, `Justificativas_Faltas`, `PORTAL_FREQUENCIA_MEMBROS` e `PORTAL_JUSTIFICATIVAS`, preservando IDs ja preenchidos. `Atividades_Apresentacoes` e `PORTAL_APRESENTACOES` sao tratados como legado opcional: se ainda tiverem `ID_PESSOA`, a rotina pode complementar; se nao tiverem, nao e erro.
+`atividadesV2_complementarIdPessoaTodasAbasDev()` e a funcao manual recomendada para uso normal. Ela percorre `Atividades`, `Atividades_Apresentacoes`, `Atividades_Envolvidos`, `Atividades_Presencas_Registros`, `Justificativas_Faltas`, `PORTAL_ATIVIDADES_DETALHES`, `PORTAL_FREQUENCIA_MEMBROS` e `PORTAL_JUSTIFICATIVAS`, preservando IDs ja preenchidos.
 
 Na modelagem nova, `Atividades.ID_PESSOA_PRINCIPAL` identifica a pessoa principal usada em cards/listas, e `Atividades_Envolvidos.ID_PESSOA` identifica os vinculos individuais completos. `Atividades_Apresentacoes` nao deve voltar a ser fonte principal de pessoa, RGA, e-mail, titulo ou eixo.
 
@@ -58,7 +58,7 @@ Para bases maiores, rode por aba para evitar limite de tempo do Apps Script:
 
 ```js
 atividadesV2_complementarIdPessoaDev({
-  sheetName: 'PORTAL_APRESENTACOES',
+  sheetName: 'PORTAL_ATIVIDADES_DETALHES',
   maxMs: 240000
 })
 ```

@@ -69,15 +69,12 @@ Atualizacao de views:
 ```js
 atividadesV2_atualizarPortalCalendario({ dryRun: true })
 atividadesV2_atualizarPortalDetalhes({ dryRun: true })
-atividadesV2_atualizarPortalApresentacoes({ dryRun: true })
-atividadesV2_migrarPortalApresentacoesNaoDestrutivoDevDryRun()
-atividadesV2_migrarPortalApresentacoesNaoDestrutivoDev()
-atividadesV2_migrarPortalApresentacoesParaDetalhesCalendarioDevDryRun()
-atividadesV2_migrarPortalApresentacoesParaDetalhesCalendarioDev()
 atividadesV2_recalcularFrequenciaMembros({ dryRun: true })
 atividadesV2_atualizarPortalJustificativas({ dryRun: true })
 atividadesV2_atualizarPendenciasDiretoria({ dryRun: true })
 atividadesV2_atualizarPortalStatus({ dryRun: true })
+atividadesV2_conferirContratoPortalAtivo({ dryRun: true })
+atividadesV2_runTesteContratoPortalAtivo()
 ```
 
 Agregadora:
@@ -111,6 +108,7 @@ atividadesV2_runTesteDiagnostico()
 atividadesV2_runTesteAtualizacaoPortalDryRun()
 atividadesV2_runTesteFrequenciaDryRun()
 atividadesV2_runTesteJobPortalDryRun()
+atividadesV2_runTesteContratoPortalAtivo()
 ```
 
 Trigger manual:
@@ -132,11 +130,7 @@ atividadesV2_removerTriggerJobPortal()
 5. pendencias;
 6. status geral.
 
-`PORTAL_APRESENTACOES` e uma view legada/deprecated. Ela nao e atualizada pela agregadora. A funcao manual `atividadesV2_atualizarPortalApresentacoes(options)` permanece apenas para compatibilidade temporaria e retorna aviso.
-
-Por seguranca, `PORTAL_APRESENTACOES` e atualizada sempre em modo nao destrutivo quando a funcao legada `atividadesV2_atualizarPortalApresentacoes(options)` for chamada.
-
-Use `atividadesV2_migrarPortalApresentacoesNaoDestrutivoDev()` ou o alias mais explicito `atividadesV2_migrarPortalApresentacoesParaDetalhesCalendarioDev()` quando precisar usar as linhas ja existentes em `PORTAL_APRESENTACOES` como fonte de recuperacao/curadoria para `PORTAL_ATIVIDADES_DETALHES` e `PORTAL_ATIVIDADES_CALENDARIO`. Essa rotina le `PORTAL_APRESENTACOES`, agrupa por `ID_ATIVIDADE`, grava `APRESENTACOES_PUBLICAS_JSON`, `QTD_APRESENTACOES`, resumo publico e campos principais de apresentador/titulo/eixo nas views novas, usando upsert por `ID_ATIVIDADE` e sem limpar nenhuma aba.
+O contrato ativo do Portal para atividades e apresentacoes e formado por `PORTAL_ATIVIDADES_CALENDARIO` e `PORTAL_ATIVIDADES_DETALHES`. A antiga view `PORTAL_APRESENTACOES` foi removida do contrato ativo: o modulo nao deve cria-la, atualizar, reparar, expor endpoint publico ou usa-la como fonte de migracao. Se a aba ainda existir no Google Sheets, ela e apenas historica e deve ser ignorada pelas rotinas normais.
 
 As rotinas de escrita das views usam nomes de cabecalho reais da aba, nao a posicao fisica da coluna. Isso evita deslocamento quando uma view ja possui cabecalhos antigos ou colunas adicionadas ao final. Se uma execucao anterior tiver escrito dados na ordem do schema sob cabecalhos em outra ordem, rode primeiro `atividadesV2_diagnosticarDesalinhamentoViewsPortalDev()`, depois `atividadesV2_repararDesalinhamentoViewsPortalDevDryRun()` e, se o relatorio marcar `needsRepair: true` nas abas esperadas, rode `atividadesV2_repararDesalinhamentoViewsPortalDev()`.
 
@@ -144,9 +138,9 @@ As rotinas de escrita das views usam nomes de cabecalho reais da aba, nao a posi
 
 Todas as rotinas de atualizacao aceitam `options.dryRun`.
 
-Com `dryRun: true`, a funcao le as bases v2 e monta a previa de linhas, mas nao limpa nem escreve nas views. O retorno inclui contadores e `preview` com as primeiras linhas geradas.
+Com `dryRun: true`, a funcao le as bases v2 e monta a previa de linhas, mas nao limpa nem escreve nas views. O retorno inclui contadores, abas lidas, abas que seriam escritas e `preview` resumido sem dados pessoais sensiveis.
 
-Com `dryRun: false` ou sem `dryRun`, a funcao usa `LockService`, preserva cabecalhos e reescreve apenas os dados abaixo do cabecalho da view correspondente.
+Com `dryRun: false` ou sem `dryRun`, a funcao usa `LockService`, preserva cabecalhos e reescreve apenas os dados abaixo do cabecalho da view correspondente. Abas operacionais manuais, como `Atividades`, `Atividades_Apresentacoes`, `Atividades_Envolvidos`, `Atividades_Config`, `Atividades_Presencas_Registros` e `Justificativas_Faltas`, sao somente fontes de leitura nas atualizacoes normais de views.
 
 O job `atividadesV2_jobPortal(options)` sempre chama a agregadora com `nonDestructive: true`. Nesse modo, as views sao atualizadas por upsert de chave, sem limpar linhas antigas. Linhas obsoletas ficam preservadas para revisao posterior.
 
