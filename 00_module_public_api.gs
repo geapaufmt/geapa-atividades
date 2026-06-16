@@ -124,6 +124,30 @@ function atividadesV2_atualizarPortalApresentacoes(options) {
   }, { entrypoint: 'atividadesV2_atualizarPortalApresentacoes' });
 }
 
+function atividadesV2_migrarPortalApresentacoesNaoDestrutivoDevDryRun() {
+  return atividades_runWithOperationalGuard_('ATUALIZACAO_PORTAL_V2', null, function() {
+    return atividadesV2_migrarPortalApresentacoesParaViewsDev_({ dryRun: true });
+  }, { entrypoint: 'atividadesV2_migrarPortalApresentacoesNaoDestrutivoDevDryRun' });
+}
+
+function atividadesV2_migrarPortalApresentacoesNaoDestrutivoDev() {
+  return atividades_runWithOperationalGuard_('ATUALIZACAO_PORTAL_V2', null, function() {
+    return atividadesV2_migrarPortalApresentacoesParaViewsDev_({ dryRun: false });
+  }, { entrypoint: 'atividadesV2_migrarPortalApresentacoesNaoDestrutivoDev' });
+}
+
+function atividadesV2_migrarPortalApresentacoesParaDetalhesCalendarioDevDryRun() {
+  return atividades_runWithOperationalGuard_('ATUALIZACAO_PORTAL_V2', null, function() {
+    return atividadesV2_migrarPortalApresentacoesParaViewsDev_({ dryRun: true });
+  }, { entrypoint: 'atividadesV2_migrarPortalApresentacoesParaDetalhesCalendarioDevDryRun' });
+}
+
+function atividadesV2_migrarPortalApresentacoesParaDetalhesCalendarioDev() {
+  return atividades_runWithOperationalGuard_('ATUALIZACAO_PORTAL_V2', null, function() {
+    return atividadesV2_migrarPortalApresentacoesParaViewsDev_({ dryRun: false });
+  }, { entrypoint: 'atividadesV2_migrarPortalApresentacoesParaDetalhesCalendarioDev' });
+}
+
 function atividadesV2_recalcularFrequenciaMembros(options) {
   return atividades_runWithOperationalGuard_('FREQUENCIA_V2', null, function() {
     return atividadesV2_recalcularFrequenciaMembros_(options || {});
@@ -152,6 +176,24 @@ function atividadesV2_atualizarViewsPortal(options) {
   return atividades_runWithOperationalGuard_('ATUALIZACAO_PORTAL_V2', null, function() {
     return atividadesV2_atualizarViewsPortal_(options || {});
   }, { entrypoint: 'atividadesV2_atualizarViewsPortal' });
+}
+
+function atividadesV2_diagnosticarDesalinhamentoViewsPortalDev() {
+  return atividades_runWithOperationalGuard_('CONFERENCIA_V2', null, function() {
+    return atividadesV2_diagnosticarDesalinhamentoViewsPortalDev_();
+  }, { entrypoint: 'atividadesV2_diagnosticarDesalinhamentoViewsPortalDev' });
+}
+
+function atividadesV2_repararDesalinhamentoViewsPortalDevDryRun() {
+  return atividades_runWithOperationalGuard_('CONFERENCIA_V2', null, function() {
+    return atividadesV2_repararDesalinhamentoViewsPortalDevDryRun_();
+  }, { entrypoint: 'atividadesV2_repararDesalinhamentoViewsPortalDevDryRun' });
+}
+
+function atividadesV2_repararDesalinhamentoViewsPortalDev() {
+  return atividades_runWithOperationalGuard_('ATUALIZACAO_PORTAL_V2', null, function() {
+    return atividadesV2_repararDesalinhamentoViewsPortalDev_({ dryRun: false });
+  }, { entrypoint: 'atividadesV2_repararDesalinhamentoViewsPortalDev' });
 }
 
 function atividadesV2_runTesteAtualizacaoPortalDev() {

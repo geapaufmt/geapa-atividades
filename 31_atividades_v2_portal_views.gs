@@ -244,7 +244,8 @@ function atividadesV2_atualizarPortalDetalhes_(options) {
 }
 
 function atividadesV2_atualizarPortalApresentacoes_(options) {
-  return atividadesV2_updatePortalViewWithLock_('PORTAL_APRESENTACOES', options, function(ss, opts) {
+  var safeOptions = Object.assign({}, options || {}, { nonDestructive: true });
+  return atividadesV2_updatePortalViewWithLock_('PORTAL_APRESENTACOES', safeOptions, function(ss, opts) {
     var atividades = atividadesV2_indexByField_(atividadesV2_readSheetObjects_(atividadesV2_getTargetSheet_(ss, ATIVIDADES_V2_SHEETS.ATIVIDADES)), 'ID_ATIVIDADE');
     var apresentacoes = atividadesV2_readSheetObjects_(atividadesV2_getTargetSheet_(ss, ATIVIDADES_V2_SHEETS.APRESENTACOES));
     var now = new Date();
@@ -306,6 +307,249 @@ function atividadesV2_recalcularFrequenciaMembros_(options) {
       totalMembrosCiclo: rows.length
     });
   });
+}
+
+function atividadesV2_migrarPortalApresentacoesParaViewsDev_(options) {
+  var opts = options || {};
+  var dryRun = opts.dryRun !== false;
+  var lock = null;
+
+  if (!dryRun) {
+    lock = LockService.getScriptLock();
+    if (!lock.tryLock(30000)) {
+      return {
+        ok: false,
+        dryRun: false,
+        modo: 'DEV',
+        errorCode: 'LOCK_INDISPONIVEL',
+        message: 'Nao foi possivel obter lock para migrar PORTAL_APRESENTACOES para as views do Portal.'
+      };
+    }
+  }
+
+  try {
+    return atividadesV2_migrarPortalApresentacoesParaViewsDevSemLock_(opts, dryRun);
+  } finally {
+    if (lock) lock.releaseLock();
+  }
+}
+
+function atividadesV2_migrarPortalApresentacoesParaViewsDevSemLock_(opts, dryRun) {
+  var ss = atividadesV2_getDatabaseSpreadsheetDev_();
+  var apresentacoesSheet = atividadesV2_getTargetSheet_(ss, ATIVIDADES_V2_SHEETS.PORTAL_APRESENTACOES);
+  var detalhesSheet = atividadesV2_getTargetSheet_(ss, ATIVIDADES_V2_SHEETS.PORTAL_ATIVIDADES_DETALHES);
+  var calendarioSheet = atividadesV2_getTargetSheet_(ss, ATIVIDADES_V2_SHEETS.PORTAL_ATIVIDADES_CALENDARIO);
+
+  atividadesV2_applyHeadersIfMissing_(detalhesSheet, ATIVIDADES_V2_SCHEMA.PORTAL_ATIVIDADES_DETALHES);
+  atividadesV2_applyHeadersIfMissing_(calendarioSheet, ATIVIDADES_V2_SCHEMA.PORTAL_ATIVIDADES_CALENDARIO);
+
+  var portalApresentacoes = atividadesV2_readSheetObjects_(apresentacoesSheet);
+  var detalhes = atividadesV2_readSheetObjects_(detalhesSheet);
+  var calendario = atividadesV2_readSheetObjects_(calendarioSheet);
+  var detalhesById = atividadesV2_indexByField_(detalhes, 'ID_ATIVIDADE');
+  var calendarioById = atividadesV2_indexByField_(calendario, 'ID_ATIVIDADE');
+  var grupos = atividadesV2_groupPortalApresentacoesByAtividade_(portalApresentacoes);
+  var ids = Object.keys(grupos).sort();
+  var detalhesRows = [];
+  var calendarioRows = [];
+  var avisos = [];
+
+  ids.forEach(function(idAtividade) {
+    var list = grupos[idAtividade];
+    var detalheAtual = detalhesById[idAtividade] || {};
+    var calendarioAtual = calendarioById[idAtividade] || {};
+    detalhesRows.push(atividadesV2_buildDetalhesPatchFromPortalApresentacoes_(idAtividade, list, detalheAtual));
+    calendarioRows.push(atividadesV2_buildCalendarioPatchFromPortalApresentacoes_(idAtividade, list, calendarioAtual));
+    if (!detalheAtual.ID_ATIVIDADE) avisos.push('Detalhe inexistente sera criado de forma minima para ' + idAtividade + '.');
+    if (!calendarioAtual.ID_ATIVIDADE) avisos.push('Calendario inexistente sera criado de forma minima para ' + idAtividade + '.');
+  });
+
+  var detalhesWrite = null;
+  var calendarioWrite = null;
+  if (!dryRun) {
+    detalhesWrite = atividadesV2_upsertPortalRowsByKey_(detalhesSheet, ATIVIDADES_V2_SCHEMA.PORTAL_ATIVIDADES_DETALHES, detalhesRows, ['ID_ATIVIDADE']);
+    calendarioWrite = atividadesV2_upsertPortalRowsByKey_(calendarioSheet, ATIVIDADES_V2_SCHEMA.PORTAL_ATIVIDADES_CALENDARIO, calendarioRows, ['ID_ATIVIDADE']);
+    atividadesV2_appendV2Log_(ss, {
+      FLUXO: 'ATUALIZACAO_PORTAL_V2',
+      ACAO: 'Migrar PORTAL_APRESENTACOES para detalhes/calendario',
+      NIVEL: 'INFO',
+      STATUS: 'OK',
+      MENSAGEM: 'PORTAL_APRESENTACOES usada como fonte de recuperacao das views do Portal.',
+      DETALHES_JSON: atividadesV2_safeLogData_({
+        apresentacoesLidas: portalApresentacoes.length,
+        atividadesComApresentacoes: ids.length,
+        detalhes: detalhesWrite,
+        calendario: calendarioWrite
+      })
+    });
+    if (typeof atividadesV2_limparCachePortalDev_ === 'function') atividadesV2_limparCachePortalDev_();
+  }
+
+  return {
+    ok: true,
+    dryRun: dryRun,
+    modo: 'DEV',
+    origem: ATIVIDADES_V2_SHEETS.PORTAL_APRESENTACOES,
+    destinos: [
+      ATIVIDADES_V2_SHEETS.PORTAL_ATIVIDADES_DETALHES,
+      ATIVIDADES_V2_SHEETS.PORTAL_ATIVIDADES_CALENDARIO
+    ],
+    totalPortalApresentacoesLidas: portalApresentacoes.length,
+    totalPortalApresentacoesComIdAtividade: ids.reduce(function(total, id) { return total + grupos[id].length; }, 0),
+    totalAtividadesComApresentacoes: ids.length,
+    detalhesGerados: detalhesRows.length,
+    calendarioGerado: calendarioRows.length,
+    escritaDetalhes: detalhesWrite,
+    escritaCalendario: calendarioWrite,
+    previewDetalhes: detalhesRows.slice(0, 5),
+    previewCalendario: calendarioRows.slice(0, 5),
+    avisos: avisos,
+    erros: []
+  };
+}
+
+function atividadesV2_groupPortalApresentacoesByAtividade_(rows) {
+  var grupos = {};
+  (rows || []).forEach(function(row) {
+    var idAtividade = String(row.ID_ATIVIDADE || '').trim();
+    if (!idAtividade) return;
+    if (!grupos[idAtividade]) grupos[idAtividade] = [];
+    grupos[idAtividade].push(row);
+  });
+  Object.keys(grupos).forEach(function(idAtividade) {
+    grupos[idAtividade].sort(function(a, b) {
+      return String(a.ID_APRESENTACAO || '').localeCompare(String(b.ID_APRESENTACAO || ''));
+    });
+  });
+  return grupos;
+}
+
+function atividadesV2_buildDetalhesPatchFromPortalApresentacoes_(idAtividade, list, current) {
+  var first = list[0] || {};
+  var publicas = atividadesV2_mergeApresentacoesPublicasFromPortal_(current.APRESENTACOES_PUBLICAS_JSON, list);
+  var resumo = atividadesV2_buildResumoApresentacoesPublico_(publicas.map(function(item) {
+    return { publico: item };
+  }));
+  var patch = {
+    ID_ATIVIDADE: idAtividade,
+    ID_APRESENTACAO: String(first.ID_APRESENTACAO || current.ID_APRESENTACAO || '').trim(),
+    EH_APRESENTACAO: publicas.length ? 'SIM' : (current.EH_APRESENTACAO || ''),
+    APRESENTACOES_PUBLICAS_JSON: atividadesV2_stringifyPublicJson_(publicas),
+    QTD_APRESENTACOES: publicas.length,
+    RESUMO_APRESENTACOES_PUBLICO: resumo,
+    POSSUI_APRESENTACOES: publicas.length ? 'SIM' : '',
+    ULTIMA_ATUALIZACAO: new Date()
+  };
+
+  atividadesV2_setIfUseful_(patch, 'DATA_ATIVIDADE', current.DATA_ATIVIDADE || first.DATA_ATIVIDADE);
+  atividadesV2_setIfUseful_(patch, 'HORARIO_INICIO', current.HORARIO_INICIO || first.HORARIO_INICIO);
+  atividadesV2_setIfUseful_(patch, 'HORARIO_FIM', current.HORARIO_FIM || first.HORARIO_FIM);
+  atividadesV2_setIfUseful_(patch, 'TITULO_PUBLICO', current.TITULO_PUBLICO || first.TITULO_APRESENTACAO);
+  atividadesV2_setIfUseful_(patch, 'TITULO_CONTEUDO_PUBLICO', first.TITULO_APRESENTACAO || current.TITULO_CONTEUDO_PUBLICO);
+  atividadesV2_setIfUseful_(patch, 'TIPO_PUBLICO', current.TIPO_PUBLICO || 'Apresentacao');
+  atividadesV2_setIfUseful_(patch, 'SUBTIPO_ATIVIDADE', current.SUBTIPO_ATIVIDADE || 'APRESENTACAO_MEMBRO');
+  atividadesV2_setIfUseful_(patch, 'NOME_APRESENTADOR_PUBLICO', first.NOME_MEMBRO_PUBLICO);
+  atividadesV2_setIfUseful_(patch, 'ID_PESSOA_APRESENTADOR', first.ID_PESSOA);
+  atividadesV2_setIfUseful_(patch, 'RGA_APRESENTADOR', first.RGA);
+  atividadesV2_setIfUseful_(patch, 'TITULO_APRESENTACAO', first.TITULO_APRESENTACAO);
+  atividadesV2_setIfUseful_(patch, 'EIXO_TEMATICO_PRINCIPAL', first.EIXO_TEMATICO_PRINCIPAL);
+  atividadesV2_setIfUseful_(patch, 'EIXO_TEMATICO_SECUNDARIO', first.EIXO_TEMATICO_SECUNDARIO);
+  atividadesV2_setIfUseful_(patch, 'STATUS_APRESENTACAO_PUBLICO', first.STATUS_PUBLICO);
+  atividadesV2_setIfUseful_(patch, 'STATUS_ARQUIVO_PUBLICO', first.STATUS_ARQUIVO_PUBLICO);
+  atividadesV2_setIfUseful_(patch, 'LINK_ARQUIVO_PUBLICO', atividades_sanitizePortalUrl_(first.LINK_ARQUIVO_PUBLICO));
+  atividadesV2_setIfUseful_(patch, 'LINK_MATERIAL_PUBLICO', atividades_sanitizePortalUrl_(first.LINK_ARQUIVO_PUBLICO));
+  atividadesV2_setIfUseful_(patch, 'ID_PESSOA_PRINCIPAL', current.ID_PESSOA_PRINCIPAL || first.ID_PESSOA);
+  atividadesV2_setIfUseful_(patch, 'NOME_PESSOA_PRINCIPAL_PUBLICO', current.NOME_PESSOA_PRINCIPAL_PUBLICO || first.NOME_MEMBRO_PUBLICO);
+  atividadesV2_setIfUseful_(patch, 'RGA_PESSOA_PRINCIPAL', current.RGA_PESSOA_PRINCIPAL || first.RGA);
+  atividadesV2_setIfUseful_(patch, 'TIPO_PESSOA_PRINCIPAL', current.TIPO_PESSOA_PRINCIPAL || 'MEMBRO');
+  atividadesV2_setIfUseful_(patch, 'PAPEL_PESSOA_PRINCIPAL', current.PAPEL_PESSOA_PRINCIPAL || 'APRESENTADOR');
+  return patch;
+}
+
+function atividadesV2_buildCalendarioPatchFromPortalApresentacoes_(idAtividade, list, current) {
+  var first = list[0] || {};
+  var publicas = atividadesV2_mergeApresentacoesPublicasFromPortal_('', list);
+  var resumo = atividadesV2_buildResumoApresentacoesPublico_(publicas.map(function(item) {
+    return { publico: item };
+  }));
+  var patch = {
+    ID_ATIVIDADE: idAtividade,
+    QTD_APRESENTACOES: publicas.length,
+    RESUMO_APRESENTACOES_PUBLICO: resumo,
+    POSSUI_APRESENTACOES: publicas.length ? 'SIM' : '',
+    PODE_VER_DETALHES: current.PODE_VER_DETALHES || 'SIM',
+    ULTIMA_ATUALIZACAO: new Date()
+  };
+  atividadesV2_setIfUseful_(patch, 'DATA_ATIVIDADE', current.DATA_ATIVIDADE || first.DATA_ATIVIDADE);
+  atividadesV2_setIfUseful_(patch, 'HORARIO_INICIO', current.HORARIO_INICIO || first.HORARIO_INICIO);
+  atividadesV2_setIfUseful_(patch, 'HORARIO_FIM', current.HORARIO_FIM || first.HORARIO_FIM);
+  atividadesV2_setIfUseful_(patch, 'TITULO_PUBLICO', current.TITULO_PUBLICO || first.TITULO_APRESENTACAO);
+  atividadesV2_setIfUseful_(patch, 'TITULO_CONTEUDO_PUBLICO', first.TITULO_APRESENTACAO || current.TITULO_CONTEUDO_PUBLICO);
+  atividadesV2_setIfUseful_(patch, 'TIPO_PUBLICO', current.TIPO_PUBLICO || 'Apresentacao');
+  atividadesV2_setIfUseful_(patch, 'SUBTIPO_ATIVIDADE', current.SUBTIPO_ATIVIDADE || 'APRESENTACAO_MEMBRO');
+  atividadesV2_setIfUseful_(patch, 'EIXO_TEMATICO_PRINCIPAL', first.EIXO_TEMATICO_PRINCIPAL);
+  atividadesV2_setIfUseful_(patch, 'EIXO_TEMATICO_SECUNDARIO', first.EIXO_TEMATICO_SECUNDARIO);
+  atividadesV2_setIfUseful_(patch, 'ID_PESSOA_PRINCIPAL', current.ID_PESSOA_PRINCIPAL || first.ID_PESSOA);
+  atividadesV2_setIfUseful_(patch, 'NOME_PESSOA_PRINCIPAL_PUBLICO', current.NOME_PESSOA_PRINCIPAL_PUBLICO || first.NOME_MEMBRO_PUBLICO);
+  atividadesV2_setIfUseful_(patch, 'PAPEL_PESSOA_PRINCIPAL', current.PAPEL_PESSOA_PRINCIPAL || 'APRESENTADOR');
+  atividadesV2_setIfUseful_(patch, 'TIPO_PESSOA_PRINCIPAL', current.TIPO_PESSOA_PRINCIPAL || 'MEMBRO');
+  return patch;
+}
+
+function atividadesV2_mergeApresentacoesPublicasFromPortal_(existingJson, portalRows) {
+  var out = [];
+  var seen = {};
+  atividadesV2_parsePublicJsonArray_(existingJson).forEach(function(item) {
+    atividadesV2_addPublicPresentationIfMissing_(out, seen, item);
+  });
+  (portalRows || []).forEach(function(row) {
+    atividadesV2_addPublicPresentationIfMissing_(out, seen, atividadesV2_portalApresentacaoToPublicJson_(row));
+  });
+  return out;
+}
+
+function atividadesV2_addPublicPresentationIfMissing_(out, seen, item) {
+  if (!item) return;
+  var normalized = {
+    idApresentacao: String(item.idApresentacao || item.ID_APRESENTACAO || '').trim(),
+    idAtividade: String(item.idAtividade || item.ID_ATIVIDADE || '').trim(),
+    idPessoa: String(item.idPessoa || item.ID_PESSOA || '').trim(),
+    rga: String(item.rga || item.RGA || '').trim(),
+    nomeApresentador: atividades_sanitizePortalText_(item.nomeApresentador || item.NOME_MEMBRO_PUBLICO || item.NOME_MEMBRO || '', 180),
+    titulo: atividades_sanitizePortalText_(item.titulo || item.TITULO_APRESENTACAO || '', 240),
+    eixoTematicoPrincipal: String(item.eixoTematicoPrincipal || item.EIXO_TEMATICO_PRINCIPAL || '').trim(),
+    eixoTematicoSecundario: String(item.eixoTematicoSecundario || item.EIXO_TEMATICO_SECUNDARIO || '').trim(),
+    statusApresentacao: String(item.statusApresentacao || item.STATUS_PUBLICO || '').trim(),
+    statusTituloEixo: String(item.statusTituloEixo || item.STATUS_TITULO_EIXO || '').trim(),
+    statusArquivo: String(item.statusArquivo || item.STATUS_ARQUIVO_PUBLICO || '').trim(),
+    linkArquivoPublico: atividades_sanitizePortalUrl_(item.linkArquivoPublico || item.LINK_ARQUIVO_PUBLICO || '')
+  };
+  var key = normalized.idApresentacao ||
+    [normalized.idAtividade, normalized.idPessoa || normalized.rga, normalized.titulo].join('|');
+  if (!key || seen[key]) return;
+  seen[key] = true;
+  out.push(normalized);
+}
+
+function atividadesV2_portalApresentacaoToPublicJson_(row) {
+  return {
+    idApresentacao: row.ID_APRESENTACAO,
+    idAtividade: row.ID_ATIVIDADE,
+    idPessoa: row.ID_PESSOA,
+    rga: row.RGA,
+    nomeApresentador: row.NOME_MEMBRO_PUBLICO,
+    titulo: row.TITULO_APRESENTACAO,
+    eixoTematicoPrincipal: row.EIXO_TEMATICO_PRINCIPAL,
+    eixoTematicoSecundario: row.EIXO_TEMATICO_SECUNDARIO,
+    statusApresentacao: row.STATUS_PUBLICO,
+    statusArquivo: row.STATUS_ARQUIVO_PUBLICO,
+    linkArquivoPublico: row.LINK_ARQUIVO_PUBLICO
+  };
+}
+
+function atividadesV2_setIfUseful_(target, field, value) {
+  var text = String(value || '').trim();
+  if (text) target[field] = value;
 }
 
 function atividadesV2_atualizarPortalJustificativas_(options) {
@@ -468,31 +712,35 @@ function atividadesV2_finishPortalViewUpdate_(ss, opts, sheetName, headers, rows
 }
 
 function atividadesV2_upsertPortalRows_(sheet, headers, records) {
+  var writableHeaders = atividadesV2_getPortalWritableHeaders_(sheet, headers);
   var existing = atividadesV2_readSheetObjects_(sheet);
   var existingByKey = {};
   existing.forEach(function(record) {
-    var key = atividadesV2_buildPortalViewUpsertKey_(record, headers);
+    var key = atividadesV2_buildPortalViewUpsertKey_(record, writableHeaders);
     if (key && !existingByKey[key]) existingByKey[key] = record;
   });
 
   var updated = 0;
   var appended = 0;
+  var appendValues = [];
   (records || []).forEach(function(record) {
-    var key = atividadesV2_buildPortalViewUpsertKey_(record, headers);
+    var key = atividadesV2_buildPortalViewUpsertKey_(record, writableHeaders);
     var current = key ? existingByKey[key] : null;
     if (current && current._rowNumber) {
       var merged = Object.assign({}, current, record);
-      sheet.getRange(current._rowNumber, 1, 1, headers.length).setValues([headers.map(function(header) {
-        return Object.prototype.hasOwnProperty.call(merged, header) ? merged[header] : '';
-      })]);
+      sheet.getRange(current._rowNumber, 1, 1, writableHeaders.length).setValues([
+        atividadesV2_recordToHeaderRow_(merged, writableHeaders)
+      ]);
       updated++;
       return;
     }
-    sheet.appendRow(headers.map(function(header) {
-      return Object.prototype.hasOwnProperty.call(record, header) ? record[header] : '';
-    }));
+    appendValues.push(atividadesV2_recordToHeaderRow_(record, writableHeaders));
     appended++;
   });
+
+  if (appendValues.length) {
+    sheet.getRange(sheet.getLastRow() + 1, 1, appendValues.length, writableHeaders.length).setValues(appendValues);
+  }
 
   return {
     mode: 'UPSERT',
@@ -500,6 +748,323 @@ function atividadesV2_upsertPortalRows_(sheet, headers, records) {
     appended: appended,
     written: updated + appended,
     preservedExistingRows: Math.max(existing.length - updated, 0)
+  };
+}
+
+function atividadesV2_upsertPortalRowsByKey_(sheet, headers, records, keyFields) {
+  var writableHeaders = atividadesV2_getPortalWritableHeaders_(sheet, headers);
+  var existing = atividadesV2_readSheetObjects_(sheet);
+  var existingByKey = {};
+  existing.forEach(function(record) {
+    var key = atividadesV2_buildExplicitUpsertKey_(record, keyFields);
+    if (key && !existingByKey[key]) existingByKey[key] = record;
+  });
+
+  var updated = 0;
+  var appended = 0;
+  var appendValues = [];
+  (records || []).forEach(function(record) {
+    var key = atividadesV2_buildExplicitUpsertKey_(record, keyFields);
+    var current = key ? existingByKey[key] : null;
+    if (current && current._rowNumber) {
+      var merged = Object.assign({}, current, record);
+      sheet.getRange(current._rowNumber, 1, 1, writableHeaders.length).setValues([
+        atividadesV2_recordToHeaderRow_(merged, writableHeaders)
+      ]);
+      updated++;
+      return;
+    }
+    appendValues.push(atividadesV2_recordToHeaderRow_(record, writableHeaders));
+    appended++;
+  });
+
+  if (appendValues.length) {
+    sheet.getRange(sheet.getLastRow() + 1, 1, appendValues.length, writableHeaders.length).setValues(appendValues);
+  }
+
+  return {
+    mode: 'UPSERT_BY_KEY',
+    keyFields: keyFields,
+    updated: updated,
+    appended: appended,
+    written: updated + appended,
+    preservedExistingRows: Math.max(existing.length - updated, 0)
+  };
+}
+
+function atividadesV2_buildExplicitUpsertKey_(record, keyFields) {
+  var parts = (keyFields || []).map(function(field) {
+    return String(record && record[field] || '').trim();
+  });
+  if (!parts.length || parts.some(function(value) { return !value; })) return '';
+  return keyFields.join('+') + ':' + parts.join('|');
+}
+
+function atividadesV2_diagnosticarDesalinhamentoViewsPortalDev_() {
+  return atividadesV2_repararDesalinhamentoViewsPortalDev_({ dryRun: true, diagnosticoOnly: true });
+}
+
+function atividadesV2_repararDesalinhamentoViewsPortalDevDryRun_() {
+  return atividadesV2_repararDesalinhamentoViewsPortalDev_({ dryRun: true });
+}
+
+function atividadesV2_repararDesalinhamentoViewsPortalDev_(options) {
+  var opts = options || {};
+  var dryRun = opts.dryRun !== false;
+  var lock = null;
+
+  if (!dryRun) {
+    lock = LockService.getScriptLock();
+    if (!lock.tryLock(30000)) {
+      return {
+        ok: false,
+        dryRun: false,
+        modo: 'DEV',
+        errorCode: 'LOCK_INDISPONIVEL',
+        message: 'Nao foi possivel obter lock para reparar views PORTAL_* v2 DEV.'
+      };
+    }
+  }
+
+  try {
+    return atividadesV2_repararDesalinhamentoViewsPortalDevSemLock_(opts, dryRun);
+  } finally {
+    if (lock) lock.releaseLock();
+  }
+}
+
+function atividadesV2_repararDesalinhamentoViewsPortalDevSemLock_(opts, dryRun) {
+  var ss = atividadesV2_getDatabaseSpreadsheetDev_();
+  var result = {
+    ok: true,
+    dryRun: dryRun,
+    modo: 'DEV',
+    diagnosticoOnly: opts.diagnosticoOnly === true,
+    sheets: {},
+    totalSheetsAnalisadas: 0,
+    totalSheetsComDesalinhamento: 0,
+    totalLinhasReparaveis: 0,
+    totalLinhasReparadas: 0,
+    avisos: [],
+    erros: []
+  };
+
+  atividadesV2_getRepairablePortalViewNames_().forEach(function(sheetName) {
+    var schema = ATIVIDADES_V2_SCHEMA_BY_SHEET[sheetName] || [];
+    var sheet = ss.getSheetByName(sheetName);
+    result.totalSheetsAnalisadas++;
+
+    if (!sheet) {
+      result.sheets[sheetName] = { exists: false, needsRepair: false };
+      result.avisos.push('Aba ausente ignorada no reparo: ' + sheetName);
+      return;
+    }
+
+    atividadesV2_applyHeadersIfMissing_(sheet, schema);
+    var headers = atividadesV2_getSheetHeaders_(sheet).filter(function(header) { return !!header; });
+    var lastRow = sheet.getLastRow();
+    var values = lastRow > 1
+      ? sheet.getRange(2, 1, lastRow - 1, headers.length).getValues()
+      : [];
+    var analysis = atividadesV2_analisarDesalinhamentoPortalView_(sheetName, schema, headers, values);
+    result.sheets[sheetName] = analysis;
+
+    if (!analysis.needsRepair) return;
+    result.totalSheetsComDesalinhamento++;
+    result.totalLinhasReparaveis += analysis.linhasReparaveis;
+
+    if (dryRun || opts.diagnosticoOnly === true) return;
+
+    var repairedValues = values.map(function(row) {
+      return atividadesV2_repairPortalRowByCanonicalOrder_(row, schema, headers);
+    });
+    if (repairedValues.length) {
+      sheet.getRange(2, 1, repairedValues.length, headers.length).setValues(repairedValues);
+      result.totalLinhasReparadas += repairedValues.length;
+      analysis.linhasReparadas = repairedValues.length;
+    }
+  });
+
+  result.ok = result.erros.length === 0;
+
+  if (!dryRun && !opts.diagnosticoOnly) {
+    atividadesV2_appendV2Log_(ss, {
+      FLUXO: 'ATUALIZACAO_PORTAL_V2',
+      ACAO: 'Reparar desalinhamento de views PORTAL_* por cabecalho',
+      NIVEL: result.totalSheetsComDesalinhamento ? 'WARN' : 'INFO',
+      STATUS: result.ok ? 'OK' : 'ERRO',
+      MENSAGEM: 'Reparo de views v2 DEV concluido.',
+      DETALHES_JSON: atividadesV2_safeLogData_({
+        sheetsComDesalinhamento: result.totalSheetsComDesalinhamento,
+        linhasReparadas: result.totalLinhasReparadas,
+        erros: result.erros.length
+      })
+    });
+    if (typeof atividadesV2_limparCachePortalDev_ === 'function') atividadesV2_limparCachePortalDev_();
+  }
+
+  return result;
+}
+
+function atividadesV2_getRepairablePortalViewNames_() {
+  return [
+    ATIVIDADES_V2_SHEETS.PORTAL_ATIVIDADES_CALENDARIO,
+    ATIVIDADES_V2_SHEETS.PORTAL_ATIVIDADES_DETALHES,
+    ATIVIDADES_V2_SHEETS.PORTAL_APRESENTACOES,
+    ATIVIDADES_V2_SHEETS.PORTAL_FREQUENCIA_MEMBROS,
+    ATIVIDADES_V2_SHEETS.PORTAL_JUSTIFICATIVAS,
+    ATIVIDADES_V2_SHEETS.PORTAL_PENDENCIAS_DIRETORIA,
+    ATIVIDADES_V2_SHEETS.PORTAL_STATUS_ATIVIDADES
+  ];
+}
+
+function atividadesV2_analisarDesalinhamentoPortalView_(sheetName, schema, headers, values) {
+  var orderMismatch = atividadesV2_headersNeedCanonicalRepair_(schema, headers);
+  var sampleRows = (values || []).filter(function(row) {
+    return row.some(function(value) { return String(value || '').trim() !== ''; });
+  }).slice(0, 10);
+  var actualScore = 0;
+  var canonicalScore = 0;
+
+  sampleRows.forEach(function(row) {
+    actualScore += atividadesV2_scorePortalRowCoherence_(atividadesV2_rowToObjectByHeaders_(row, headers));
+    canonicalScore += atividadesV2_scorePortalRowCoherence_(atividadesV2_rowToObjectByCanonical_(row, schema));
+  });
+
+  var needsRepair = orderMismatch && sampleRows.length > 0 && canonicalScore >= actualScore + 3;
+  return {
+    exists: true,
+    sheetName: sheetName,
+    totalRows: values.length,
+    orderMismatch: orderMismatch,
+    actualScore: actualScore,
+    canonicalScore: canonicalScore,
+    needsRepair: needsRepair,
+    linhasReparaveis: needsRepair ? values.length : 0,
+    linhasReparadas: 0,
+    preview: sampleRows.length ? atividadesV2_buildRepairPreview_(sampleRows[0], schema, headers) : null
+  };
+}
+
+function atividadesV2_headersNeedCanonicalRepair_(schema, headers) {
+  if (!schema.length || !headers.length) return false;
+  for (var i = 0; i < Math.min(schema.length, headers.length); i++) {
+    if (schema[i] !== headers[i]) return true;
+  }
+  return false;
+}
+
+function atividadesV2_rowToObjectByHeaders_(row, headers) {
+  var obj = {};
+  (headers || []).forEach(function(header, index) {
+    if (header && !Object.prototype.hasOwnProperty.call(obj, header)) obj[header] = row[index];
+  });
+  return obj;
+}
+
+function atividadesV2_rowToObjectByCanonical_(row, schema) {
+  var obj = {};
+  (schema || []).forEach(function(header, index) {
+    if (header && index < row.length && !Object.prototype.hasOwnProperty.call(obj, header)) obj[header] = row[index];
+  });
+  return obj;
+}
+
+function atividadesV2_repairPortalRowByCanonicalOrder_(row, schema, headers) {
+  var canonical = atividadesV2_rowToObjectByCanonical_(row, schema);
+  return (headers || []).map(function(header) {
+    if (schema.indexOf(header) >= 0) {
+      return Object.prototype.hasOwnProperty.call(canonical, header) ? canonical[header] : '';
+    }
+    return '';
+  });
+}
+
+function atividadesV2_scorePortalRowCoherence_(record) {
+  var score = 0;
+  score += atividadesV2_scorePatternField_(record.ID_ATIVIDADE, /^ATV-\d{4}-[12]-\d{4}$/i, 5);
+  score += atividadesV2_scorePatternField_(record.ID_APRESENTACAO, /^APR-\d{4}-[12]-\d{4}(-\d{2})?$/i, 4);
+  score += atividadesV2_scorePessoaField_(record.ID_PESSOA);
+  score += atividadesV2_scorePessoaField_(record.ID_PESSOA_PRINCIPAL);
+  score += atividadesV2_scorePessoaField_(record.ID_PESSOA_APRESENTADOR);
+  score += atividadesV2_scoreRgaField_(record.RGA);
+  score += atividadesV2_scoreRgaField_(record.RGA_PESSOA_PRINCIPAL);
+  score += atividadesV2_scoreRgaField_(record.RGA_APRESENTADOR);
+  score += atividadesV2_scoreEnumField_(record.STATUS_PUBLICO, ['PUBLICADA', 'AGENDADA', 'OCULTA', 'CANCELADA', 'RASCUNHO', 'REALIZADA', 'PLANEJADA'], 2);
+  score += atividadesV2_scoreEnumField_(record.STATUS_PUBLICACAO_PORTAL, ['PUBLICADA', 'AGENDADA', 'OCULTA', 'CANCELADA', 'RASCUNHO'], 2);
+  score += atividadesV2_scoreEnumField_(record.VISIBILIDADE_PORTAL, ['PUBLICA', 'MEMBROS', 'DIRETORIA', 'OCULTA'], 2);
+  score += atividadesV2_scoreEnumField_(record.CONTA_PRESENCA, ['SIM', 'NAO'], 1);
+  score += atividadesV2_scoreEnumField_(record.CONTA_FALTA, ['SIM', 'NAO'], 1);
+  score += atividadesV2_scoreEnumField_(record.GERA_CERTIFICADO, ['SIM', 'NAO'], 1);
+  score += atividadesV2_scoreNumericField_(record.QTD_APRESENTACOES, 2);
+  score += atividadesV2_scoreJsonArrayField_(record.APRESENTACOES_PUBLICAS_JSON, 2);
+  return score;
+}
+
+function atividadesV2_scorePatternField_(value, pattern, points) {
+  var text = String(value || '').trim();
+  if (!text) return 0;
+  return pattern.test(text) ? points : -points;
+}
+
+function atividadesV2_scorePessoaField_(value) {
+  var text = String(value || '').trim();
+  if (!text) return 0;
+  if (/^PES-\d{6}$/i.test(text)) return 3;
+  if (/^\d{8,15}$/.test(text)) return -2;
+  return 0;
+}
+
+function atividadesV2_scoreRgaField_(value) {
+  var text = String(value || '').trim();
+  if (!text) return 0;
+  if (/^PES-\d{6}$/i.test(text)) return -3;
+  if (/^\d{8,15}$/.test(text)) return 2;
+  return 0;
+}
+
+function atividadesV2_scoreEnumField_(value, allowed, points) {
+  var text = atividades_normalizeTextUpper_(value);
+  if (!text) return 0;
+  return allowed.indexOf(text) >= 0 ? points : -points;
+}
+
+function atividadesV2_scoreNumericField_(value, points) {
+  var text = String(value || '').trim();
+  if (!text) return 0;
+  return isNaN(Number(text)) ? -points : points;
+}
+
+function atividadesV2_scoreJsonArrayField_(value, points) {
+  var text = String(value || '').trim();
+  if (!text) return 0;
+  if (text.charAt(0) !== '[') return -points;
+  try {
+    var parsed = JSON.parse(text);
+    return Array.isArray(parsed) ? points : -points;
+  } catch (e) {
+    return -points;
+  }
+}
+
+function atividadesV2_buildRepairPreview_(row, schema, headers) {
+  var actual = atividadesV2_rowToObjectByHeaders_(row, headers);
+  var canonical = atividadesV2_rowToObjectByCanonical_(row, schema);
+  return {
+    atual: atividadesV2_publicRepairPreviewRecord_(actual),
+    reparado: atividadesV2_publicRepairPreviewRecord_(canonical)
+  };
+}
+
+function atividadesV2_publicRepairPreviewRecord_(record) {
+  return {
+    ID_ATIVIDADE: record.ID_ATIVIDADE || '',
+    ID_APRESENTACAO: record.ID_APRESENTACAO || '',
+    STATUS_PUBLICO: record.STATUS_PUBLICO || '',
+    VISIBILIDADE_PORTAL: record.VISIBILIDADE_PORTAL || '',
+    ID_PESSOA: record.ID_PESSOA || record.ID_PESSOA_PRINCIPAL || record.ID_PESSOA_APRESENTADOR || '',
+    RGA: record.RGA || record.RGA_PESSOA_PRINCIPAL || record.RGA_APRESENTADOR || '',
+    QTD_APRESENTACOES: record.QTD_APRESENTACOES || ''
   };
 }
 

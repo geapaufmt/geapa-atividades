@@ -216,10 +216,7 @@ function atividadesV2_atualizarPortalAtividadesDetalhesDev_() {
 
 function atividadesV2_ensurePortalCalendarioHeaders_(sheet) {
   var headers = ATIVIDADES_V2_SCHEMA.PORTAL_ATIVIDADES_CALENDARIO.slice();
-  if (sheet.getMaxColumns() < headers.length) {
-    sheet.insertColumnsAfter(sheet.getMaxColumns(), headers.length - sheet.getMaxColumns());
-  }
-  sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
+  atividadesV2_applyHeadersIfMissing_(sheet, headers);
   atividadesV2_applyBasicSheetUx_(sheet);
 }
 
@@ -240,20 +237,34 @@ function atividadesV2_replacePortalDetalhesRows_(sheet, records) {
 }
 
 function atividadesV2_replacePortalRows_(sheet, headers, records) {
+  var writableHeaders = atividadesV2_getPortalWritableHeaders_(sheet, headers);
   var maxRowsBelowHeader = Math.max(sheet.getMaxRows() - 1, 0);
-  var clearCols = Math.max(sheet.getLastColumn(), headers.length);
+  var clearCols = Math.max(sheet.getLastColumn(), writableHeaders.length);
   if (maxRowsBelowHeader > 0) {
     sheet.getRange(2, 1, maxRowsBelowHeader, clearCols).clearContent();
   }
-  if (!records.length) return;
+  if (!records.length) return 0;
 
   var values = records.map(function(record) {
-    return headers.map(function(header) {
-      return Object.prototype.hasOwnProperty.call(record, header) ? record[header] : '';
-    });
+    return atividadesV2_recordToHeaderRow_(record, writableHeaders);
   });
 
-  sheet.getRange(2, 1, values.length, headers.length).setValues(values);
+  sheet.getRange(2, 1, values.length, writableHeaders.length).setValues(values);
+  return values.length;
+}
+
+function atividadesV2_getPortalWritableHeaders_(sheet, expectedHeaders) {
+  atividadesV2_applyHeadersIfMissing_(sheet, expectedHeaders || []);
+  var actualHeaders = atividadesV2_getSheetHeaders_(sheet).filter(function(header) {
+    return !!header;
+  });
+  return actualHeaders.length ? actualHeaders : (expectedHeaders || []).slice();
+}
+
+function atividadesV2_recordToHeaderRow_(record, headers) {
+  return (headers || []).map(function(header) {
+    return Object.prototype.hasOwnProperty.call(record || {}, header) ? record[header] : '';
+  });
 }
 
 function atividadesV2_indexApresentacoesPorAtividade_(apresentacoes) {

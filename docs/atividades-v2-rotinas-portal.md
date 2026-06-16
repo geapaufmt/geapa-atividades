@@ -70,6 +70,10 @@ Atualizacao de views:
 atividadesV2_atualizarPortalCalendario({ dryRun: true })
 atividadesV2_atualizarPortalDetalhes({ dryRun: true })
 atividadesV2_atualizarPortalApresentacoes({ dryRun: true })
+atividadesV2_migrarPortalApresentacoesNaoDestrutivoDevDryRun()
+atividadesV2_migrarPortalApresentacoesNaoDestrutivoDev()
+atividadesV2_migrarPortalApresentacoesParaDetalhesCalendarioDevDryRun()
+atividadesV2_migrarPortalApresentacoesParaDetalhesCalendarioDev()
 atividadesV2_recalcularFrequenciaMembros({ dryRun: true })
 atividadesV2_atualizarPortalJustificativas({ dryRun: true })
 atividadesV2_atualizarPendenciasDiretoria({ dryRun: true })
@@ -81,6 +85,14 @@ Agregadora:
 ```js
 atividadesV2_atualizarViewsPortal({ dryRun: true })
 atividadesV2_atualizarViewsPortal({ dryRun: false })
+```
+
+Reparo de alinhamento por cabecalho:
+
+```js
+atividadesV2_diagnosticarDesalinhamentoViewsPortalDev()
+atividadesV2_repararDesalinhamentoViewsPortalDevDryRun()
+atividadesV2_repararDesalinhamentoViewsPortalDev()
 ```
 
 Job operacional:
@@ -121,6 +133,12 @@ atividadesV2_removerTriggerJobPortal()
 6. status geral.
 
 `PORTAL_APRESENTACOES` e uma view legada/deprecated. Ela nao e atualizada pela agregadora. A funcao manual `atividadesV2_atualizarPortalApresentacoes(options)` permanece apenas para compatibilidade temporaria e retorna aviso.
+
+Por seguranca, `PORTAL_APRESENTACOES` e atualizada sempre em modo nao destrutivo quando a funcao legada `atividadesV2_atualizarPortalApresentacoes(options)` for chamada.
+
+Use `atividadesV2_migrarPortalApresentacoesNaoDestrutivoDev()` ou o alias mais explicito `atividadesV2_migrarPortalApresentacoesParaDetalhesCalendarioDev()` quando precisar usar as linhas ja existentes em `PORTAL_APRESENTACOES` como fonte de recuperacao/curadoria para `PORTAL_ATIVIDADES_DETALHES` e `PORTAL_ATIVIDADES_CALENDARIO`. Essa rotina le `PORTAL_APRESENTACOES`, agrupa por `ID_ATIVIDADE`, grava `APRESENTACOES_PUBLICAS_JSON`, `QTD_APRESENTACOES`, resumo publico e campos principais de apresentador/titulo/eixo nas views novas, usando upsert por `ID_ATIVIDADE` e sem limpar nenhuma aba.
+
+As rotinas de escrita das views usam nomes de cabecalho reais da aba, nao a posicao fisica da coluna. Isso evita deslocamento quando uma view ja possui cabecalhos antigos ou colunas adicionadas ao final. Se uma execucao anterior tiver escrito dados na ordem do schema sob cabecalhos em outra ordem, rode primeiro `atividadesV2_diagnosticarDesalinhamentoViewsPortalDev()`, depois `atividadesV2_repararDesalinhamentoViewsPortalDevDryRun()` e, se o relatorio marcar `needsRepair: true` nas abas esperadas, rode `atividadesV2_repararDesalinhamentoViewsPortalDev()`.
 
 ## Dry run
 
