@@ -47,13 +47,39 @@ function atividadesV2_portalGetMinhaFrequencia_(contexto) {
 }
 
 function atividadesV2_portalGetMinhasApresentacoes_(contexto) {
-  return atividadesV2_portalReadOwnView_({
-    label: 'atividadesV2_portalGetMinhasApresentacoes',
-    sheetName: ATIVIDADES_V2_SHEETS.PORTAL_APRESENTACOES,
-    listField: 'apresentacoes',
-    summaryFields: [],
-    mapper: atividadesV2_portalMapApresentacao_
-  }, contexto);
+  var perf = portalPerfStart_('atividadesV2_portalGetMinhasApresentacoes');
+
+  try {
+    var ctx = atividades_normalizePortalContext_(contexto);
+    var ss = atividadesV2_getDatabaseSpreadsheetDev_();
+    portalPerfMark_(perf, 'abrir_planilha_v2_dev');
+    var records = atividades_readPortalActivityDetailViewRecordsV2Dev_(ss, perf);
+    var apresentacoes = [];
+
+    records.forEach(function(record) {
+      if (!atividades_canShowActivityInPortal_(record, ctx)) return;
+      atividadesV2_parsePublicJsonArray_(record.APRESENTACOES_PUBLICAS_JSON).forEach(function(apresentacao) {
+        if (!atividadesV2_portalApresentacaoBelongsToContext_(apresentacao, ctx)) return;
+        apresentacoes.push(atividadesV2_portalMapApresentacaoPublica_(apresentacao, record));
+      });
+    });
+
+    var perfResult = portalPerfEnd_(perf);
+    return {
+      ok: true,
+      data: {
+        resumo: { total: apresentacoes.length },
+        ultimaAtualizacao: atividadesV2_portalLatestUpdate_(records),
+        apresentacoes: apresentacoes
+      },
+      origem: 'atividades-v2:' + ATIVIDADES_V2_SHEETS.PORTAL_ATIVIDADES_DETALHES,
+      deprecatedSource: ATIVIDADES_V2_SHEETS.PORTAL_APRESENTACOES,
+      tempoTotalMs: perfResult ? perfResult.totalMs : ''
+    };
+  } catch (err) {
+    var errorPerf = portalPerfEnd_(perf);
+    return atividadesV2_portalReadonlyError_('atividadesV2_portalGetMinhasApresentacoes', err, errorPerf);
+  }
 }
 
 function atividadesV2_portalGetMinhasJustificativas_(contexto) {
@@ -269,6 +295,52 @@ function atividadesV2_portalMapApresentacao_(record) {
     linkArquivoPublico: atividades_sanitizePortalUrl_(record.LINK_ARQUIVO_PUBLICO),
     ultimaAtualizacao: String(record.ULTIMA_ATUALIZACAO || '').trim()
   };
+}
+
+function atividadesV2_portalMapApresentacaoPublica_(apresentacao, atividade) {
+  return {
+    idPessoa: String(apresentacao.idPessoa || '').trim(),
+    rga: String(apresentacao.rga || '').trim(),
+    idApresentacao: String(apresentacao.idApresentacao || '').trim(),
+    idAtividade: String(apresentacao.idAtividade || atividade.ID_ATIVIDADE || '').trim(),
+    dataAtividade: atividades_formatPortalDateIso_(atividade.DATA_ATIVIDADE),
+    tituloPublico: atividades_sanitizePortalText_(apresentacao.titulo || atividade.TITULO_CONTEUDO_PUBLICO || atividade.TITULO_PUBLICO, 240),
+    tema: atividades_sanitizePortalText_(apresentacao.titulo || atividade.TITULO_CONTEUDO_PUBLICO || atividade.TITULO_PUBLICO, 240),
+    nomeApresentador: atividades_sanitizePortalText_(apresentacao.nomeApresentador, 180),
+    eixoTematicoPrincipal: String(apresentacao.eixoTematicoPrincipal || '').trim(),
+    eixoTematicoSecundario: String(apresentacao.eixoTematicoSecundario || '').trim(),
+    statusPublico: String(apresentacao.statusApresentacao || atividade.STATUS_PUBLICO || '').trim(),
+    statusApresentacao: String(apresentacao.statusApresentacao || '').trim(),
+    statusTituloEixo: String(apresentacao.statusTituloEixo || '').trim(),
+    statusArquivoPublico: String(apresentacao.statusArquivo || '').trim(),
+    linkArquivoPublico: atividades_sanitizePortalUrl_(apresentacao.linkArquivoPublico),
+    ultimaAtualizacao: String(atividade.ULTIMA_ATUALIZACAO || '').trim()
+  };
+}
+
+function atividadesV2_portalApresentacaoBelongsToContext_(apresentacao, ctx) {
+  var idPessoa = String(apresentacao && apresentacao.idPessoa || '').trim();
+  var rga = String(apresentacao && apresentacao.rga || '').trim().toLowerCase();
+  var email = String(apresentacao && apresentacao.email || '').trim().toLowerCase();
+  var ctxIdPessoa = String(ctx && ctx.idPessoa || '').trim();
+  var ctxRga = String(ctx && ctx.rga || '').trim().toLowerCase();
+  var ctxEmail = String(ctx && ctx.email || '').trim().toLowerCase();
+
+  if (idPessoa && ctxIdPessoa && idPessoa === ctxIdPessoa) return true;
+  if (rga && ctxRga && rga === ctxRga) return true;
+  if (email && ctxEmail && email === ctxEmail) return true;
+  return false;
+}
+
+function atividadesV2_parsePublicJsonArray_(value) {
+  var text = String(value || '').trim();
+  if (!text) return [];
+  try {
+    var parsed = JSON.parse(text);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (err) {
+    return [];
+  }
 }
 
 function atividadesV2_portalMapJustificativa_(record) {
@@ -499,7 +571,9 @@ function atividades_buildPortalListItem_(record, contexto, statusChamada, portal
     horarioInicio: atividades_formatPortalTime_(record.HORARIO_INICIO),
     horarioFim: atividades_formatPortalTime_(record.HORARIO_FIM),
     tituloPublico: atividades_getPortalTituloPublico_(record),
+    tituloConteudoPublico: atividades_sanitizePortalText_(record.TITULO_CONTEUDO_PUBLICO, 240),
     tipoPublico: atividades_getPortalTipoPublico_(record),
+    tipoAtividade: String(record.TIPO_ATIVIDADE || '').trim(),
     subtipoAtividade: String(record.SUBTIPO_ATIVIDADE || '').trim(),
     local: atividades_sanitizePortalText_(record.LOCAL, 180),
     formato: String(record.FORMATO || '').trim(),
@@ -510,6 +584,16 @@ function atividades_buildPortalListItem_(record, contexto, statusChamada, portal
     geraCertificado: atividades_isTruthySim_(record.GERA_CERTIFICADO),
     cargaHoraria: atividades_parsePortalCargaHoraria_(record.CARGA_HORARIA, record),
     statusPublico: String(record.STATUS_PUBLICO || record.STATUS_PUBLICACAO_PORTAL || record.STATUS_OPERACIONAL || record.STATUS || '').trim(),
+    eixoTematicoPrincipal: String(record.EIXO_TEMATICO_PRINCIPAL || '').trim(),
+    eixoTematicoSecundario: String(record.EIXO_TEMATICO_SECUNDARIO || '').trim(),
+    idPessoaPrincipal: String(record.ID_PESSOA_PRINCIPAL || '').trim(),
+    nomePessoaPrincipalPublico: atividades_sanitizePortalText_(record.NOME_PESSOA_PRINCIPAL_PUBLICO, 180),
+    papelPessoaPrincipal: String(record.PAPEL_PESSOA_PRINCIPAL || '').trim(),
+    tipoPessoaPrincipal: String(record.TIPO_PESSOA_PRINCIPAL || '').trim(),
+    qtdApresentacoes: Number(record.QTD_APRESENTACOES || 0),
+    resumoApresentacoesPublico: atividades_sanitizePortalText_(record.RESUMO_APRESENTACOES_PUBLICO, 500),
+    possuiApresentacoes: atividades_isTruthySim_(record.POSSUI_APRESENTACOES),
+    ehApresentacao: atividades_isTruthySim_(record.POSSUI_APRESENTACOES) || atividadesV2_isFluxoApresentacao_(record),
     dataHoraInicio: chamadaMeta.dataHoraInicio,
     dataHoraFim: chamadaMeta.dataHoraFim,
     chamadaDisponivelEm: chamadaMeta.chamadaDisponivelEm,
@@ -531,11 +615,14 @@ function atividades_buildPortalListItem_(record, contexto, statusChamada, portal
 
 function atividades_buildPortalDetail_(record, contexto) {
   var privileged = atividades_isPrivilegedPortalProfile_(contexto || {});
+  var apresentacoesPublicas = atividadesV2_parsePublicJsonArray_(record.APRESENTACOES_PUBLICAS_JSON);
+  var envolvidosPublicos = atividadesV2_parsePublicJsonArray_(record.ENVOLVIDOS_PUBLICOS_JSON);
   return {
     idAtividade: String(record.ID_ATIVIDADE || '').trim(),
     idApresentacao: String(record.ID_APRESENTACAO || '').trim(),
-    ehApresentacao: atividades_isTruthySim_(record.EH_APRESENTACAO),
+    ehApresentacao: atividades_isTruthySim_(record.EH_APRESENTACAO) || apresentacoesPublicas.length > 0,
     tituloPublico: atividades_getPortalTituloPublico_(record),
+    tituloConteudoPublico: atividades_sanitizePortalText_(record.TITULO_CONTEUDO_PUBLICO, 240),
     descricaoPublica: atividades_sanitizePortalText_(record.DESCRICAO_PUBLICA || record.DESCRICAO, 1000),
     dataAtividade: atividades_formatPortalDateIso_(record.DATA_ATIVIDADE),
     horarioCompleto: atividades_formatPortalFullTime_(record.HORARIO_INICIO, record.HORARIO_FIM),
@@ -557,6 +644,14 @@ function atividades_buildPortalDetail_(record, contexto) {
     tituloApresentacao: atividades_sanitizePortalText_(record.TITULO_APRESENTACAO, 240),
     eixoTematicoPrincipal: String(record.EIXO_TEMATICO_PRINCIPAL || '').trim(),
     eixoTematicoSecundario: String(record.EIXO_TEMATICO_SECUNDARIO || '').trim(),
+    idPessoaPrincipal: String(record.ID_PESSOA_PRINCIPAL || '').trim(),
+    nomePessoaPrincipalPublico: atividades_sanitizePortalText_(record.NOME_PESSOA_PRINCIPAL_PUBLICO, 180),
+    papelPessoaPrincipal: String(record.PAPEL_PESSOA_PRINCIPAL || '').trim(),
+    tipoPessoaPrincipal: String(record.TIPO_PESSOA_PRINCIPAL || '').trim(),
+    qtdApresentacoes: Number(record.QTD_APRESENTACOES || apresentacoesPublicas.length || 0),
+    resumoApresentacoesPublico: atividades_sanitizePortalText_(record.RESUMO_APRESENTACOES_PUBLICO, 500),
+    apresentacoesPublicas: apresentacoesPublicas,
+    envolvidosPublicos: envolvidosPublicos,
     statusApresentacaoPublico: String(record.STATUS_APRESENTACAO_PUBLICO || '').trim(),
     linkMaterialPublico: atividades_sanitizePortalUrl_(record.LINK_MATERIAL_PUBLICO || record.LINK_MATERIAL),
     linkAtaPublica: atividades_sanitizePortalUrl_(record.LINK_ATA_PUBLICA || record.LINK_ATA),

@@ -17,10 +17,11 @@ Na v2, `Atividades` e a fonte oficial do evento. Ela concentra agenda, titulo, d
 
 ## Portal
 
-- `PORTAL_ATIVIDADES_CALENDARIO` e a agenda unica do portal.
-- Apresentacoes futuras aparecem em proximas atividades quando forem atividades publicaveis com subtipo de apresentacao.
-- `PORTAL_ATIVIDADES_DETALHES` consolida `Atividades`, `Atividades_Envolvidos` e a extensao operacional de apresentacao.
-- `PORTAL_APRESENTACOES` permanece como historico/acervo, nao como agenda futura.
+- `PORTAL_ATIVIDADES_CALENDARIO` e a view leve de lista/cards para proximas atividades e historico.
+- Apresentacoes aparecem dentro da agenda/historico geral como subtipo de atividade.
+- `PORTAL_ATIVIDADES_DETALHES` consolida `Atividades`, `Atividades_Envolvidos` e a extensao operacional de apresentacao em uma linha por `ID_ATIVIDADE`.
+- Multiplas apresentacoes da mesma atividade ficam serializadas em `APRESENTACOES_PUBLICAS_JSON`.
+- `PORTAL_APRESENTACOES` esta deprecated. Novos contratos nao devem depender dela.
 
 ## Migracao DEV
 
@@ -49,6 +50,6 @@ atividadesV2_atualizarViewsPortal({ dryRun: false })
 Antes de ligar o portal, conferir:
 
 - cards de apresentacao em `PORTAL_ATIVIDADES_CALENDARIO`;
-- detalhes completos em `PORTAL_ATIVIDADES_DETALHES`;
-- historico/acervo em `PORTAL_APRESENTACOES`;
+- detalhes completos em `PORTAL_ATIVIDADES_DETALHES`, com uma linha por atividade;
+- `APRESENTACOES_PUBLICAS_JSON`, `QTD_APRESENTACOES` e `RESUMO_APRESENTACOES_PUBLICO`;
 - avisos de consistencia em `atividadesV2_conferirConsistencia({ includeSamples: true })`.

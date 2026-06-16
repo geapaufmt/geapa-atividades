@@ -24,7 +24,8 @@ Uso:
 - lista/calendario de atividades;
 - cards da aba Atividades;
 - proximas atividades;
-- apresentacoes futuras dentro da agenda unica.
+- historico de atividades;
+- apresentacoes dentro da agenda/historico unificado.
 
 Caracteristicas:
 
@@ -32,6 +33,8 @@ Caracteristicas:
 - filtra atividades publicaveis;
 - nao expoe observacoes internas, logs ou presenca nominal.
 - usa titulo, eixo, pessoa principal, data, horario, local e formato de `Atividades`.
+- possui uma linha por `ID_ATIVIDADE`;
+- resume apresentacoes com `POSSUI_APRESENTACOES`, `QTD_APRESENTACOES` e `RESUMO_APRESENTACOES_PUBLICO`.
 
 Gerador:
 
@@ -55,8 +58,10 @@ Caracteristicas:
 
 - consolida campos publicos/operacionais necessarios ao detalhe;
 - inclui envolvidos publicos em `ENVOLVIDOS_PUBLICOS_JSON`;
+- possui uma linha por `ID_ATIVIDADE`;
 - gera linha comum para atividade sem apresentacao vinculada;
-- gera linha com dados operacionais de apresentacao quando houver vinculo por `ID_ATIVIDADE`;
+- serializa apresentacoes publicas em `APRESENTACOES_PUBLICAS_JSON`;
+- resume apresentacoes com `QTD_APRESENTACOES` e `RESUMO_APRESENTACOES_PUBLICO`;
 - deve ser usada no clique/preload do portal sem cruzar abas operacionais em tempo real.
 
 Gerador:
@@ -67,13 +72,15 @@ atividadesV2_atualizarPortalAtividadesDetalhesDev()
 
 ### PORTAL_APRESENTACOES
 
-Reservada para historico/acervo publico de apresentacoes e arquivos. Nao e agenda futura.
+Deprecated. View legada mantida apenas para compatibilidade temporaria. Nao deve ser usada por novos contratos do Portal.
 
 Fonte principal dos dados publicos: `Atividades`.
 
 Fonte dos dados operacionais de acervo: `Atividades_Apresentacoes`.
 
-Ela deve buscar de `Atividades` data, horario, titulo, eixo, apresentador e publicacao. De `Atividades_Apresentacoes`, usa somente status do fluxo, arquivo/material, sync historico e permissao de publicar dados especificos da apresentacao.
+Historico de atividades, historico de apresentacoes, proximas atividades e "Minhas apresentacoes" devem ser derivados de `PORTAL_ATIVIDADES_CALENDARIO` e `PORTAL_ATIVIDADES_DETALHES`.
+
+Se a funcao manual `atividadesV2_atualizarPortalApresentacoes(options)` for chamada, ela retorna aviso de deprecated. A rotina geral `atividadesV2_atualizarViewsPortal(options)` nao atualiza mais essa view.
 
 ### PORTAL_FREQUENCIA_MEMBROS
 
@@ -163,15 +170,14 @@ atividadesV2_portalGetStatusViews(contexto)
 ```
 
 Esses contratos leem diretamente as views `PORTAL_FREQUENCIA_MEMBROS`,
-`PORTAL_APRESENTACOES`, `PORTAL_JUSTIFICATIVAS`,
+`PORTAL_JUSTIFICATIVAS`,
 `PORTAL_PENDENCIAS_DIRETORIA` e `PORTAL_STATUS_ATIVIDADES` na base v2 DEV.
 Eles nao escrevem em planilhas, nao executam triggers e nao criam acoes
 operacionais.
 
-As consultas individuais filtram por `ID_PESSOA`, RGA ou e-mail recebidos no
-contexto seguro do backend do Portal. As consultas de diretoria exigem perfil
-operacional privilegiado (`SECRETARIO`, `DIRETORIA` ou `ADMIN_TECNICO`) tambem
-no modulo Atividades.
+`atividadesV2_portalGetMinhasApresentacoes(contexto)` nao le mais `PORTAL_APRESENTACOES`; ela le `PORTAL_ATIVIDADES_DETALHES`, interpreta `APRESENTACOES_PUBLICAS_JSON` e filtra por `ID_PESSOA`/RGA do contexto seguro.
+
+As consultas individuais filtram por `ID_PESSOA`, RGA ou e-mail recebidos no contexto seguro do backend do Portal. As consultas de diretoria exigem perfil operacional privilegiado (`SECRETARIO`, `DIRETORIA` ou `ADMIN_TECNICO`) tambem no modulo Atividades.
 
 ## Regras para Novas Views
 
@@ -186,4 +192,4 @@ no modulo Atividades.
 - Apresentacoes de membros sao atividades com `SUBTIPO_ATIVIDADE` como `APRESENTACAO_MEMBRO` ou `APRESENTACAO_REPOSICAO`.
 - O card futuro aparece em `PORTAL_ATIVIDADES_CALENDARIO`.
 - O detalhe vem de `PORTAL_ATIVIDADES_DETALHES`.
-- `PORTAL_APRESENTACOES` fica para historico/acervo e nao deve ser usada para montar a agenda de proximas atividades.
+- `PORTAL_APRESENTACOES` esta em descontinuacao e nao deve ser usada para montar agenda, historico ou minhas apresentacoes.

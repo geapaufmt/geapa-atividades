@@ -34,13 +34,13 @@ A ideia central e manter as planilhas como banco interno, com historico e operac
 
 ### Views e resumos para o portal
 
-`PORTAL_ATIVIDADES_CALENDARIO` resume atividades publicaveis em formato de calendario/agenda unica. Apresentacoes futuras aparecem aqui como subtipo de atividade, nao em uma agenda separada.
+`PORTAL_ATIVIDADES_CALENDARIO` resume atividades publicaveis em formato de calendario/lista. Ela serve para proximas atividades e historico, sempre com uma linha por `ID_ATIVIDADE`. Apresentacoes aparecem aqui como subtipo de atividade, resumidas por `POSSUI_APRESENTACOES`, `QTD_APRESENTACOES` e `RESUMO_APRESENTACOES_PUBLICO`.
 
 Ela e materializada a partir da aba `Atividades` da base v2 DEV pela funcao manual `atividadesV2_sincronizarPortalAtividadesCalendarioDev()`. A view contem apenas campos seguros para o Portal e nao inclui e-mails, observacoes internas, logs, presenca nominal, dados privados ou lista de participantes.
 
-`PORTAL_ATIVIDADES_DETALHES` consolida os detalhes de uma atividade a partir de `Atividades`, `Atividades_Envolvidos` e, quando houver vinculo, da extensao operacional em `Atividades_Apresentacoes`. Ela evita cruzamentos em tempo real quando o usuario abre o detalhe no portal.
+`PORTAL_ATIVIDADES_DETALHES` consolida os detalhes de uma atividade a partir de `Atividades`, `Atividades_Envolvidos` e, quando houver vinculo, da extensao operacional em `Atividades_Apresentacoes`. Ela tem uma linha por `ID_ATIVIDADE`; multiplas apresentacoes ficam em `APRESENTACOES_PUBLICAS_JSON`.
 
-`PORTAL_APRESENTACOES` resume apresentacoes e seus arquivos publicos como historico/acervo. Ela nao deve ser usada como agenda futura.
+`PORTAL_APRESENTACOES` e legada/deprecated. Novos contratos do Portal nao devem depender dela para agenda, historico, acervo principal ou "Minhas apresentacoes".
 
 `PORTAL_FREQUENCIA_MEMBROS` consolida frequencia por membro e periodo.
 

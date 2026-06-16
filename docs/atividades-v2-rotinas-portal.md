@@ -115,11 +115,12 @@ atividadesV2_removerTriggerJobPortal()
 
 1. calendario;
 2. detalhes;
-3. apresentacoes;
-4. frequencia;
-5. justificativas;
-6. pendencias;
-7. status geral.
+3. frequencia;
+4. justificativas;
+5. pendencias;
+6. status geral.
+
+`PORTAL_APRESENTACOES` e uma view legada/deprecated. Ela nao e atualizada pela agregadora. A funcao manual `atividadesV2_atualizarPortalApresentacoes(options)` permanece apenas para compatibilidade temporaria e retorna aviso.
 
 ## Dry run
 
@@ -147,6 +148,10 @@ O job `atividadesV2_jobPortal(options)` sempre chama a agregadora com `nonDestru
 - atividade com fluxo de apresentacao sem linha correspondente em `Atividades_Apresentacoes`;
 - linha de `Atividades_Apresentacoes` sem `ID_ATIVIDADE` valido;
 - atividade com envolvidos duplicados;
+- `PORTAL_ATIVIDADES_DETALHES` com `ID_ATIVIDADE` duplicado;
+- `APRESENTACOES_PUBLICAS_JSON` invalido;
+- `QTD_APRESENTACOES` divergente da quantidade no JSON;
+- atividade marcada com apresentacoes mas sem JSON;
 - presenca vinculada a atividade inexistente;
 - presenca de membro sem identificador suficiente para validacao;
 - apresentacao sem atividade vinculada;
@@ -160,6 +165,7 @@ Incluido nesta fase:
 
 - materializacao manual das views `PORTAL_*`;
 - migracao manual da modelagem de apresentacoes para `Atividades` e `Atividades_Envolvidos`;
+- detalhes unificados com uma linha por atividade e multiplas apresentacoes em `APRESENTACOES_PUBLICAS_JSON`;
 - conferencia estrutural;
 - suporte a `dryRun`;
 - locks em escrita;

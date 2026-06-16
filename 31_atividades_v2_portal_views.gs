@@ -60,6 +60,7 @@ function atividadesV2_conferirConsistencia_(options) {
   var atividadesById = atividadesV2_indexByField_(data.atividades, 'ID_ATIVIDADE');
   var apresentacoesPorAtividade = atividadesV2_indexApresentacoesPorAtividade_(data.apresentacoes);
   var envolvidosDuplicateIndex = {};
+  var detalhesByActivity = {};
 
   data.atividades.forEach(function(record) {
     var id = String(record.ID_ATIVIDADE || '').trim();
@@ -114,6 +115,10 @@ function atividadesV2_conferirConsistencia_(options) {
     if (!String(atividade.ID_PESSOA_PRINCIPAL || atividade.RGA_PESSOA_PRINCIPAL || atividade.NOME_PESSOA_PRINCIPAL_PUBLICO || record.ID_PESSOA || record.RGA || record.NOME_MEMBRO || '').trim()) {
       atividadesV2_addConsistencyIssue_(issues, 'AVISO', 'APRESENTACAO_SEM_APRESENTADOR', 'Apresentacao sem apresentador em Atividades nem legado.', record);
     }
+    if (atividades_normalizeTextUpper_(record.PUBLICAR_NO_PORTAL || 'SIM') !== 'NAO') {
+      if (!String(atividade.TITULO_PUBLICO || atividade.TITULO || record.TITULO_APRESENTACAO || '').trim()) atividadesV2_addConsistencyIssue_(issues, 'AVISO', 'APRESENTACAO_PUBLICAVEL_SEM_TITULO', 'Apresentacao publicavel sem titulo.', record);
+      if (!String(atividade.EIXO_TEMATICO_PRINCIPAL || record.EIXO_TEMATICO_PRINCIPAL || '').trim()) atividadesV2_addConsistencyIssue_(issues, 'AVISO', 'APRESENTACAO_PUBLICAVEL_SEM_EIXO', 'Apresentacao publicavel sem eixo tematico principal.', record);
+    }
   });
 
   data.envolvidos.forEach(function(record) {
@@ -136,6 +141,25 @@ function atividadesV2_conferirConsistencia_(options) {
     var idPresenca = String(record.ID_REGISTRO_PRESENCA || '').trim();
     if (!idAtividade || !atividadesById[idAtividade]) atividadesV2_addConsistencyIssue_(issues, 'ERRO', 'JUSTIFICATIVA_SEM_ATIVIDADE', 'Justificativa sem atividade correspondente.', record);
     if (idPresenca && !presencasById[idPresenca]) atividadesV2_addConsistencyIssue_(issues, 'AVISO', 'JUSTIFICATIVA_SEM_PRESENCA', 'Justificativa sem presenca correspondente.', record);
+  });
+
+  data.portalDetalhes.forEach(function(record) {
+    var idDetalhe = String(record.ID_ATIVIDADE || '').trim();
+    if (!idDetalhe) return;
+    if (detalhesByActivity[idDetalhe]) {
+      atividadesV2_addConsistencyIssue_(issues, 'ERRO', 'PORTAL_DETALHES_ID_ATIVIDADE_DUPLICADO', 'PORTAL_ATIVIDADES_DETALHES possui mais de uma linha para a mesma atividade.', record);
+    }
+    detalhesByActivity[idDetalhe] = true;
+
+    var parsed = atividadesV2_parsePublicJsonArray_(record.APRESENTACOES_PUBLICAS_JSON);
+    var rawJson = String(record.APRESENTACOES_PUBLICAS_JSON || '').trim();
+    if (rawJson && !parsed.length) atividadesV2_addConsistencyIssue_(issues, 'ERRO', 'APRESENTACOES_PUBLICAS_JSON_INVALIDO', 'APRESENTACOES_PUBLICAS_JSON invalido ou vazio apos parse.', record);
+
+    var qtd = Number(record.QTD_APRESENTACOES || 0);
+    if (qtd !== parsed.length) atividadesV2_addConsistencyIssue_(issues, 'AVISO', 'QTD_APRESENTACOES_DIVERGENTE_JSON', 'QTD_APRESENTACOES diferente da quantidade no JSON.', record);
+    if (atividades_isTruthySim_(record.POSSUI_APRESENTACOES || (qtd > 0 ? 'SIM' : 'NAO')) && !parsed.length) {
+      atividadesV2_addConsistencyIssue_(issues, 'AVISO', 'POSSUI_APRESENTACOES_SEM_JSON', 'Atividade indica apresentacoes, mas JSON esta vazio.', record);
+    }
   });
 
   atividadesV2_buildPendenciasDiretoriaRows_(data, now).forEach(function(pendencia) {
@@ -178,7 +202,7 @@ function atividadesV2_atualizarPortalCalendario_(options) {
         if (decision.warning) avisos.push(decision.warning);
         return;
       }
-      rows.push(atividadesV2_buildPortalCalendarRow_(record, syncDate, atividadesV2_pickApresentacaoPrincipal_(apresentacoesPorAtividade[String(record.ID_ATIVIDADE || '').trim()])));
+      rows.push(atividadesV2_buildPortalCalendarRow_(record, syncDate, apresentacoesPorAtividade[String(record.ID_ATIVIDADE || '').trim()] || []));
     });
     return atividadesV2_finishPortalViewUpdate_(ss, opts, ATIVIDADES_V2_SHEETS.PORTAL_ATIVIDADES_CALENDARIO, ATIVIDADES_V2_SCHEMA.PORTAL_ATIVIDADES_CALENDARIO, rows, {
       totalLidas: atividades.length,
@@ -205,15 +229,9 @@ function atividadesV2_atualizarPortalDetalhes_(options) {
       var idAtividade = String(atividade.ID_ATIVIDADE || '').trim();
       if (!atividadesV2_isCanonicalActivityId_(idAtividade)) return;
       var list = apresentacoesPorAtividade[idAtividade] || [];
-      if (!list.length) {
-        if (atividadesV2_isFluxoApresentacao_(atividade)) semVinculo++;
-        rows.push(atividadesV2_buildPortalDetalheRow_(atividade, null, syncDate, envolvidosPorAtividade[idAtividade] || []));
-        return;
-      }
-      list.forEach(function(apresentacao) {
-        vinculadas++;
-        rows.push(atividadesV2_buildPortalDetalheRow_(atividade, apresentacao, syncDate, envolvidosPorAtividade[idAtividade] || []));
-      });
+      vinculadas += list.length;
+      if (!list.length && atividadesV2_isFluxoApresentacao_(atividade)) semVinculo++;
+      rows.push(atividadesV2_buildPortalDetalheRow_(atividade, list, syncDate, envolvidosPorAtividade[idAtividade] || []));
     });
     return atividadesV2_finishPortalViewUpdate_(ss, opts, ATIVIDADES_V2_SHEETS.PORTAL_ATIVIDADES_DETALHES, ATIVIDADES_V2_SCHEMA.PORTAL_ATIVIDADES_DETALHES, rows, {
       totalAtividadesLidas: atividades.length,
@@ -259,7 +277,8 @@ function atividadesV2_atualizarPortalApresentacoes_(options) {
     });
     return atividadesV2_finishPortalViewUpdate_(ss, opts, ATIVIDADES_V2_SHEETS.PORTAL_APRESENTACOES, ATIVIDADES_V2_SCHEMA.PORTAL_APRESENTACOES, rows, {
       totalApresentacoesLidas: apresentacoes.length,
-      totalApresentacoesPublicadas: rows.length
+      totalApresentacoesPublicadas: rows.length,
+      avisos: ['PORTAL_APRESENTACOES e legada/deprecated e sera removida da rotina geral em versao futura. Use PORTAL_ATIVIDADES_DETALHES.APRESENTACOES_PUBLICAS_JSON.']
     });
   });
 }
@@ -368,7 +387,6 @@ function atividadesV2_atualizarViewsPortal_(options) {
   [
     ['calendario', atividadesV2_atualizarPortalCalendario_],
     ['detalhes', atividadesV2_atualizarPortalDetalhes_],
-    ['apresentacoes', atividadesV2_atualizarPortalApresentacoes_],
     ['frequencia', atividadesV2_recalcularFrequenciaMembros_],
     ['justificativas', atividadesV2_atualizarPortalJustificativas_],
     ['pendencias', atividadesV2_atualizarPendenciasDiretoria_],
@@ -515,6 +533,9 @@ function atividadesV2_readPortalViewsSourceData_(ss) {
     envolvidos: atividadesV2_readSheetObjects_(atividadesV2_getTargetSheet_(ss, ATIVIDADES_V2_SHEETS.ENVOLVIDOS)),
     presencas: atividadesV2_readSheetObjects_(atividadesV2_getTargetSheet_(ss, ATIVIDADES_V2_SHEETS.PRESENCAS_REGISTROS)),
     justificativas: atividadesV2_readSheetObjects_(atividadesV2_getTargetSheet_(ss, ATIVIDADES_V2_SHEETS.JUSTIFICATIVAS)),
+    portalDetalhes: ss.getSheetByName(ATIVIDADES_V2_SHEETS.PORTAL_ATIVIDADES_DETALHES)
+      ? atividadesV2_readSheetObjects_(atividadesV2_getTargetSheet_(ss, ATIVIDADES_V2_SHEETS.PORTAL_ATIVIDADES_DETALHES))
+      : [],
     portalPendencias: ss.getSheetByName(ATIVIDADES_V2_SHEETS.PORTAL_PENDENCIAS_DIRETORIA)
       ? atividadesV2_readSheetObjects_(atividadesV2_getTargetSheet_(ss, ATIVIDADES_V2_SHEETS.PORTAL_PENDENCIAS_DIRETORIA))
       : []
