@@ -1,9 +1,10 @@
 /**
  * Materializacao DEV das views publicas de atividades para o Portal GEAPA.
  *
- * Esta rotina le apenas a aba Atividades da base v2 DEV e escreve somente na
- * aba PORTAL_ATIVIDADES_CALENDARIO da mesma base. Nao altera producao, nao
- * envia e-mails, nao instala triggers e nao registra presenca.
+ * Esta rotina le as abas base Atividades e Atividades_Apresentacoes da base
+ * v2 DEV e escreve somente na aba PORTAL_ATIVIDADES_CALENDARIO da mesma base.
+ * Nao altera producao, nao envia e-mails, nao instala triggers e nao registra
+ * presenca.
  */
 
 function atividadesV2_sincronizarPortalAtividadesCalendarioDev_() {
@@ -216,13 +217,13 @@ function atividadesV2_atualizarPortalAtividadesDetalhesDev_() {
 
 function atividadesV2_ensurePortalCalendarioHeaders_(sheet) {
   var headers = ATIVIDADES_V2_SCHEMA.PORTAL_ATIVIDADES_CALENDARIO.slice();
-  atividadesV2_applyHeadersIfMissing_(sheet, headers);
+  atividadesV2_resetPortalViewHeaders_(sheet, headers);
   atividadesV2_applyBasicSheetUx_(sheet);
 }
 
 function atividadesV2_ensurePortalDetalhesHeaders_(sheet) {
   var headers = ATIVIDADES_V2_SCHEMA.PORTAL_ATIVIDADES_DETALHES.slice();
-  atividadesV2_applyHeadersIfMissing_(sheet, headers);
+  atividadesV2_resetPortalViewHeaders_(sheet, headers);
   atividadesV2_applyBasicSheetUx_(sheet);
 }
 
@@ -254,11 +255,27 @@ function atividadesV2_replacePortalRows_(sheet, headers, records) {
 }
 
 function atividadesV2_getPortalWritableHeaders_(sheet, expectedHeaders) {
-  atividadesV2_applyHeadersIfMissing_(sheet, expectedHeaders || []);
+  atividadesV2_resetPortalViewHeaders_(sheet, expectedHeaders || []);
   var actualHeaders = atividadesV2_getSheetHeaders_(sheet).filter(function(header) {
     return !!header;
   });
   return actualHeaders.length ? actualHeaders : (expectedHeaders || []).slice();
+}
+
+function atividadesV2_resetPortalViewHeaders_(sheet, headers) {
+  var wanted = (headers || []).filter(function(header) { return !!String(header || '').trim(); });
+  if (!sheet || !wanted.length) return;
+
+  if (sheet.getMaxColumns() < wanted.length) {
+    sheet.insertColumnsAfter(sheet.getMaxColumns(), wanted.length - sheet.getMaxColumns());
+  }
+
+  sheet.getRange(1, 1, 1, wanted.length).setValues([wanted]);
+
+  var lastColumn = sheet.getLastColumn();
+  if (lastColumn > wanted.length) {
+    sheet.getRange(1, wanted.length + 1, Math.max(sheet.getMaxRows(), 1), lastColumn - wanted.length).clearContent();
+  }
 }
 
 function atividadesV2_recordToHeaderRow_(record, headers) {
@@ -313,16 +330,12 @@ function atividadesV2_buildPortalDetalheRow_(atividade, apresentacoes, syncDate,
   var tituloConteudo = atividadesV2_getTituloConteudoPublico_(atividade, apresentacaoPrincipal);
   var nomePrincipal = atividades_sanitizePortalText_(atividade.NOME_PESSOA_PRINCIPAL_PUBLICO || apresentacaoPrincipal && apresentacaoPrincipal.NOME_MEMBRO, 180);
   var idPessoaPrincipal = String(atividade.ID_PESSOA_PRINCIPAL || apresentacaoPrincipal && apresentacaoPrincipal.ID_PESSOA || '').trim();
-  var rgaPrincipal = String(atividade.RGA_PESSOA_PRINCIPAL || apresentacaoPrincipal && apresentacaoPrincipal.RGA || '').trim();
-  var emailPrincipal = String(atividade.EMAIL_PESSOA_PRINCIPAL || apresentacaoPrincipal && apresentacaoPrincipal.EMAIL_MEMBRO || '').trim();
   var papelPrincipal = String(atividade.PAPEL_PESSOA_PRINCIPAL || (hasApresentacao ? 'APRESENTADOR' : '')).trim();
   var tipoPrincipal = String(atividade.TIPO_PESSOA_PRINCIPAL || (hasApresentacao ? 'MEMBRO' : '')).trim();
   var resumoApresentacoes = atividadesV2_buildResumoApresentacoesPublico_(publicas);
 
-  return {
+  return Object.assign(atividadesV2_getSemestrePortalFields_(atividade), {
     ID_ATIVIDADE: String(atividade.ID_ATIVIDADE || '').trim(),
-    ID_APRESENTACAO: apresentacaoPrincipal ? String(apresentacaoPrincipal.ID_APRESENTACAO || '').trim() : '',
-    EH_APRESENTACAO: hasApresentacao ? 'SIM' : 'NAO',
     DATA_ATIVIDADE: atividade.DATA_ATIVIDADE || '',
     DIA_SEMANA: atividadesV2_getDiaSemanaPtBr_(atividade.DATA_ATIVIDADE),
     HORARIO_INICIO: atividade.HORARIO_INICIO || '',
@@ -351,8 +364,6 @@ function atividadesV2_buildPortalDetalheRow_(atividade, apresentacoes, syncDate,
     STATUS_EIXO_TEMATICO: String(atividade.STATUS_EIXO_TEMATICO || '').trim(),
     ID_PESSOA_PRINCIPAL: idPessoaPrincipal,
     NOME_PESSOA_PRINCIPAL_PUBLICO: nomePrincipal,
-    RGA_PESSOA_PRINCIPAL: rgaPrincipal,
-    EMAIL_PESSOA_PRINCIPAL: emailPrincipal,
     TIPO_PESSOA_PRINCIPAL: tipoPrincipal,
     PAPEL_PESSOA_PRINCIPAL: papelPrincipal,
     INSTITUICAO_PESSOA_PRINCIPAL: String(atividade.INSTITUICAO_PESSOA_PRINCIPAL || '').trim(),
@@ -362,22 +373,14 @@ function atividadesV2_buildPortalDetalheRow_(atividade, apresentacoes, syncDate,
     })),
     QTD_APRESENTACOES: publicas.length,
     RESUMO_APRESENTACOES_PUBLICO: resumoApresentacoes,
-    NOME_APRESENTADOR_PUBLICO: hasApresentacao ? nomePrincipal : '',
-    ID_PESSOA_APRESENTADOR: hasApresentacao ? idPessoaPrincipal : '',
-    RGA_APRESENTADOR: hasApresentacao ? rgaPrincipal : '',
-    EMAIL_APRESENTADOR: hasApresentacao ? emailPrincipal : '',
-    TITULO_APRESENTACAO: hasApresentacao ? atividades_sanitizePortalText_(tituloConteudo, 240) : '',
-    STATUS_APRESENTACAO_PUBLICO: apresentacaoPrincipal ? String(apresentacaoPrincipal.STATUS_APRESENTACAO || '').trim() : '',
-    STATUS_TITULO_EIXO: apresentacaoPrincipal ? String(apresentacaoPrincipal.STATUS_TITULO_EIXO || '').trim() : '',
-    STATUS_ARQUIVO_PUBLICO: apresentacaoPrincipal ? String(apresentacaoPrincipal.STATUS_ENVIO_ARQUIVO || '').trim() : '',
-    LINK_MATERIAL_PUBLICO: atividades_sanitizePortalUrl_(apresentacaoPrincipal && apresentacaoPrincipal.LINK_ARQUIVO_DRIVE || atividade.LINK_MATERIAL),
-    LINK_ARQUIVO_PUBLICO: atividades_sanitizePortalUrl_(apresentacaoPrincipal && apresentacaoPrincipal.LINK_ARQUIVO_DRIVE),
+    LINK_MATERIAL_PUBLICO: atividades_sanitizePortalUrl_(atividade.LINK_MATERIAL),
     LINK_ATA_PUBLICA: atividades_sanitizePortalUrl_(atividade.LINK_ATA),
     LINK_FOTOS_PUBLICO: atividades_sanitizePortalUrl_(atividade.LINK_FOTOS),
-    LINK_PASTA_DRIVE: atividades_sanitizePortalUrl_(apresentacaoPrincipal && apresentacaoPrincipal.LINK_PASTA_DRIVE || atividade.LINK_PASTA_DRIVE),
+    ID_PASTA_DRIVE: String(atividade.ID_PASTA_DRIVE || '').trim(),
+    LINK_PASTA_DRIVE: atividades_sanitizePortalUrl_(atividade.LINK_PASTA_DRIVE),
     MENSAGEM_PORTAL: '',
     ULTIMA_ATUALIZACAO: apresentacaoPrincipal && apresentacaoPrincipal.ATUALIZADO_EM || atividade.ATUALIZADO_EM || syncDate
-  };
+  });
 }
 
 function atividadesV2_shouldPublishPortalCalendarActivity_(record, now) {
@@ -416,7 +419,7 @@ function atividadesV2_buildPortalCalendarRow_(record, syncDate, apresentacoes) {
   var apresentacao = publicas.length ? publicas[0]._source : atividadesV2_pickApresentacaoPrincipal_(apresentacoes);
   var title = atividades_sanitizePortalText_(record.TITULO_PUBLICO || record.TITULO, 180) || 'Atividade do GEAPA';
   var hasApresentacao = publicas.length > 0 || atividadesV2_isFluxoApresentacao_(record);
-  return {
+  return Object.assign(atividadesV2_getSemestrePortalFields_(record), {
     ID_ATIVIDADE: String(record.ID_ATIVIDADE || '').trim(),
     DATA_ATIVIDADE: record.DATA_ATIVIDADE || '',
     DIA_SEMANA: atividadesV2_getDiaSemanaPtBr_(record.DATA_ATIVIDADE),
@@ -447,8 +450,28 @@ function atividadesV2_buildPortalCalendarRow_(record, syncDate, apresentacoes) {
     RESUMO_APRESENTACOES_PUBLICO: publicas.length ? atividadesV2_buildResumoApresentacoesPublico_(publicas) : '',
     POSSUI_APRESENTACOES: publicas.length ? 'SIM' : 'NAO',
     PODE_VER_DETALHES: 'SIM',
-    LINK_DETALHES: '',
     ULTIMA_ATUALIZACAO: record.ATUALIZADO_EM || syncDate
+  });
+}
+
+function atividadesV2_getSemestrePortalFields_(record) {
+  var idAtividade = String(record && record.ID_ATIVIDADE || '').trim();
+  var ciclo = String(record && record.CICLO || '').trim();
+  var ano = String(record && record.ANO || '').trim();
+  var semestre = String(record && record.SEMESTRE || '').trim();
+  var idMatch = idAtividade.match(/^ATV-(\d{4})-([12])-\d{4}$/i);
+  var cicloMatch = ciclo.match(/(\d{4})[\/_-]?([12])?$/);
+
+  if (!ano && idMatch) ano = idMatch[1];
+  if (!semestre && idMatch) semestre = idMatch[2];
+  if (!ano && cicloMatch) ano = cicloMatch[1];
+  if (!semestre && cicloMatch && cicloMatch[2]) semestre = cicloMatch[2];
+
+  return {
+    CICLO: ciclo,
+    ANO: ano,
+    SEMESTRE: semestre,
+    ROTULO_SEMESTRE: ano && semestre ? ano + '/' + semestre : ''
   };
 }
 
@@ -505,8 +528,11 @@ function atividadesV2_buildApresentacoesPublicas_(atividade, apresentacoes) {
       eixoTematicoSecundario: String(apresentacao.EIXO_TEMATICO_SECUNDARIO || atividade.EIXO_TEMATICO_SECUNDARIO || '').trim(),
       statusApresentacao: String(apresentacao.STATUS_APRESENTACAO || '').trim(),
       statusTituloEixo: String(apresentacao.STATUS_TITULO_EIXO || '').trim(),
-      statusArquivo: String(apresentacao.STATUS_ENVIO_ARQUIVO || '').trim(),
-      linkArquivoPublico: atividades_sanitizePortalUrl_(apresentacao.LINK_ARQUIVO_DRIVE)
+      statusMaterial: String(apresentacao.STATUS_ENVIO_MATERIAL || apresentacao.STATUS_ENVIO_ARQUIVO || '').trim(),
+      idArquivoMaterial: String(apresentacao.ID_ARQUIVO_MATERIAL || atividadesV2_extractDriveIdFromUrl_(apresentacao.LINK_MATERIAL_APRESENTACAO || apresentacao.LINK_ARQUIVO_DRIVE) || '').trim(),
+      nomeArquivoMaterial: atividades_sanitizePortalText_(apresentacao.NOME_ARQUIVO_MATERIAL, 240),
+      linkMaterialPublico: atividades_sanitizePortalUrl_(apresentacao.LINK_MATERIAL_APRESENTACAO || apresentacao.LINK_ARQUIVO_DRIVE),
+      versaoMaterial: String(apresentacao.VERSAO_MATERIAL || '').trim()
     };
     return {
       _source: apresentacao,

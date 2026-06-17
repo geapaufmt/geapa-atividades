@@ -5,6 +5,7 @@
 Na v2, `Atividades` e a fonte oficial do evento. Ela concentra agenda, titulo, descricao, data, horario, local, formato, tipo/subtipo, eixos tematicos, pessoa principal, publicacao no portal, visibilidade, links gerais, presenca, falta, certificado e carga horaria.
 
 `Atividades_Apresentacoes` deixa de ser uma agenda paralela. Ela passa a ser uma extensao operacional do fluxo de apresentacao de membro, com status, cobrancas, notificacoes, envio de arquivo, sync historico, elegibilidade e auditoria.
+Na nomenclatura nova, o envio passa a ser tratado como material de apresentacao. Campos antigos com `ARQUIVO` podem ficar fisicamente como legado, mas os campos ativos usam `MATERIAL` e a pasta geral da atividade fica em `Atividades.ID_PASTA_DRIVE` / `Atividades.LINK_PASTA_DRIVE`.
 
 `Atividades_Envolvidos` guarda uma ou mais pessoas vinculadas a uma atividade. A pessoa principal em `Atividades` existe para listagens e cards rapidos; a composicao completa fica em `Atividades_Envolvidos`.
 
@@ -21,6 +22,7 @@ Na v2, `Atividades` e a fonte oficial do evento. Ela concentra agenda, titulo, d
 - Apresentacoes aparecem dentro da agenda/historico geral como subtipo de atividade.
 - `PORTAL_ATIVIDADES_DETALHES` consolida `Atividades`, `Atividades_Envolvidos` e a extensao operacional de apresentacao em uma linha por `ID_ATIVIDADE`.
 - Multiplas apresentacoes da mesma atividade ficam serializadas em `APRESENTACOES_PUBLICAS_JSON`.
+- `CICLO`, `ANO`, `SEMESTRE` e `ROTULO_SEMESTRE` saem de `Atividades` e alimentam filtros de historico no Portal.
 - A antiga view `PORTAL_APRESENTACOES` foi removida do contrato ativo. Agenda, historico, detalhes e "Minhas apresentacoes" usam somente calendario e detalhes.
 
 ## Migracao DEV

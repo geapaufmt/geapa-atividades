@@ -14,6 +14,8 @@ A ideia central e manter as planilhas como banco interno, com historico e operac
 
 `Atividades_Apresentacoes` guarda apenas a extensao operacional especifica de apresentacoes de membros. Uma apresentacao referencia uma atividade, mas nao deve ser a fonte principal de data, horario, local, formato, titulo, eixo, apresentador ou visibilidade. Campos legados podem permanecer fisicamente durante a migracao, mas as rotinas novas devem preferir `Atividades`.
 
+Materiais de apresentacao usam a nomenclatura `MATERIAL`, nao `ARQUIVO`, nos campos novos: `STATUS_ENVIO_MATERIAL`, `DATA_SOLICITACAO_MATERIAL`, `DATA_COBRANCA_MATERIAL`, `QTD_COBRANCAS_MATERIAL`, `DATA_RECEBIMENTO_MATERIAL`, `ID_ARQUIVO_MATERIAL`, `NOME_ARQUIVO_MATERIAL`, `LINK_MATERIAL_APRESENTACAO`, `MIME_TYPE_MATERIAL`, `VERSAO_MATERIAL`, `ENVIADO_POR` e `RECEBIDO_POR`. Campos antigos como `STATUS_ENVIO_ARQUIVO` e `LINK_ARQUIVO_DRIVE` podem existir fisicamente como legado e sao usados apenas como fallback temporario de leitura/migracao.
+
 `Atividades_Envolvidos` registra pessoas vinculadas a uma atividade, como apresentador, palestrante, instrutor, mediador, debatedor, professor convidado, convidado externo, responsavel interno ou organizador. A pessoa principal fica em `Atividades` para cards/listas rapidas; a composicao completa fica em `Atividades_Envolvidos`.
 
 `Atividades_Presencas_Registros` e a base permanente de presencas. Em vez de depender apenas de colunas dinamicas por periodo, cada participante em cada atividade passa a ter um registro proprio.
@@ -34,11 +36,13 @@ A ideia central e manter as planilhas como banco interno, com historico e operac
 
 ### Views e resumos para o portal
 
-`PORTAL_ATIVIDADES_CALENDARIO` resume atividades publicaveis em formato de calendario/lista. Ela serve para proximas atividades e historico, sempre com uma linha por `ID_ATIVIDADE`. Apresentacoes aparecem aqui como subtipo de atividade, resumidas por `POSSUI_APRESENTACOES`, `QTD_APRESENTACOES` e `RESUMO_APRESENTACOES_PUBLICO`.
+`PORTAL_ATIVIDADES_CALENDARIO` resume atividades publicaveis em formato de calendario/lista. Ela serve para proximas atividades e historico, sempre com uma linha por `ID_ATIVIDADE`. Apresentacoes aparecem aqui como subtipo de atividade, resumidas por `POSSUI_APRESENTACOES`, `QTD_APRESENTACOES` e `RESUMO_APRESENTACOES_PUBLICO`. A view inclui `CICLO`, `ANO`, `SEMESTRE` e `ROTULO_SEMESTRE` vindos de `Atividades` para filtros do Portal.
 
 Ela e materializada a partir da aba `Atividades` da base v2 DEV pela funcao manual `atividadesV2_sincronizarPortalAtividadesCalendarioDev()`. A view contem apenas campos seguros para o Portal e nao inclui e-mails, observacoes internas, logs, presenca nominal, dados privados ou lista de participantes.
 
-`PORTAL_ATIVIDADES_DETALHES` consolida os detalhes de uma atividade a partir de `Atividades`, `Atividades_Envolvidos` e, quando houver vinculo, da extensao operacional em `Atividades_Apresentacoes`. Ela tem uma linha por `ID_ATIVIDADE`; multiplas apresentacoes ficam em `APRESENTACOES_PUBLICAS_JSON`.
+`PORTAL_ATIVIDADES_DETALHES` consolida os detalhes de uma atividade a partir de `Atividades`, `Atividades_Envolvidos` e, quando houver vinculo, da extensao operacional em `Atividades_Apresentacoes`. Ela tem uma linha por `ID_ATIVIDADE`, inclui os campos de semestre e guarda multiplas apresentacoes exclusivamente em `APRESENTACOES_PUBLICAS_JSON`.
+
+`LINK_MATERIAL_PUBLICO` representa material geral da atividade. Materiais de apresentacoes ficam dentro de `APRESENTACOES_PUBLICAS_JSON`, em cada item, como `statusMaterial`, `idArquivoMaterial`, `nomeArquivoMaterial`, `linkMaterialPublico` e `versaoMaterial`. A pasta geral da atividade fica em `ID_PASTA_DRIVE` e `LINK_PASTA_DRIVE`.
 
 A antiga view `PORTAL_APRESENTACOES` foi removida do contrato ativo. Novas rotinas nao devem cria-la, atualizar, reparar, expor endpoint publico nem usa-la como fonte. Agenda, historico, acervo principal e "Minhas apresentacoes" usam `PORTAL_ATIVIDADES_CALENDARIO` e `PORTAL_ATIVIDADES_DETALHES`.
 
@@ -54,7 +58,7 @@ A antiga view `PORTAL_APRESENTACOES` foi removida do contrato ativo. Novas rotin
 
 `Atividades` e o eixo principal. Cada linha tem um unico `ID_ATIVIDADE`, global e permanente, no padrao `ATV-AAAA-S-NNNN`.
 
-`Atividades_Apresentacoes` referencia a atividade por `ID_ATIVIDADE` e adiciona `ID_APRESENTACAO` para controles de fluxo, cobrancas, notificacoes, arquivos e historico publico.
+`Atividades_Apresentacoes` referencia a atividade por `ID_ATIVIDADE` e adiciona `ID_APRESENTACAO` para controles de fluxo, cobrancas, notificacoes, materiais e historico publico.
 
 `Atividades_Envolvidos` referencia a atividade por `ID_ATIVIDADE` e guarda os vinculos individuais. Para pessoas, `ID_PESSOA` e a chave tecnica preferencial quando disponivel; `RGA`, e-mail e nome ficam como auxiliares/legado.
 
@@ -88,8 +92,10 @@ A antiga view `PORTAL_APRESENTACOES` foi removida do contrato ativo. Novas rotin
 4. Rodar `atividadesV2_normalizarIdsDev()` para converter IDs antigos da DEV para o padrao unico `ID_ATIVIDADE`.
 5. Rodar `atividadesV2_migrarApresentacoesParaAtividadesDevDryRun()` para revisar a migracao da modelagem de apresentacoes.
 6. Rodar `atividadesV2_migrarApresentacoesParaAtividadesDev()` para preencher `Atividades` e `Atividades_Envolvidos` em DEV.
-7. Atualizar views com `atividadesV2_atualizarViewsPortal({ dryRun: false })`.
-8. Homologar fluxos de escrita do portal em DEV antes de qualquer troca de producao.
+7. Rodar `atividadesV2_diagnosticarMateriaisApresentacoesDev()` e, quando houver campos legados claros, `atividadesV2_migrarArquivosApresentacoesParaMateriaisDevDryRun()`.
+8. Se o dry-run estiver correto, rodar `atividadesV2_migrarArquivosApresentacoesParaMateriaisDev()`.
+9. Atualizar views com `atividadesV2_atualizarViewsPortal({ dryRun: false })`.
+10. Homologar fluxos de escrita do portal em DEV antes de qualquer troca de producao.
 
 ## Padrao de IDs
 

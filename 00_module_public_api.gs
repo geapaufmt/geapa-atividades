@@ -224,6 +224,47 @@ function atividadesV2_conferirPortal(options) {
   }, { entrypoint: 'atividadesV2_conferirPortal' });
 }
 
+function atividadesV2_diagnosticarMateriaisApresentacoesDev() {
+  return atividades_runWithOperationalGuard_('CONFERENCIA_V2', null, function() {
+    return atividadesV2_diagnosticarMateriaisApresentacoesDev_();
+  }, { entrypoint: 'atividadesV2_diagnosticarMateriaisApresentacoesDev' });
+}
+
+function atividadesV2_migrarArquivosApresentacoesParaMateriaisDevDryRun() {
+  return atividades_runWithOperationalGuard_('CONFERENCIA_V2', null, function() {
+    return atividadesV2_migrarArquivosApresentacoesParaMateriaisDevDryRun_();
+  }, { entrypoint: 'atividadesV2_migrarArquivosApresentacoesParaMateriaisDevDryRun' });
+}
+
+function atividadesV2_migrarArquivosApresentacoesParaMateriaisDev() {
+  return atividades_runWithOperationalGuard_('ATUALIZACAO_PORTAL_V2', null, function() {
+    return atividadesV2_migrarArquivosApresentacoesParaMateriaisDev_({ dryRun: false });
+  }, { entrypoint: 'atividadesV2_migrarArquivosApresentacoesParaMateriaisDev' });
+}
+
+function atividadesV2_garantirPastaAtividadeDev(idAtividade, options) {
+  return atividades_runWithOperationalGuard_('ATUALIZACAO_PORTAL_V2', null, function() {
+    options = options || {};
+    options.dryRun = options.dryRun === true;
+    var lock = null;
+    if (!options.dryRun) {
+      lock = LockService.getScriptLock();
+      if (!lock.tryLock(30000)) throw new Error('LOCK_INDISPONIVEL: nao foi possivel garantir pasta da atividade agora.');
+    }
+    try {
+      return atividadesV2_garantirPastaAtividade_(idAtividade, options);
+    } finally {
+      if (lock) lock.releaseLock();
+    }
+  }, { entrypoint: 'atividadesV2_garantirPastaAtividadeDev' });
+}
+
+function atividadesV2_portalRegistrarMaterialApresentacao(payload, contexto) {
+  return atividades_runWithOperationalGuard_('ATUALIZACAO_PORTAL_V2', null, function() {
+    return atividadesV2_registrarMaterialApresentacao_(payload || {}, contexto || {});
+  }, { entrypoint: 'atividadesV2_portalRegistrarMaterialApresentacao' });
+}
+
 function atividadesV2_instalarTriggerJobPortal(options) {
   return atividadesV2_instalarTriggerJobPortal_(options || {});
 }

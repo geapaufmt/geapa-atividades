@@ -38,6 +38,34 @@ atividadesV2_migrarApresentacoesParaAtividadesDev()
 
 O dry-run retorna total de apresentacoes lidas, atividades encontradas, atividades que seriam atualizadas, envolvidos que seriam criados, IDs invalidos/ausentes e conflitos. A execucao real escreve apenas na base v2 DEV, usando `LockService`, sem alterar V1 nem producao.
 
+## Pastas e materiais de apresentacoes
+
+A v2 separa material geral da atividade e material de apresentacao:
+
+- `Atividades.ID_PASTA_DRIVE` e `Atividades.LINK_PASTA_DRIVE` identificam a pasta geral da atividade.
+- `Atividades.LINK_MATERIAL` e `PORTAL_ATIVIDADES_DETALHES.LINK_MATERIAL_PUBLICO` representam material geral da atividade.
+- `Atividades_Apresentacoes` usa campos de material, como `STATUS_ENVIO_MATERIAL`, `ID_ARQUIVO_MATERIAL`, `NOME_ARQUIVO_MATERIAL`, `LINK_MATERIAL_APRESENTACAO`, `MIME_TYPE_MATERIAL` e `VERSAO_MATERIAL`.
+- `APRESENTACOES_PUBLICAS_JSON` expoe o material de cada apresentacao em `statusMaterial`, `idArquivoMaterial`, `nomeArquivoMaterial`, `linkMaterialPublico` e `versaoMaterial`.
+
+Funcoes manuais:
+
+```js
+atividadesV2_diagnosticarMateriaisApresentacoesDev()
+atividadesV2_migrarArquivosApresentacoesParaMateriaisDevDryRun()
+atividadesV2_migrarArquivosApresentacoesParaMateriaisDev()
+```
+
+A migracao de arquivos para materiais nao apaga campos legados e nao move arquivos. Ela preenche os campos novos a partir de `STATUS_ENVIO_ARQUIVO`, datas de cobranca/recebimento e `LINK_ARQUIVO_DRIVE` quando o link nao parece ser uma pasta. Links legados de pasta sao relatados para revisao manual.
+
+Para criar ou reutilizar a pasta Drive de uma atividade, configure `ATIVIDADES_V2_DRIVE_ROOT_FOLDER_ID` em Script Properties ou informe `options.rootFolderId`:
+
+```js
+atividadesV2_garantirPastaAtividadeDev('ATV-2026-1-0005', { dryRun: true })
+atividadesV2_garantirPastaAtividadeDev('ATV-2026-1-0005')
+```
+
+O registro operacional de material para uso pelo Portal e feito por `atividadesV2_portalRegistrarMaterialApresentacao(payload, contexto)`. A funcao valida permissao no backend, usa `LockService`, garante pasta da atividade, copia por padrao o arquivo para a pasta e grava somente os campos novos de material. Para mover o arquivo original, o payload precisa informar explicitamente `moverArquivo: true`.
+
 ## Funcoes publicas
 
 Conferencia:
@@ -62,6 +90,16 @@ Migracao da modelagem de apresentacoes:
 ```js
 atividadesV2_migrarApresentacoesParaAtividadesDevDryRun()
 atividadesV2_migrarApresentacoesParaAtividadesDev()
+```
+
+Materiais de apresentacoes:
+
+```js
+atividadesV2_diagnosticarMateriaisApresentacoesDev()
+atividadesV2_migrarArquivosApresentacoesParaMateriaisDevDryRun()
+atividadesV2_migrarArquivosApresentacoesParaMateriaisDev()
+atividadesV2_garantirPastaAtividadeDev('ATV-2026-1-0005', { dryRun: true })
+atividadesV2_portalRegistrarMaterialApresentacao(payload, contexto)
 ```
 
 Atualizacao de views:
@@ -140,7 +178,7 @@ Todas as rotinas de atualizacao aceitam `options.dryRun`.
 
 Com `dryRun: true`, a funcao le as bases v2 e monta a previa de linhas, mas nao limpa nem escreve nas views. O retorno inclui contadores, abas lidas, abas que seriam escritas e `preview` resumido sem dados pessoais sensiveis.
 
-Com `dryRun: false` ou sem `dryRun`, a funcao usa `LockService`, preserva cabecalhos e reescreve apenas os dados abaixo do cabecalho da view correspondente. Abas operacionais manuais, como `Atividades`, `Atividades_Apresentacoes`, `Atividades_Envolvidos`, `Atividades_Config`, `Atividades_Presencas_Registros` e `Justificativas_Faltas`, sao somente fontes de leitura nas atualizacoes normais de views.
+Com `dryRun: false` ou sem `dryRun`, a funcao usa `LockService`, aplica o schema ativo da view, limpa cabecalhos removidos do contrato e reescreve apenas os dados abaixo do cabecalho da view correspondente. Abas operacionais manuais, como `Atividades`, `Atividades_Apresentacoes`, `Atividades_Envolvidos`, `Atividades_Config`, `Atividades_Presencas_Registros` e `Justificativas_Faltas`, sao somente fontes de leitura nas atualizacoes normais de views.
 
 O job `atividadesV2_jobPortal(options)` sempre chama a agregadora com `nonDestructive: true`. Nesse modo, as views sao atualizadas por upsert de chave, sem limpar linhas antigas. Linhas obsoletas ficam preservadas para revisao posterior.
 
@@ -161,6 +199,8 @@ O job `atividadesV2_jobPortal(options)` sempre chama a agregadora com `nonDestru
 - linha de `Atividades_Apresentacoes` sem `ID_ATIVIDADE` valido;
 - atividade com envolvidos duplicados;
 - `PORTAL_ATIVIDADES_DETALHES` com `ID_ATIVIDADE` duplicado;
+- views de calendario/detalhes sem `CICLO`, `ANO`, `SEMESTRE` ou `ROTULO_SEMESTRE` quando esses campos existem em `Atividades`;
+- cabecalhos removidos ainda presentes nas views ativas;
 - `APRESENTACOES_PUBLICAS_JSON` invalido;
 - `QTD_APRESENTACOES` divergente da quantidade no JSON;
 - atividade marcada com apresentacoes mas sem JSON;

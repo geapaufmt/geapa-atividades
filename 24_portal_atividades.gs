@@ -277,25 +277,6 @@ function atividadesV2_portalMapFrequenciaMembro_(record) {
   };
 }
 
-function atividadesV2_portalMapApresentacao_(record) {
-  return {
-    idPessoa: String(record.ID_PESSOA || '').trim(),
-    rga: String(record.RGA || '').trim(),
-    idApresentacao: String(record.ID_APRESENTACAO || '').trim(),
-    idAtividade: String(record.ID_ATIVIDADE || '').trim(),
-    dataAtividade: atividades_formatPortalDateIso_(record.DATA_ATIVIDADE),
-    tituloPublico: atividades_sanitizePortalText_(record.TITULO_APRESENTACAO, 240),
-    tema: atividades_sanitizePortalText_(record.TITULO_APRESENTACAO, 240),
-    eixoTematicoPrincipal: String(record.EIXO_TEMATICO_PRINCIPAL || '').trim(),
-    eixoTematicoSecundario: String(record.EIXO_TEMATICO_SECUNDARIO || '').trim(),
-    statusPublico: String(record.STATUS_PUBLICO || '').trim(),
-    statusApresentacao: String(record.STATUS_PUBLICO || '').trim(),
-    statusArquivoPublico: String(record.STATUS_ARQUIVO_PUBLICO || '').trim(),
-    linkArquivoPublico: atividades_sanitizePortalUrl_(record.LINK_ARQUIVO_PUBLICO),
-    ultimaAtualizacao: String(record.ULTIMA_ATUALIZACAO || '').trim()
-  };
-}
-
 function atividadesV2_portalMapApresentacaoPublica_(apresentacao, atividade) {
   return {
     idPessoa: String(apresentacao.idPessoa || '').trim(),
@@ -311,8 +292,11 @@ function atividadesV2_portalMapApresentacaoPublica_(apresentacao, atividade) {
     statusPublico: String(apresentacao.statusApresentacao || atividade.STATUS_PUBLICO || '').trim(),
     statusApresentacao: String(apresentacao.statusApresentacao || '').trim(),
     statusTituloEixo: String(apresentacao.statusTituloEixo || '').trim(),
-    statusArquivoPublico: String(apresentacao.statusArquivo || '').trim(),
-    linkArquivoPublico: atividades_sanitizePortalUrl_(apresentacao.linkArquivoPublico),
+    statusMaterial: String(apresentacao.statusMaterial || '').trim(),
+    idArquivoMaterial: String(apresentacao.idArquivoMaterial || '').trim(),
+    nomeArquivoMaterial: atividades_sanitizePortalText_(apresentacao.nomeArquivoMaterial, 240),
+    linkMaterialPublico: atividades_sanitizePortalUrl_(apresentacao.linkMaterialPublico),
+    versaoMaterial: String(apresentacao.versaoMaterial || '').trim(),
     ultimaAtualizacao: String(atividade.ULTIMA_ATUALIZACAO || '').trim()
   };
 }
@@ -564,6 +548,10 @@ function atividades_buildPortalListItem_(record, contexto, statusChamada, portal
   var chamadaMeta = atividadesV2_getChamadaWindowMeta_(record, status, contexto, null, portalConfig);
   return {
     idAtividade: String(record.ID_ATIVIDADE || '').trim(),
+    ciclo: String(record.CICLO || '').trim(),
+    ano: String(record.ANO || '').trim(),
+    semestre: String(record.SEMESTRE || '').trim(),
+    rotuloSemestre: String(record.ROTULO_SEMESTRE || '').trim(),
     dataAtividade: atividades_formatPortalDateIso_(record.DATA_ATIVIDADE),
     diaSemana: atividades_sanitizePortalText_(record.DIA_SEMANA, 40) ||
       atividades_formatPortalWeekdayPtBr_(record.DATA_ATIVIDADE),
@@ -592,7 +580,6 @@ function atividades_buildPortalListItem_(record, contexto, statusChamada, portal
     qtdApresentacoes: Number(record.QTD_APRESENTACOES || 0),
     resumoApresentacoesPublico: atividades_sanitizePortalText_(record.RESUMO_APRESENTACOES_PUBLICO, 500),
     possuiApresentacoes: atividades_isTruthySim_(record.POSSUI_APRESENTACOES),
-    ehApresentacao: atividades_isTruthySim_(record.POSSUI_APRESENTACOES) || atividadesV2_isFluxoApresentacao_(record),
     dataHoraInicio: chamadaMeta.dataHoraInicio,
     dataHoraFim: chamadaMeta.dataHoraFim,
     chamadaDisponivelEm: chamadaMeta.chamadaDisponivelEm,
@@ -613,13 +600,14 @@ function atividades_buildPortalListItem_(record, contexto, statusChamada, portal
 }
 
 function atividades_buildPortalDetail_(record, contexto) {
-  var privileged = atividades_isPrivilegedPortalProfile_(contexto || {});
   var apresentacoesPublicas = atividadesV2_parsePublicJsonArray_(record.APRESENTACOES_PUBLICAS_JSON);
   var envolvidosPublicos = atividadesV2_parsePublicJsonArray_(record.ENVOLVIDOS_PUBLICOS_JSON);
   return {
     idAtividade: String(record.ID_ATIVIDADE || '').trim(),
-    idApresentacao: String(record.ID_APRESENTACAO || '').trim(),
-    ehApresentacao: atividades_isTruthySim_(record.EH_APRESENTACAO) || apresentacoesPublicas.length > 0,
+    ciclo: String(record.CICLO || '').trim(),
+    ano: String(record.ANO || '').trim(),
+    semestre: String(record.SEMESTRE || '').trim(),
+    rotuloSemestre: String(record.ROTULO_SEMESTRE || '').trim(),
     tituloPublico: atividades_getPortalTituloPublico_(record),
     tituloConteudoPublico: atividades_sanitizePortalText_(record.TITULO_CONTEUDO_PUBLICO, 240),
     descricaoPublica: atividades_sanitizePortalText_(record.DESCRICAO_PUBLICA || record.DESCRICAO, 1000),
@@ -628,33 +616,37 @@ function atividades_buildPortalDetail_(record, contexto) {
     local: atividades_sanitizePortalText_(record.LOCAL, 180),
     formato: String(record.FORMATO || '').trim(),
     tipoAtividade: String(record.TIPO_ATIVIDADE || '').trim(),
+    tipoPublico: atividades_getPortalTipoPublico_(record),
     subtipoAtividade: String(record.SUBTIPO_ATIVIDADE || '').trim(),
     classificacaoReuniao: String(record.CLASSIFICACAO_REUNIAO || '').trim(),
     classificacaoAcesso: String(record.CLASSIFICACAO_ACESSO || '').trim(),
+    publicoAlvo: atividades_sanitizePortalText_(record.PUBLICO_ALVO, 180),
     responsavelPublico: atividades_sanitizePortalText_(record.RESPONSAVEL_PUBLICO || record.RESPONSAVEL_INTERNO, 180),
     contaPresenca: atividades_isTruthySim_(record.CONTA_PRESENCA),
     contaFalta: atividades_isTruthySim_(atividades_getEffectiveContaFaltaForActivity_(record)),
     geraCertificado: atividades_isTruthySim_(record.GERA_CERTIFICADO),
     cargaHoraria: atividades_parsePortalCargaHoraria_(record.CARGA_HORARIA, record),
     statusPublico: String(record.STATUS_PUBLICO || record.STATUS_PUBLICACAO_PORTAL || record.STATUS_OPERACIONAL || record.STATUS || '').trim(),
-    nomeApresentadorPublico: atividades_sanitizePortalText_(record.NOME_APRESENTADOR_PUBLICO, 180),
-    idPessoaApresentador: String(record.ID_PESSOA_APRESENTADOR || '').trim(),
-    rgaApresentador: privileged ? String(record.RGA_APRESENTADOR || '').trim() : '',
-    tituloApresentacao: atividades_sanitizePortalText_(record.TITULO_APRESENTACAO, 240),
+    visibilidadePortal: atividades_getPortalVisibilidade_(record),
+    statusOperacional: String(record.STATUS_OPERACIONAL || '').trim(),
+    statusPublicacaoPortal: String(record.STATUS_PUBLICACAO_PORTAL || '').trim(),
     eixoTematicoPrincipal: String(record.EIXO_TEMATICO_PRINCIPAL || '').trim(),
     eixoTematicoSecundario: String(record.EIXO_TEMATICO_SECUNDARIO || '').trim(),
+    statusEixoTematico: String(record.STATUS_EIXO_TEMATICO || '').trim(),
     idPessoaPrincipal: String(record.ID_PESSOA_PRINCIPAL || '').trim(),
     nomePessoaPrincipalPublico: atividades_sanitizePortalText_(record.NOME_PESSOA_PRINCIPAL_PUBLICO, 180),
     papelPessoaPrincipal: String(record.PAPEL_PESSOA_PRINCIPAL || '').trim(),
     tipoPessoaPrincipal: String(record.TIPO_PESSOA_PRINCIPAL || '').trim(),
+    instituicaoPessoaPrincipal: atividades_sanitizePortalText_(record.INSTITUICAO_PESSOA_PRINCIPAL, 180),
     qtdApresentacoes: Number(record.QTD_APRESENTACOES || apresentacoesPublicas.length || 0),
     resumoApresentacoesPublico: atividades_sanitizePortalText_(record.RESUMO_APRESENTACOES_PUBLICO, 500),
     apresentacoesPublicas: apresentacoesPublicas,
     envolvidosPublicos: envolvidosPublicos,
-    statusApresentacaoPublico: String(record.STATUS_APRESENTACAO_PUBLICO || '').trim(),
     linkMaterialPublico: atividades_sanitizePortalUrl_(record.LINK_MATERIAL_PUBLICO || record.LINK_MATERIAL),
     linkAtaPublica: atividades_sanitizePortalUrl_(record.LINK_ATA_PUBLICA || record.LINK_ATA),
     linkFotosPublico: atividades_sanitizePortalUrl_(record.LINK_FOTOS_PUBLICO || record.LINK_FOTOS),
+    idPastaDrive: String(record.ID_PASTA_DRIVE || '').trim(),
+    linkPastaDrive: atividades_sanitizePortalUrl_(record.LINK_PASTA_DRIVE),
     mensagemPortal: atividades_sanitizePortalText_(record.MENSAGEM_PORTAL, 500)
   };
 }

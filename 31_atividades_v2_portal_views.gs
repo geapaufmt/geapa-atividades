@@ -191,9 +191,16 @@ function atividadesV2_conferirContratoPortalAtivo_(options) {
   var ss = atividadesV2_getDatabaseSpreadsheetDev_();
   var detalhesSheet = atividadesV2_getTargetSheet_(ss, ATIVIDADES_V2_SHEETS.PORTAL_ATIVIDADES_DETALHES);
   var calendarioSheet = atividadesV2_getTargetSheet_(ss, ATIVIDADES_V2_SHEETS.PORTAL_ATIVIDADES_CALENDARIO);
+  var atividadesSheet = atividadesV2_getTargetSheet_(ss, ATIVIDADES_V2_SHEETS.ATIVIDADES);
   var detalhes = atividadesV2_readSheetObjects_(detalhesSheet);
   var calendario = atividadesV2_readSheetObjects_(calendarioSheet);
+  var atividades = atividadesV2_readSheetObjects_(atividadesSheet);
+  var atividadesById = atividadesV2_indexByField_(atividades, 'ID_ATIVIDADE');
+  var calendarioHeaders = atividadesV2_getSheetHeaders_(calendarioSheet);
+  var detalhesHeaders = atividadesV2_getSheetHeaders_(detalhesSheet);
   var checks = [];
+  var inconsistenciasSemestre = atividadesV2_findPortalSemesterIssues_(calendario, detalhes, atividadesById);
+  var camposRemovidosPresentes = atividadesV2_findRemovedPortalViewHeaders_(calendarioHeaders, detalhesHeaders);
   var exemplos = {
     atividadeSemApresentacao: null,
     atividadeComUmaApresentacao: null,
@@ -222,6 +229,8 @@ function atividadesV2_conferirContratoPortalAtivo_(options) {
     var raw = String(record.ENVOLVIDOS_PUBLICOS_JSON || '').trim();
     return !raw || atividadesV2_isJsonArrayString_(raw);
   }), 'Detalhes aceitam envolvidos publicos serializados.');
+  atividadesV2_addContractCheck_(checks, 'SEMESTRE_CONSISTENTE', inconsistenciasSemestre.length === 0, 'Calendario e detalhes possuem CICLO/ANO/SEMESTRE/ROTULO_SEMESTRE quando Atividades possui esses campos.');
+  atividadesV2_addContractCheck_(checks, 'COLUNAS_REMOVIDAS_AUSENTES', camposRemovidosPresentes.length === 0, 'Views ativas nao possuem cabecalhos removidos do contrato.');
   atividadesV2_addContractCheck_(checks, 'DRY_RUN_SEM_ESCRITA', opts.dryRun !== false, 'Conferencia e somente leitura.');
 
   var failed = checks.filter(function(check) { return !check.ok; });
@@ -234,6 +243,7 @@ function atividadesV2_conferirContratoPortalAtivo_(options) {
       ATIVIDADES_V2_SHEETS.PORTAL_ATIVIDADES_DETALHES
     ],
     abasLidas: [
+      ATIVIDADES_V2_SHEETS.ATIVIDADES,
       ATIVIDADES_V2_SHEETS.PORTAL_ATIVIDADES_CALENDARIO,
       ATIVIDADES_V2_SHEETS.PORTAL_ATIVIDADES_DETALHES
     ],
@@ -241,6 +251,8 @@ function atividadesV2_conferirContratoPortalAtivo_(options) {
     abasOperacionaisProtegidas: atividadesV2_getProtectedOperationalSheetNames_(),
     totalCalendario: calendario.length,
     totalDetalhes: detalhes.length,
+    inconsistenciasSemestre: inconsistenciasSemestre.slice(0, 50),
+    camposRemovidosPresentes: camposRemovidosPresentes,
     checks: checks,
     exemplos: exemplos,
     riscoSobrescreverDadosManuais: false,
@@ -248,6 +260,64 @@ function atividadesV2_conferirContratoPortalAtivo_(options) {
     avisos: failed.map(function(check) { return check.code + ': ' + check.message; }),
     erros: []
   };
+}
+
+function atividadesV2_findPortalSemesterIssues_(calendario, detalhes, atividadesById) {
+  var issues = [];
+  [{ sheetName: ATIVIDADES_V2_SHEETS.PORTAL_ATIVIDADES_CALENDARIO, rows: calendario || [] },
+   { sheetName: ATIVIDADES_V2_SHEETS.PORTAL_ATIVIDADES_DETALHES, rows: detalhes || [] }]
+    .forEach(function(group) {
+      group.rows.forEach(function(row) {
+        var id = String(row.ID_ATIVIDADE || '').trim();
+        var origem = atividadesById[id] || {};
+        var expected = atividadesV2_getSemestrePortalFields_(origem.ID_ATIVIDADE ? origem : row);
+        ['CICLO', 'ANO', 'SEMESTRE', 'ROTULO_SEMESTRE'].forEach(function(field) {
+          if (!String(expected[field] || '').trim()) return;
+          if (String(row[field] || '').trim() !== String(expected[field] || '').trim()) {
+            issues.push({
+              sheetName: group.sheetName,
+              idAtividade: id,
+              field: field,
+              esperado: expected[field],
+              encontrado: String(row[field] || '').trim()
+            });
+          }
+        });
+      });
+    });
+  return issues;
+}
+
+function atividadesV2_findRemovedPortalViewHeaders_(calendarioHeaders, detalhesHeaders) {
+  var removed = [];
+  var calendarRemoved = ['ID_APRESENTACAO', 'EH_APRESENTACAO', 'LINK_DETALHES'];
+  var detailRemoved = [
+    'ID_APRESENTACAO',
+    'EH_APRESENTACAO',
+    'RGA_PESSOA_PRINCIPAL',
+    'EMAIL_PESSOA_PRINCIPAL',
+    'NOME_APRESENTADOR_PUBLICO',
+    'ID_PESSOA_APRESENTADOR',
+    'RGA_APRESENTADOR',
+    'EMAIL_APRESENTADOR',
+    'TITULO_APRESENTACAO',
+    'STATUS_APRESENTACAO_PUBLICO',
+    'STATUS_TITULO_EIXO',
+    'STATUS_ARQUIVO_PUBLICO',
+    'LINK_ARQUIVO_PUBLICO'
+  ];
+
+  calendarRemoved.forEach(function(header) {
+    if ((calendarioHeaders || []).indexOf(header) >= 0) {
+      removed.push({ sheetName: ATIVIDADES_V2_SHEETS.PORTAL_ATIVIDADES_CALENDARIO, header: header });
+    }
+  });
+  detailRemoved.forEach(function(header) {
+    if ((detalhesHeaders || []).indexOf(header) >= 0) {
+      removed.push({ sheetName: ATIVIDADES_V2_SHEETS.PORTAL_ATIVIDADES_DETALHES, header: header });
+    }
+  });
+  return removed;
 }
 
 function atividadesV2_addContractCheck_(checks, code, ok, message) {
@@ -500,10 +570,10 @@ function atividadesV2_updatePortalViewWithLock_(flow, options, fn) {
 function atividadesV2_finishPortalViewUpdate_(ss, opts, sheetName, headers, rows, extra) {
   var dryRun = opts.dryRun === true;
   var sheet = atividadesV2_getTargetSheet_(ss, sheetName);
-  atividadesV2_applyHeadersIfMissing_(sheet, headers);
-  atividadesV2_applyBasicSheetUx_(sheet);
   var writeResult = null;
   if (!dryRun) {
+    atividadesV2_resetPortalViewHeaders_(sheet, headers);
+    atividadesV2_applyBasicSheetUx_(sheet);
     writeResult = opts.nonDestructive === true
       ? atividadesV2_upsertPortalRows_(sheet, headers, rows)
       : { mode: 'REPLACE', written: atividadesV2_replacePortalRows_(sheet, headers, rows) };
@@ -546,7 +616,8 @@ function atividadesV2_sanitizePortalViewPreview_(rows) {
 function atividadesV2_sanitizePortalViewPreviewRecord_(record) {
   return {
     ID_ATIVIDADE: record.ID_ATIVIDADE || '',
-    ID_APRESENTACAO: record.ID_APRESENTACAO || '',
+    CICLO: record.CICLO || '',
+    ROTULO_SEMESTRE: record.ROTULO_SEMESTRE || '',
     DATA_ATIVIDADE: record.DATA_ATIVIDADE || '',
     TITULO_PUBLICO: atividades_sanitizePortalText_(record.TITULO_PUBLICO || record.TITULO_ATIVIDADE || '', 120),
     TIPO_PUBLICO: record.TIPO_PUBLICO || '',
@@ -781,13 +852,9 @@ function atividadesV2_repairPortalRowByCanonicalOrder_(row, schema, headers) {
 function atividadesV2_scorePortalRowCoherence_(record) {
   var score = 0;
   score += atividadesV2_scorePatternField_(record.ID_ATIVIDADE, /^ATV-\d{4}-[12]-\d{4}$/i, 5);
-  score += atividadesV2_scorePatternField_(record.ID_APRESENTACAO, /^APR-\d{4}-[12]-\d{4}(-\d{2})?$/i, 4);
   score += atividadesV2_scorePessoaField_(record.ID_PESSOA);
   score += atividadesV2_scorePessoaField_(record.ID_PESSOA_PRINCIPAL);
-  score += atividadesV2_scorePessoaField_(record.ID_PESSOA_APRESENTADOR);
   score += atividadesV2_scoreRgaField_(record.RGA);
-  score += atividadesV2_scoreRgaField_(record.RGA_PESSOA_PRINCIPAL);
-  score += atividadesV2_scoreRgaField_(record.RGA_APRESENTADOR);
   score += atividadesV2_scoreEnumField_(record.STATUS_PUBLICO, ['PUBLICADA', 'AGENDADA', 'OCULTA', 'CANCELADA', 'RASCUNHO', 'REALIZADA', 'PLANEJADA'], 2);
   score += atividadesV2_scoreEnumField_(record.STATUS_PUBLICACAO_PORTAL, ['PUBLICADA', 'AGENDADA', 'OCULTA', 'CANCELADA', 'RASCUNHO'], 2);
   score += atividadesV2_scoreEnumField_(record.VISIBILIDADE_PORTAL, ['PUBLICA', 'MEMBROS', 'DIRETORIA', 'OCULTA'], 2);
@@ -857,11 +924,10 @@ function atividadesV2_buildRepairPreview_(row, schema, headers) {
 function atividadesV2_publicRepairPreviewRecord_(record) {
   return {
     ID_ATIVIDADE: record.ID_ATIVIDADE || '',
-    ID_APRESENTACAO: record.ID_APRESENTACAO || '',
     STATUS_PUBLICO: record.STATUS_PUBLICO || '',
     VISIBILIDADE_PORTAL: record.VISIBILIDADE_PORTAL || '',
-    ID_PESSOA: record.ID_PESSOA || record.ID_PESSOA_PRINCIPAL || record.ID_PESSOA_APRESENTADOR || '',
-    RGA: record.RGA || record.RGA_PESSOA_PRINCIPAL || record.RGA_APRESENTADOR || '',
+    ID_PESSOA: record.ID_PESSOA || record.ID_PESSOA_PRINCIPAL || '',
+    ROTULO_SEMESTRE: record.ROTULO_SEMESTRE || '',
     QTD_APRESENTACOES: record.QTD_APRESENTACOES || ''
   };
 }
@@ -870,9 +936,7 @@ function atividadesV2_buildPortalViewUpsertKey_(record, headers) {
   var preferred = [
     ['ID_PENDENCIA'],
     ['ID_JUSTIFICATIVA'],
-    ['ID_APRESENTACAO'],
     ['ID_STATUS'],
-    ['ID_ATIVIDADE', 'ID_APRESENTACAO'],
     ['ID_PESSOA', 'CICLO'],
     ['RGA', 'CICLO'],
     ['ID_ATIVIDADE']

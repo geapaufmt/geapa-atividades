@@ -17,7 +17,7 @@ atividadesV2_atualizarViewsPortal({ dryRun: false })
 
 Fonte principal: `Atividades`.
 
-Fonte auxiliar: `Atividades_Apresentacoes` apenas para `ID_APRESENTACAO` e metadados operacionais quando a atividade usar fluxo de apresentacao.
+Fonte auxiliar: `Atividades_Apresentacoes` apenas para indicar apresentacoes publicaveis vinculadas por `ID_ATIVIDADE` e gerar `QTD_APRESENTACOES`, `POSSUI_APRESENTACOES` e `RESUMO_APRESENTACOES_PUBLICO`.
 
 Uso:
 
@@ -34,7 +34,9 @@ Caracteristicas:
 - nao expoe observacoes internas, logs ou presenca nominal.
 - usa titulo, eixo, pessoa principal, data, horario, local e formato de `Atividades`.
 - possui uma linha por `ID_ATIVIDADE`;
+- inclui `CICLO`, `ANO`, `SEMESTRE` e `ROTULO_SEMESTRE` vindos de `Atividades`;
 - resume apresentacoes com `POSSUI_APRESENTACOES`, `QTD_APRESENTACOES` e `RESUMO_APRESENTACOES_PUBLICO`.
+- nao possui `ID_APRESENTACAO`, `EH_APRESENTACAO` nem `LINK_DETALHES`.
 
 Gerador:
 
@@ -59,9 +61,14 @@ Caracteristicas:
 - consolida campos publicos/operacionais necessarios ao detalhe;
 - inclui envolvidos publicos em `ENVOLVIDOS_PUBLICOS_JSON`;
 - possui uma linha por `ID_ATIVIDADE`;
+- inclui `CICLO`, `ANO`, `SEMESTRE` e `ROTULO_SEMESTRE` vindos de `Atividades`;
 - gera linha comum para atividade sem apresentacao vinculada;
 - serializa apresentacoes publicas em `APRESENTACOES_PUBLICAS_JSON`;
 - resume apresentacoes com `QTD_APRESENTACOES` e `RESUMO_APRESENTACOES_PUBLICO`;
+- nao possui campos individuais da primeira apresentacao, como `ID_APRESENTACAO`, `NOME_APRESENTADOR_PUBLICO`, `TITULO_APRESENTACAO` ou `LINK_ARQUIVO_PUBLICO`;
+- usa `LINK_MATERIAL_PUBLICO` apenas para material geral da atividade;
+- expõe materiais de apresentacao dentro de `APRESENTACOES_PUBLICAS_JSON`, com `statusMaterial`, `idArquivoMaterial`, `nomeArquivoMaterial`, `linkMaterialPublico` e `versaoMaterial`;
+- expõe a pasta geral da atividade por `ID_PASTA_DRIVE` e `LINK_PASTA_DRIVE`, quando houver;
 - deve ser usada no clique/preload do portal sem cruzar abas operacionais em tempo real.
 
 Gerador:
@@ -105,6 +112,31 @@ atividadesV2_portalGetDetalhesAtividade(idAtividade, contexto)
 ```
 
 Usam `PORTAL_ATIVIDADES_DETALHES`. O detalhe nao deve cruzar `Atividades` + `Atividades_Apresentacoes` durante o clique do usuario.
+
+O detalhe retorna apresentacoes em `apresentacoesPublicas`, derivado de `APRESENTACOES_PUBLICAS_JSON`. Campos individuais de apresentacao foram removidos do payload final.
+
+Cada item de `apresentacoesPublicas` pode conter:
+
+```json
+{
+  "idApresentacao": "APR-2026-1-0005",
+  "idAtividade": "ATV-2026-1-0005",
+  "idPessoa": "PES-0001",
+  "nomeApresentador": "Nome publico",
+  "titulo": "Titulo da apresentacao",
+  "eixoTematicoPrincipal": "",
+  "eixoTematicoSecundario": "",
+  "statusApresentacao": "",
+  "statusTituloEixo": "",
+  "statusMaterial": "RECEBIDO",
+  "idArquivoMaterial": "",
+  "nomeArquivoMaterial": "",
+  "linkMaterialPublico": "",
+  "versaoMaterial": "v01"
+}
+```
+
+Os nomes antigos `statusArquivoPublico` e `linkArquivoPublico` nao fazem parte do contrato ativo. Durante a transicao, o backend pode ler campos legados da aba operacional para preencher os novos nomes, sem expor o legado ao Portal.
 
 ### Preload de Detalhes
 

@@ -96,9 +96,9 @@ Nesta fase, o objetivo e mapear dados e riscos. A migracao real deve ser impleme
 | `QTD_COBRANCAS_TITULO_EIXO` | `QTD_COBRANCAS_TITULO_EIXO` | Copiar. |
 | `DATA_CONFIRMACAO_TITULO_EIXO` | `DATA_CONFIRMACAO_TITULO_EIXO` | Copiar. |
 | campos de notificacao/convite/lembrete | equivalentes v2 | Copiar flags e datas. |
-| `STATUS_ENVIO_ARQUIVO` | `STATUS_ENVIO_ARQUIVO` | Copiar. |
-| `DATA_RECEBIMENTO_ARQUIVO` | `DATA_RECEBIMENTO_ARQUIVO` | Copiar. |
-| `LINK_ARQUIVO_DRIVE` | `LINK_ARQUIVO_DRIVE` | Copiar. |
+| `STATUS_ENVIO_ARQUIVO` | `STATUS_ENVIO_MATERIAL` | Copiar como legado para o campo novo de material. |
+| `DATA_RECEBIMENTO_ARQUIVO` | `DATA_RECEBIMENTO_MATERIAL` | Copiar como legado para o campo novo de material. |
+| `LINK_ARQUIVO_DRIVE` | `LINK_MATERIAL_APRESENTACAO` / `ID_ARQUIVO_MATERIAL` | Copiar apenas quando o link nao parecer pasta; extrair ID quando possivel. |
 | `SYNC_HISTORICO_PUBLICO` | `SYNC_HISTORICO_PUBLICO` | Copiar. |
 | `CRIADO_EM` | `CRIADO_EM` | Copiar. |
 | `ATUALIZADO_EM` | `ATUALIZADO_EM` | Copiar. |
