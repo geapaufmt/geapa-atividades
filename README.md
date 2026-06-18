@@ -609,6 +609,10 @@ Pós-apresentação:
   - `APRESENTACOES_PASTA_RAIZ`
   - `PASTA_RAIZ_APRESENTACOES`
 
+Na Atividades V2, esses campos com `ARQUIVO` sao legado de migracao. O contrato operacional novo usa os campos `STATUS_ENVIO_MATERIAL`, `ID_ARQUIVO_MATERIAL`, `NOME_ARQUIVO_MATERIAL`, `LINK_MATERIAL_APRESENTACAO`, `MIME_TYPE_MATERIAL` e `VERSAO_MATERIAL` em `Atividades_Apresentacoes`; a pasta geral da atividade fica em `Atividades.ID_PASTA_DRIVE` e `Atividades.LINK_PASTA_DRIVE`.
+
+As acoes do Portal para apresentacoes na V2 usam `Atividades` como fonte canonica de titulo/eixos e `Atividades_Apresentacoes` como controle operacional. Endpoints disponiveis: `atividadesV2_portalListarEixosTematicos`, `atividadesV2_portalEnviarTituloEixoApresentacao`, `atividadesV2_portalRevisarTituloEixoApresentacao`, `atividadesV2_portalRegistrarMaterialApresentacao` e `atividadesV2_portalRevisarMaterialApresentacao`. Detalhes em `docs/atividades-v2-portal-apresentacoes-acoes.md`.
+
 Autofill de identificacao:
 
 - o preenchimento automatico de `RGA`, `NOME_MEMBRO` e `EMAIL_MEMBRO` acontece por `onEdit`, mas apenas na aba `Atividades_Apresentacoes`;

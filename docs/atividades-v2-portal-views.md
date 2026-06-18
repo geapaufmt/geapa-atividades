@@ -136,7 +136,7 @@ Cada item de `apresentacoesPublicas` pode conter:
 }
 ```
 
-Os nomes antigos `statusArquivoPublico` e `linkArquivoPublico` nao fazem parte do contrato ativo. Durante a transicao, o backend pode ler campos legados da aba operacional para preencher os novos nomes, sem expor o legado ao Portal.
+Os nomes antigos `statusArquivoPublico` e `linkArquivoPublico` nao fazem parte do contrato ativo. As views ativas leem somente os campos novos de material em `Atividades_Apresentacoes`: `STATUS_ENVIO_MATERIAL`, `ID_ARQUIVO_MATERIAL`, `NOME_ARQUIVO_MATERIAL`, `LINK_MATERIAL_APRESENTACAO` e `VERSAO_MATERIAL`. Os campos `LINK_ARQUIVO_DRIVE` e `LINK_PASTA_DRIVE` nessa aba sao legado de migracao e nao alimentam o Portal.
 
 ### Preload de Detalhes
 

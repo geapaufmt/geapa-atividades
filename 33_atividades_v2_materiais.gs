@@ -5,6 +5,7 @@
  */
 
 var ATIVIDADES_V2_DRIVE_ROOT_FOLDER_PROP = 'ATIVIDADES_V2_DRIVE_ROOT_FOLDER_ID';
+var ATIVIDADES_V2_MATERIAL_MAX_BYTES_DEFAULT = 50 * 1024 * 1024;
 
 var ATIVIDADES_V2_MATERIAL_HEADERS = Object.freeze([
   'STATUS_ENVIO_MATERIAL',
@@ -21,6 +22,8 @@ var ATIVIDADES_V2_MATERIAL_HEADERS = Object.freeze([
   'RECEBIDO_POR'
 ]);
 
+// Campos legados lidos apenas por diagnostico/migracao historica.
+// Rotinas de portal/views nao devem usa-los como fonte de material.
 var ATIVIDADES_V2_OLD_ARQUIVO_HEADERS = Object.freeze([
   'STATUS_ENVIO_ARQUIVO',
   'DATA_SOLICITACAO_ARQUIVO',
@@ -154,11 +157,11 @@ function atividadesV2_registrarMaterialApresentacao_(payload, contexto) {
   var idAtividade = String(payload.idAtividade || payload.ID_ATIVIDADE || '').trim();
   var idApresentacao = String(payload.idApresentacao || payload.ID_APRESENTACAO || '').trim();
   var fileId = String(payload.fileId || payload.idArquivo || payload.ID_ARQUIVO || '').trim();
+  var hasBase64 = !!String(payload.conteudoBase64 || payload.base64 || '').trim();
 
-  if (!atividadesV2_isCanonicalActivityId_(idAtividade)) throw new Error('ID_ATIVIDADE invalido ou obrigatorio.');
+  if (idAtividade && !atividadesV2_isCanonicalActivityId_(idAtividade)) throw new Error('ID_ATIVIDADE invalido.');
   if (!idApresentacao) throw new Error('ID_APRESENTACAO obrigatorio.');
-  if (!fileId) throw new Error('ID do arquivo enviado obrigatorio.');
-  atividadesV2_assertPodeRegistrarMaterial_(contexto);
+  if (!fileId && !hasBase64) throw new Error('Arquivo enviado obrigatorio.');
 
   var lock = LockService.getScriptLock();
   if (!lock.tryLock(30000)) throw new Error('LOCK_INDISPONIVEL: nao foi possivel registrar material agora.');
@@ -170,30 +173,43 @@ function atividadesV2_registrarMaterialApresentacao_(payload, contexto) {
     atividadesV2_applyHeadersIfMissing_(atividadesSheet, ATIVIDADES_V2_SCHEMA.ATIVIDADES);
     atividadesV2_applyHeadersIfMissing_(apresentacoesSheet, ATIVIDADES_V2_SCHEMA.APRESENTACOES);
 
+    var apresentacao = idAtividade
+      ? atividadesV2_findApresentacaoV2_(apresentacoesSheet, idAtividade, idApresentacao)
+      : atividadesV2_findApresentacaoV2ById_(apresentacoesSheet, idApresentacao);
+    if (!apresentacao) throw new Error('APRESENTACAO_NAO_ENCONTRADA');
+    idAtividade = idAtividade || String(apresentacao.ID_ATIVIDADE || '').trim();
+    if (!atividadesV2_isCanonicalActivityId_(idAtividade)) throw new Error('ID_ATIVIDADE vinculado invalido ou ausente.');
     var atividade = atividadesV2_findAtividadeV2ById_(atividadesSheet, idAtividade);
     if (!atividade) throw new Error('ATIVIDADE_NAO_ENCONTRADA');
-    var apresentacao = atividadesV2_findApresentacaoV2_(apresentacoesSheet, idAtividade, idApresentacao);
-    if (!apresentacao) throw new Error('APRESENTACAO_NAO_ENCONTRADA');
+    atividadesV2_assertPodeRegistrarMaterial_(contexto, atividade, apresentacao);
+    atividadesV2_assertMaterialStatusAllowsWrite_(contexto, apresentacao);
 
     var folderInfo = atividadesV2_garantirPastaAtividade_(idAtividade, { spreadsheet: ss });
     var folder = DriveApp.getFolderById(folderInfo.folderId);
-    var sourceFile = DriveApp.getFileById(fileId);
+    var sourceFile = fileId ? DriveApp.getFileById(fileId) : null;
+    var originalName = payload.nomeArquivoOriginal || payload.nomeArquivo || (sourceFile ? sourceFile.getName() : 'material.pdf');
+    var mimeType = payload.mimeType || (sourceFile ? sourceFile.getMimeType() : '');
+    atividadesV2_assertMaterialFileAllowed_(originalName, mimeType);
+    atividadesV2_assertMaterialFileSizeAllowed_(sourceFile, payload);
     var nomeBase = atividadesV2_buildNomeMaterialApresentacao_(atividade, apresentacao, {
-      name: payload.nomeArquivo || sourceFile.getName()
+      name: originalName
     });
     var nameVersion = atividadesV2_resolveMaterialFileName_(folder, nomeBase);
-    var targetFile = payload.moverArquivo === true
-      ? atividadesV2_moveAndRenameDriveFile_(sourceFile, folder, nameVersion.nomeArquivo)
-      : sourceFile.makeCopy(nameVersion.nomeArquivo, folder);
+    var targetFile = sourceFile
+      ? (payload.moverArquivo === true
+        ? atividadesV2_moveAndRenameDriveFile_(sourceFile, folder, nameVersion.nomeArquivo)
+        : sourceFile.makeCopy(nameVersion.nomeArquivo, folder))
+      : atividadesV2_createMaterialFileFromBase64_(folder, nameVersion.nomeArquivo, payload.conteudoBase64 || payload.base64, mimeType);
 
     var now = new Date();
+    var alreadyHadMaterial = !!String(apresentacao.ID_ARQUIVO_MATERIAL || apresentacao.LINK_MATERIAL_APRESENTACAO || '').trim();
     var updates = {
-      STATUS_ENVIO_MATERIAL: String(payload.statusMaterial || 'RECEBIDO').trim().toUpperCase(),
+      STATUS_ENVIO_MATERIAL: String(payload.statusMaterial || (alreadyHadMaterial ? 'REENVIADO' : 'RECEBIDO')).trim().toUpperCase(),
       DATA_RECEBIMENTO_MATERIAL: now,
       ID_ARQUIVO_MATERIAL: targetFile.getId(),
       NOME_ARQUIVO_MATERIAL: targetFile.getName(),
       LINK_MATERIAL_APRESENTACAO: targetFile.getUrl(),
-      MIME_TYPE_MATERIAL: payload.mimeType || targetFile.getMimeType(),
+      MIME_TYPE_MATERIAL: mimeType || targetFile.getMimeType(),
       VERSAO_MATERIAL: nameVersion.versao,
       ENVIADO_POR: atividadesV2_safeUserToken_(payload.enviadoPor || contexto.email || contexto.idPessoa || contexto.rga),
       RECEBIDO_POR: atividadesV2_safeUserToken_(contexto.email || contexto.idPessoa || contexto.rga),
@@ -497,11 +513,56 @@ function atividadesV2_indexByHeader_(records, header) {
   return map;
 }
 
-function atividadesV2_assertPodeRegistrarMaterial_(contexto) {
+function atividadesV2_assertPodeRegistrarMaterial_(contexto, atividade, apresentacao) {
   var perfil = atividades_normalizeTextUpper_(contexto && (contexto.perfil || contexto.perfilUsuario || contexto.role));
   var perfisOperacionais = ['SECRETARIO', 'DIRETORIA', 'ADMIN_TECNICO'];
   if (perfisOperacionais.indexOf(perfil) >= 0) return true;
+  if (typeof atividadesV2_portalPresentationBelongsToContext_ === 'function' &&
+      atividadesV2_portalPresentationBelongsToContext_(atividade || {}, apresentacao || {}, atividades_normalizePortalContext_(contexto || {}))) {
+    return true;
+  }
   throw new Error('PERMISSAO_NEGADA: perfil sem permissao para registrar material.');
+}
+
+function atividadesV2_assertMaterialStatusAllowsWrite_(contexto, apresentacao) {
+  var perfil = atividades_normalizeTextUpper_(contexto && (contexto.perfil || contexto.perfilUsuario || contexto.role));
+  if (['SECRETARIO', 'DIRETORIA', 'ADMIN_TECNICO'].indexOf(perfil) >= 0) return true;
+  var status = atividades_normalizeTextUpper_(apresentacao && apresentacao.STATUS_ENVIO_MATERIAL);
+  if (status === 'APROVADO' || status === 'DISPENSADO') {
+    throw new Error('MATERIAL_FECHADO: material ja aprovado ou dispensado.');
+  }
+}
+
+function atividadesV2_assertMaterialFileAllowed_(fileName, mimeType) {
+  var name = String(fileName || '').trim();
+  var ext = atividadesV2_getFileExtension_(name);
+  var allowedExt = ['.pdf', '.ppt', '.pptx', '.odp'];
+  var allowedMime = [
+    'application/pdf',
+    'application/vnd.ms-powerpoint',
+    'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+    'application/vnd.oasis.opendocument.presentation'
+  ];
+  if (allowedExt.indexOf(ext) === -1 && allowedMime.indexOf(String(mimeType || '').trim()) === -1) {
+    throw new Error('TIPO_ARQUIVO_INVALIDO: envie PDF, PPT, PPTX ou ODP.');
+  }
+}
+
+function atividadesV2_assertMaterialFileSizeAllowed_(sourceFile, payload) {
+  var maxBytes = Number(payload && payload.maxBytes || ATIVIDADES_V2_MATERIAL_MAX_BYTES_DEFAULT);
+  var size = sourceFile
+    ? sourceFile.getSize()
+    : Math.floor(String(payload && (payload.conteudoBase64 || payload.base64) || '').replace(/^data:[^;]+;base64,/, '').length * 0.75);
+  if (size > maxBytes) {
+    throw new Error('ARQUIVO_MUITO_GRANDE: tamanho maximo permitido excedido.');
+  }
+}
+
+function atividadesV2_createMaterialFileFromBase64_(folder, fileName, base64, mimeType) {
+  var clean = String(base64 || '').replace(/^data:[^;]+;base64,/, '');
+  var bytes = Utilities.base64Decode(clean);
+  var blob = Utilities.newBlob(bytes, mimeType || MimeType.PDF, fileName);
+  return folder.createFile(blob).setName(fileName);
 }
 
 function atividadesV2_moveAndRenameDriveFile_(file, folder, nomeArquivo) {

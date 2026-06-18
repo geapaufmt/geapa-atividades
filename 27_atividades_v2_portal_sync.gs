@@ -251,6 +251,7 @@ function atividadesV2_replacePortalRows_(sheet, headers, records) {
   });
 
   sheet.getRange(2, 1, values.length, writableHeaders.length).setValues(values);
+  atividadesV2_applyPortalViewColumnFormats_(sheet);
   return values.length;
 }
 
@@ -281,6 +282,19 @@ function atividadesV2_resetPortalViewHeaders_(sheet, headers) {
 function atividadesV2_recordToHeaderRow_(record, headers) {
   return (headers || []).map(function(header) {
     return Object.prototype.hasOwnProperty.call(record || {}, header) ? record[header] : '';
+  });
+}
+
+function atividadesV2_applyPortalViewColumnFormats_(sheet) {
+  if (!sheet) return;
+  var headers = atividadesV2_getSheetHeaders_(sheet);
+  var headerMap = atividadesV2_simpleHeaderMap_(headers);
+  var maxRowsBelowHeader = Math.max(sheet.getMaxRows() - 1, 0);
+  if (!maxRowsBelowHeader) return;
+
+  ['QTD_APRESENTACOES'].forEach(function(header) {
+    var col = headerMap[header];
+    if (col) sheet.getRange(2, col, maxRowsBelowHeader, 1).setNumberFormat('0');
   });
 }
 
@@ -528,10 +542,10 @@ function atividadesV2_buildApresentacoesPublicas_(atividade, apresentacoes) {
       eixoTematicoSecundario: String(apresentacao.EIXO_TEMATICO_SECUNDARIO || atividade.EIXO_TEMATICO_SECUNDARIO || '').trim(),
       statusApresentacao: String(apresentacao.STATUS_APRESENTACAO || '').trim(),
       statusTituloEixo: String(apresentacao.STATUS_TITULO_EIXO || '').trim(),
-      statusMaterial: String(apresentacao.STATUS_ENVIO_MATERIAL || apresentacao.STATUS_ENVIO_ARQUIVO || '').trim(),
-      idArquivoMaterial: String(apresentacao.ID_ARQUIVO_MATERIAL || atividadesV2_extractDriveIdFromUrl_(apresentacao.LINK_MATERIAL_APRESENTACAO || apresentacao.LINK_ARQUIVO_DRIVE) || '').trim(),
+      statusMaterial: String(apresentacao.STATUS_ENVIO_MATERIAL || '').trim(),
+      idArquivoMaterial: String(apresentacao.ID_ARQUIVO_MATERIAL || '').trim(),
       nomeArquivoMaterial: atividades_sanitizePortalText_(apresentacao.NOME_ARQUIVO_MATERIAL, 240),
-      linkMaterialPublico: atividades_sanitizePortalUrl_(apresentacao.LINK_MATERIAL_APRESENTACAO || apresentacao.LINK_ARQUIVO_DRIVE),
+      linkMaterialPublico: atividades_sanitizePortalUrl_(apresentacao.LINK_MATERIAL_APRESENTACAO),
       versaoMaterial: String(apresentacao.VERSAO_MATERIAL || '').trim()
     };
     return {

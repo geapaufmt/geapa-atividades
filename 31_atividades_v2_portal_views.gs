@@ -577,6 +577,7 @@ function atividadesV2_finishPortalViewUpdate_(ss, opts, sheetName, headers, rows
     writeResult = opts.nonDestructive === true
       ? atividadesV2_upsertPortalRows_(sheet, headers, rows)
       : { mode: 'REPLACE', written: atividadesV2_replacePortalRows_(sheet, headers, rows) };
+    atividadesV2_applyPortalViewColumnFormats_(sheet);
   }
   var result = Object.assign({
     ok: true,
@@ -660,6 +661,7 @@ function atividadesV2_upsertPortalRows_(sheet, headers, records) {
   if (appendValues.length) {
     sheet.getRange(sheet.getLastRow() + 1, 1, appendValues.length, writableHeaders.length).setValues(appendValues);
   }
+  atividadesV2_applyPortalViewColumnFormats_(sheet);
 
   return {
     mode: 'UPSERT',
@@ -1084,8 +1086,54 @@ function atividadesV2_buildPendenciasDiretoriaRows_(data, now) {
     if (!String(atividade.ID_PESSOA_PRINCIPAL || atividade.RGA_PESSOA_PRINCIPAL || atividade.NOME_PESSOA_PRINCIPAL_PUBLICO || record.ID_PESSOA || record.RGA || record.NOME_MEMBRO || '').trim()) {
       rows.push(atividadesV2_buildPendenciaRow_('APRESENTACAO_SEM_APRESENTADOR', 'ALTA', record, '', 'Informar apresentador da apresentacao.', now));
     }
+    atividadesV2_addPresentationWorkflowPendencias_(rows, atividade, record, now);
   });
   return rows.filter(function(row) { return !!row.ID_PENDENCIA; });
+}
+
+function atividadesV2_addPresentationWorkflowPendencias_(rows, atividade, apresentacao, now) {
+  if (!atividade || !String(atividade.ID_ATIVIDADE || '').trim()) return;
+  if (atividades_normalizeTextUpper_(apresentacao.ATIVO || 'SIM') === 'NAO') return;
+
+  var titleStatus = atividades_normalizeTextUpper_(apresentacao.STATUS_TITULO_EIXO || atividade.STATUS_EIXO_TEMATICO || 'PENDENTE');
+  var materialStatus = atividades_normalizeTextUpper_(apresentacao.STATUS_ENVIO_MATERIAL || 'PENDENTE');
+  var hasTitleAxis = !!String(atividade.TITULO_PUBLICO || atividade.TITULO || '').trim() &&
+    !!String(atividade.EIXO_TEMATICO_PRINCIPAL || '').trim();
+  var hasMaterial = !!String(apresentacao.ID_ARQUIVO_MATERIAL || apresentacao.LINK_MATERIAL_APRESENTACAO || '').trim();
+
+  if (!hasTitleAxis || titleStatus === 'PENDENTE') {
+    rows.push(atividadesV2_buildPendenciaApresentacaoRow_('APRESENTACAO_TITULO_EIXO_PENDENTE', 'MEDIA', atividade, apresentacao, '', 'Aguardar ou solicitar titulo/eixo da apresentacao.', now));
+  } else if (['ENVIADO', 'RECEBIDO', 'EM_ANALISE'].indexOf(titleStatus) >= 0) {
+    rows.push(atividadesV2_buildPendenciaApresentacaoRow_('APRESENTACAO_TITULO_EIXO_EM_ANALISE', 'MEDIA', atividade, apresentacao, '', 'Revisar titulo/eixo informado pelo apresentador.', now));
+  } else if (titleStatus === 'AJUSTE_SOLICITADO') {
+    rows.push(atividadesV2_buildPendenciaApresentacaoRow_('APRESENTACAO_TITULO_EIXO_AJUSTE_SOLICITADO', 'BAIXA', atividade, apresentacao, '', 'Acompanhar ajuste de titulo/eixo solicitado ao apresentador.', now));
+  }
+
+  if (!hasMaterial || materialStatus === 'PENDENTE') {
+    rows.push(atividadesV2_buildPendenciaApresentacaoRow_('APRESENTACAO_MATERIAL_PENDENTE', 'MEDIA', atividade, apresentacao, '', 'Aguardar ou solicitar envio do material da apresentacao.', now));
+  } else if (['RECEBIDO', 'REENVIADO', 'EM_ANALISE'].indexOf(materialStatus) >= 0) {
+    rows.push(atividadesV2_buildPendenciaApresentacaoRow_('APRESENTACAO_MATERIAL_EM_ANALISE', 'MEDIA', atividade, apresentacao, '', 'Revisar material enviado pelo apresentador.', now));
+  } else if (materialStatus === 'AJUSTE_SOLICITADO') {
+    rows.push(atividadesV2_buildPendenciaApresentacaoRow_('APRESENTACAO_MATERIAL_AJUSTE_SOLICITADO', 'BAIXA', atividade, apresentacao, '', 'Acompanhar reenvio do material ajustado.', now));
+  }
+}
+
+function atividadesV2_buildPendenciaApresentacaoRow_(tipo, gravidade, atividade, apresentacao, prazo, acao, now) {
+  var row = atividadesV2_buildPendenciaRow_(tipo, gravidade, Object.assign({}, atividade, {
+    ID_APRESENTACAO: apresentacao.ID_APRESENTACAO,
+    STATUS_TITULO_EIXO: apresentacao.STATUS_TITULO_EIXO,
+    STATUS_ENVIO_MATERIAL: apresentacao.STATUS_ENVIO_MATERIAL
+  }), prazo, acao, now);
+  row.ID_PENDENCIA = atividadesV2_buildDeterministicId_('PEND', [tipo, atividade.ID_ATIVIDADE, apresentacao.ID_APRESENTACAO]);
+  row.ID_APRESENTACAO = String(apresentacao.ID_APRESENTACAO || '').trim();
+  row.RESPONSAVEL_SUGERIDO = atividades_sanitizePortalText_(atividade.NOME_PESSOA_PRINCIPAL_PUBLICO || apresentacao.NOME_MEMBRO || atividade.RESPONSAVEL_INTERNO, 180);
+  row.DESCRICAO_PENDENCIA = atividades_sanitizePortalText_(
+    acao + ' Status titulo/eixo: ' + String(apresentacao.STATUS_TITULO_EIXO || atividade.STATUS_EIXO_TEMATICO || 'PENDENTE') +
+    '. Status material: ' + String(apresentacao.STATUS_ENVIO_MATERIAL || 'PENDENTE') + '.',
+    500
+  );
+  row.ACAO_RECOMENDADA = acao;
+  return row;
 }
 
 function atividadesV2_addDeadlinePendencia_(rows, record, tipo, prazo, doneValue, now) {
@@ -1104,6 +1152,7 @@ function atividadesV2_buildPendenciaRow_(tipo, gravidade, record, prazo, acao, n
     TIPO_PENDENCIA: tipo,
     GRAVIDADE: gravidade,
     ID_ATIVIDADE: idAtividade,
+    ID_APRESENTACAO: String(record.ID_APRESENTACAO || '').trim(),
     TITULO_ATIVIDADE: atividades_sanitizePortalText_(record.TITULO || record.TITULO_ATIVIDADE || record.TITULO_APRESENTACAO, 240),
     DATA_ATIVIDADE: record.DATA_ATIVIDADE || '',
     PRAZO: prazo || '',

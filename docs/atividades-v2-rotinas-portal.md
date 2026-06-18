@@ -57,6 +57,8 @@ atividadesV2_migrarArquivosApresentacoesParaMateriaisDev()
 
 A migracao de arquivos para materiais nao apaga campos legados e nao move arquivos. Ela preenche os campos novos a partir de `STATUS_ENVIO_ARQUIVO`, datas de cobranca/recebimento e `LINK_ARQUIVO_DRIVE` quando o link nao parece ser uma pasta. Links legados de pasta sao relatados para revisao manual.
 
+Depois da homologacao, `Atividades_Apresentacoes.LINK_ARQUIVO_DRIVE` e `Atividades_Apresentacoes.LINK_PASTA_DRIVE` podem ser removidos manualmente da planilha, desde que o diagnostico de materiais nao aponte pendencias e as views ja estejam publicando os campos novos. O codigo nao remove essas colunas automaticamente.
+
 Para criar ou reutilizar a pasta Drive de uma atividade, configure `ATIVIDADES_V2_DRIVE_ROOT_FOLDER_ID` em Script Properties ou informe `options.rootFolderId`:
 
 ```js
@@ -65,6 +67,8 @@ atividadesV2_garantirPastaAtividadeDev('ATV-2026-1-0005')
 ```
 
 O registro operacional de material para uso pelo Portal e feito por `atividadesV2_portalRegistrarMaterialApresentacao(payload, contexto)`. A funcao valida permissao no backend, usa `LockService`, garante pasta da atividade, copia por padrao o arquivo para a pasta e grava somente os campos novos de material. Para mover o arquivo original, o payload precisa informar explicitamente `moverArquivo: true`.
+
+As acoes de titulo/eixo, revisao e material pelo Portal estao detalhadas em [`atividades-v2-portal-apresentacoes-acoes.md`](atividades-v2-portal-apresentacoes-acoes.md).
 
 ## Funcoes publicas
 

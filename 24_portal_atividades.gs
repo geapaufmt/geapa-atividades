@@ -60,7 +60,7 @@ function atividadesV2_portalGetMinhasApresentacoes_(contexto) {
       if (!atividades_canShowActivityInPortal_(record, ctx)) return;
       atividadesV2_parsePublicJsonArray_(record.APRESENTACOES_PUBLICAS_JSON).forEach(function(apresentacao) {
         if (!atividadesV2_portalApresentacaoBelongsToContext_(apresentacao, ctx)) return;
-        apresentacoes.push(atividadesV2_portalMapApresentacaoPublica_(apresentacao, record));
+        apresentacoes.push(atividadesV2_portalMapApresentacaoPublica_(apresentacao, record, ctx));
       });
     });
 
@@ -277,8 +277,8 @@ function atividadesV2_portalMapFrequenciaMembro_(record) {
   };
 }
 
-function atividadesV2_portalMapApresentacaoPublica_(apresentacao, atividade) {
-  return {
+function atividadesV2_portalMapApresentacaoPublica_(apresentacao, atividade, contexto) {
+  var mapped = {
     idPessoa: String(apresentacao.idPessoa || '').trim(),
     rga: String(apresentacao.rga || '').trim(),
     idApresentacao: String(apresentacao.idApresentacao || '').trim(),
@@ -298,6 +298,21 @@ function atividadesV2_portalMapApresentacaoPublica_(apresentacao, atividade) {
     linkMaterialPublico: atividades_sanitizePortalUrl_(apresentacao.linkMaterialPublico),
     versaoMaterial: String(apresentacao.versaoMaterial || '').trim(),
     ultimaAtualizacao: String(atividade.ULTIMA_ATUALIZACAO || '').trim()
+  };
+  return Object.assign(mapped, atividadesV2_portalPresentationActionFlags_(mapped, contexto));
+}
+
+function atividadesV2_portalPresentationActionFlags_(apresentacao, contexto) {
+  var privileged = atividades_isPrivilegedPortalProfile_(contexto);
+  var statusTitulo = atividades_normalizeTextUpper_(apresentacao.statusTituloEixo);
+  var statusMaterial = atividades_normalizeTextUpper_(apresentacao.statusMaterial);
+  var hasMaterial = !!String(apresentacao.idArquivoMaterial || apresentacao.linkMaterialPublico || '').trim();
+  return {
+    podeEditarTituloEixo: privileged || ['APROVADO'].indexOf(statusTitulo) === -1,
+    podeEnviarMaterial: privileged || (!hasMaterial && ['APROVADO', 'DISPENSADO'].indexOf(statusMaterial) === -1),
+    podeReenviarMaterial: privileged || (hasMaterial && ['APROVADO', 'DISPENSADO'].indexOf(statusMaterial) === -1),
+    podeAprovarTituloEixo: privileged,
+    podeRevisarMaterial: privileged
   };
 }
 
@@ -348,6 +363,8 @@ function atividadesV2_portalMapPendenciaDiretoria_(record) {
   return {
     idPendencia: String(record.ID_PENDENCIA || '').trim(),
     tipo: String(record.TIPO_PENDENCIA || '').trim(),
+    idAtividade: String(record.ID_ATIVIDADE || '').trim(),
+    idApresentacao: String(record.ID_APRESENTACAO || '').trim(),
     titulo: atividades_sanitizePortalText_(record.TITULO_ATIVIDADE || record.ID_ATIVIDADE, 240),
     descricaoPublica: atividades_sanitizePortalText_(record.DESCRICAO_PENDENCIA, 500),
     status: String(record.STATUS_PENDENCIA || '').trim(),
