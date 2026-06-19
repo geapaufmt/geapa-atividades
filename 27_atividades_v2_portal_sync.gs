@@ -543,6 +543,7 @@ function atividadesV2_buildApresentacoesPublicas_(atividade, apresentacoes) {
       statusApresentacao: String(apresentacao.STATUS_APRESENTACAO || '').trim(),
       statusTituloEixo: String(apresentacao.STATUS_TITULO_EIXO || '').trim(),
       statusMaterial: String(apresentacao.STATUS_ENVIO_MATERIAL || '').trim(),
+      bloqueadoParaEdicao: atividadesV2_isTruthyFlag_(apresentacao.BLOQUEADO_PARA_EDICAO || atividade.BLOQUEADO_PARA_EDICAO),
       idArquivoMaterial: String(apresentacao.ID_ARQUIVO_MATERIAL || '').trim(),
       nomeArquivoMaterial: atividades_sanitizePortalText_(apresentacao.NOME_ARQUIVO_MATERIAL, 240),
       linkMaterialPublico: atividades_sanitizePortalUrl_(apresentacao.LINK_MATERIAL_APRESENTACAO),

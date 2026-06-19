@@ -203,8 +203,17 @@ function atividadesV2_registrarMaterialApresentacao_(payload, contexto) {
 
     var now = new Date();
     var alreadyHadMaterial = !!String(apresentacao.ID_ARQUIVO_MATERIAL || apresentacao.LINK_MATERIAL_APRESENTACAO || '').trim();
+    var actorIsPrivileged = ['SECRETARIO', 'DIRETORIA', 'ADMIN_TECNICO'].indexOf(
+      atividades_normalizeTextUpper_(contexto && (contexto.perfil || contexto.perfilUsuario || contexto.role))
+    ) >= 0;
+    var statusMaterial = actorIsPrivileged && payload.statusMaterial
+      ? String(payload.statusMaterial || '').trim().toUpperCase()
+      : (alreadyHadMaterial ? 'REENVIADO' : 'RECEBIDO');
+    if (['PENDENTE', 'RECEBIDO', 'REENVIADO', 'EM_ANALISE', 'AJUSTE_SOLICITADO', 'APROVADO', 'HISTORICO', 'DISPENSADO'].indexOf(statusMaterial) === -1) {
+      throw new Error('STATUS_ENVIO_MATERIAL_INVALIDO: status de material invalido.');
+    }
     var updates = {
-      STATUS_ENVIO_MATERIAL: String(payload.statusMaterial || (alreadyHadMaterial ? 'REENVIADO' : 'RECEBIDO')).trim().toUpperCase(),
+      STATUS_ENVIO_MATERIAL: statusMaterial,
       DATA_RECEBIMENTO_MATERIAL: now,
       ID_ARQUIVO_MATERIAL: targetFile.getId(),
       NOME_ARQUIVO_MATERIAL: targetFile.getName(),
@@ -238,7 +247,10 @@ function atividadesV2_registrarMaterialApresentacao_(payload, contexto) {
       idArquivoMaterial: targetFile.getId(),
       nomeArquivoMaterial: targetFile.getName(),
       linkMaterialApresentacao: targetFile.getUrl(),
-      versaoMaterial: nameVersion.versao
+      versaoMaterial: nameVersion.versao,
+      idPessoa: apresentacao.ID_PESSOA || atividade.ID_PESSOA_PRINCIPAL || '',
+      email: apresentacao.EMAIL_MEMBRO || atividade.EMAIL_PESSOA_PRINCIPAL || '',
+      rga: apresentacao.RGA || atividade.RGA_PESSOA_PRINCIPAL || ''
     };
   } catch (err) {
     try {
@@ -525,11 +537,14 @@ function atividadesV2_assertPodeRegistrarMaterial_(contexto, atividade, apresent
 }
 
 function atividadesV2_assertMaterialStatusAllowsWrite_(contexto, apresentacao) {
+  if (atividades_isTruthySim_(apresentacao && apresentacao.BLOQUEADO_PARA_EDICAO)) {
+    throw new Error('APRESENTACAO_BLOQUEADA: apresentacao bloqueada para edicao.');
+  }
   var perfil = atividades_normalizeTextUpper_(contexto && (contexto.perfil || contexto.perfilUsuario || contexto.role));
   if (['SECRETARIO', 'DIRETORIA', 'ADMIN_TECNICO'].indexOf(perfil) >= 0) return true;
   var status = atividades_normalizeTextUpper_(apresentacao && apresentacao.STATUS_ENVIO_MATERIAL);
-  if (status === 'APROVADO' || status === 'DISPENSADO') {
-    throw new Error('MATERIAL_FECHADO: material ja aprovado ou dispensado.');
+  if (['PENDENTE', 'AJUSTE_SOLICITADO'].indexOf(status || 'PENDENTE') === -1) {
+    throw new Error('MATERIAL_FECHADO: material so pode ser enviado pelo membro quando estiver pendente ou com ajuste solicitado.');
   }
 }
 

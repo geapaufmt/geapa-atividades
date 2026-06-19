@@ -1082,9 +1082,14 @@ function atividadesV2_buildPendenciasDiretoriaRows_(data, now) {
     var atividade = atividadesById[String(record.ID_ATIVIDADE || '').trim()] || {};
     if (!String(record.ID_ATIVIDADE || '').trim()) {
       rows.push(atividadesV2_buildPendenciaRow_('APRESENTACAO_SEM_ATIVIDADE', 'ALTA', record, '', 'Vincular apresentacao a uma atividade v2.', now));
+      return;
     }
     if (!String(atividade.ID_PESSOA_PRINCIPAL || atividade.RGA_PESSOA_PRINCIPAL || atividade.NOME_PESSOA_PRINCIPAL_PUBLICO || record.ID_PESSOA || record.RGA || record.NOME_MEMBRO || '').trim()) {
-      rows.push(atividadesV2_buildPendenciaRow_('APRESENTACAO_SEM_APRESENTADOR', 'ALTA', record, '', 'Informar apresentador da apresentacao.', now));
+      rows.push(atividadesV2_buildPendenciaRow_('APRESENTACAO_SEM_APRESENTADOR', 'ALTA', Object.assign({}, atividade, record, {
+        TITULO_ATIVIDADE: atividade.TITULO_PUBLICO || atividade.TITULO || 'Titulo ainda nao informado',
+        ROTULO_SEMESTRE: atividadesV2_getSemestrePortalFields_(atividade).ROTULO_SEMESTRE
+      }), '', 'Informar apresentador da apresentacao.', now));
+      return;
     }
     atividadesV2_addPresentationWorkflowPendencias_(rows, atividade, record, now);
   });
@@ -1097,32 +1102,58 @@ function atividadesV2_addPresentationWorkflowPendencias_(rows, atividade, aprese
 
   var titleStatus = atividades_normalizeTextUpper_(apresentacao.STATUS_TITULO_EIXO || atividade.STATUS_EIXO_TEMATICO || 'PENDENTE');
   var materialStatus = atividades_normalizeTextUpper_(apresentacao.STATUS_ENVIO_MATERIAL || 'PENDENTE');
+  var presentationStatus = atividades_normalizeTextUpper_(apresentacao.STATUS_APRESENTACAO);
+  if (titleStatus === 'REPROVADO') return;
+  var syncHistorico = atividadesV2_isTruthyFlag_(apresentacao.SYNC_HISTORICO_PUBLICO);
   var hasTitleAxis = !!String(atividade.TITULO_PUBLICO || atividade.TITULO || '').trim() &&
     !!String(atividade.EIXO_TEMATICO_PRINCIPAL || '').trim();
   var hasMaterial = !!String(apresentacao.ID_ARQUIVO_MATERIAL || apresentacao.LINK_MATERIAL_APRESENTACAO || '').trim();
+  var materialResolvido = ['HISTORICO', 'APROVADO', 'DISPENSADO'].indexOf(materialStatus) >= 0 ||
+    (materialStatus === 'RECEBIDO' && (hasMaterial || syncHistorico || presentationStatus === 'REALIZADA'));
+  var requiresExplicitMaterialApproval = atividadesV2_requiresExplicitMaterialApproval_(atividade, apresentacao);
 
   if (!hasTitleAxis || titleStatus === 'PENDENTE') {
-    rows.push(atividadesV2_buildPendenciaApresentacaoRow_('APRESENTACAO_TITULO_EIXO_PENDENTE', 'MEDIA', atividade, apresentacao, '', 'Aguardar ou solicitar titulo/eixo da apresentacao.', now));
-  } else if (['ENVIADO', 'RECEBIDO', 'EM_ANALISE'].indexOf(titleStatus) >= 0) {
-    rows.push(atividadesV2_buildPendenciaApresentacaoRow_('APRESENTACAO_TITULO_EIXO_EM_ANALISE', 'MEDIA', atividade, apresentacao, '', 'Revisar titulo/eixo informado pelo apresentador.', now));
+    rows.push(atividadesV2_buildPendenciaApresentacaoRow_('TITULO_EIXO_PENDENTE', 'MEDIA', atividade, apresentacao, '', 'Aguardar ou solicitar titulo/eixo da apresentacao.', now));
+  } else if (['ENVIADO', 'EM_ANALISE'].indexOf(titleStatus) >= 0) {
+    rows.push(atividadesV2_buildPendenciaApresentacaoRow_('TITULO_EIXO_AGUARDANDO_ANALISE', 'MEDIA', atividade, apresentacao, '', 'Revisar titulo/eixo informado pelo apresentador.', now));
   } else if (titleStatus === 'AJUSTE_SOLICITADO') {
-    rows.push(atividadesV2_buildPendenciaApresentacaoRow_('APRESENTACAO_TITULO_EIXO_AJUSTE_SOLICITADO', 'BAIXA', atividade, apresentacao, '', 'Acompanhar ajuste de titulo/eixo solicitado ao apresentador.', now));
+    rows.push(atividadesV2_buildPendenciaApresentacaoRow_('TITULO_EIXO_AJUSTE_SOLICITADO', 'BAIXA', atividade, apresentacao, '', 'Acompanhar ajuste de titulo/eixo solicitado ao apresentador.', now));
+  }
+
+  if (materialResolvido) {
+    return;
   }
 
   if (!hasMaterial || materialStatus === 'PENDENTE') {
-    rows.push(atividadesV2_buildPendenciaApresentacaoRow_('APRESENTACAO_MATERIAL_PENDENTE', 'MEDIA', atividade, apresentacao, '', 'Aguardar ou solicitar envio do material da apresentacao.', now));
-  } else if (['RECEBIDO', 'REENVIADO', 'EM_ANALISE'].indexOf(materialStatus) >= 0) {
-    rows.push(atividadesV2_buildPendenciaApresentacaoRow_('APRESENTACAO_MATERIAL_EM_ANALISE', 'MEDIA', atividade, apresentacao, '', 'Revisar material enviado pelo apresentador.', now));
+    rows.push(atividadesV2_buildPendenciaApresentacaoRow_('MATERIAL_PENDENTE', 'MEDIA', atividade, apresentacao, '', 'Aguardar ou solicitar envio do material da apresentacao.', now));
+  } else if (['REENVIADO', 'EM_ANALISE'].indexOf(materialStatus) >= 0 || (materialStatus === 'RECEBIDO' && requiresExplicitMaterialApproval)) {
+    rows.push(atividadesV2_buildPendenciaApresentacaoRow_('MATERIAL_AGUARDANDO_ANALISE', 'MEDIA', atividade, apresentacao, '', 'Revisar material enviado pelo apresentador.', now));
   } else if (materialStatus === 'AJUSTE_SOLICITADO') {
-    rows.push(atividadesV2_buildPendenciaApresentacaoRow_('APRESENTACAO_MATERIAL_AJUSTE_SOLICITADO', 'BAIXA', atividade, apresentacao, '', 'Acompanhar reenvio do material ajustado.', now));
+    rows.push(atividadesV2_buildPendenciaApresentacaoRow_('MATERIAL_AJUSTE_SOLICITADO', 'BAIXA', atividade, apresentacao, '', 'Acompanhar reenvio do material ajustado.', now));
   }
 }
 
+function atividadesV2_requiresExplicitMaterialApproval_(atividade, apresentacao) {
+  return atividadesV2_isTruthyFlag_(
+    apresentacao.EXIGE_APROVACAO_MATERIAL ||
+    apresentacao.APROVACAO_MATERIAL_OBRIGATORIA ||
+    atividade.EXIGE_APROVACAO_MATERIAL ||
+    atividade.APROVACAO_MATERIAL_OBRIGATORIA
+  );
+}
+
 function atividadesV2_buildPendenciaApresentacaoRow_(tipo, gravidade, atividade, apresentacao, prazo, acao, now) {
+  var semestreFields = atividadesV2_getSemestrePortalFields_(atividade);
   var row = atividadesV2_buildPendenciaRow_(tipo, gravidade, Object.assign({}, atividade, {
     ID_APRESENTACAO: apresentacao.ID_APRESENTACAO,
+    ROTULO_SEMESTRE: semestreFields.ROTULO_SEMESTRE,
+    TITULO_APRESENTACAO: atividade.TITULO_PUBLICO || atividade.TITULO || 'Titulo ainda nao informado',
+    NOME_APRESENTADOR: atividade.NOME_PESSOA_PRINCIPAL_PUBLICO || apresentacao.NOME_MEMBRO || 'Apresentador ainda nao definido',
     STATUS_TITULO_EIXO: apresentacao.STATUS_TITULO_EIXO,
-    STATUS_ENVIO_MATERIAL: apresentacao.STATUS_ENVIO_MATERIAL
+    STATUS_ENVIO_MATERIAL: apresentacao.STATUS_ENVIO_MATERIAL,
+    STATUS_APRESENTACAO: apresentacao.STATUS_APRESENTACAO,
+    NOME_ARQUIVO_MATERIAL: apresentacao.NOME_ARQUIVO_MATERIAL,
+    LINK_MATERIAL_APRESENTACAO: apresentacao.LINK_MATERIAL_APRESENTACAO
   }), prazo, acao, now);
   row.ID_PENDENCIA = atividadesV2_buildDeterministicId_('PEND', [tipo, atividade.ID_ATIVIDADE, apresentacao.ID_APRESENTACAO]);
   row.ID_APRESENTACAO = String(apresentacao.ID_APRESENTACAO || '').trim();
@@ -1153,8 +1184,18 @@ function atividadesV2_buildPendenciaRow_(tipo, gravidade, record, prazo, acao, n
     GRAVIDADE: gravidade,
     ID_ATIVIDADE: idAtividade,
     ID_APRESENTACAO: String(record.ID_APRESENTACAO || '').trim(),
-    TITULO_ATIVIDADE: atividades_sanitizePortalText_(record.TITULO || record.TITULO_ATIVIDADE || record.TITULO_APRESENTACAO, 240),
+    ROTULO_SEMESTRE: String(record.ROTULO_SEMESTRE || '').trim(),
+    TITULO_ATIVIDADE: atividades_sanitizePortalText_(record.TITULO || record.TITULO_ATIVIDADE || record.TITULO_APRESENTACAO || 'Titulo ainda nao informado', 240),
+    TITULO_APRESENTACAO: atividades_sanitizePortalText_(record.TITULO_APRESENTACAO || record.TITULO || record.TITULO_PUBLICO || 'Titulo ainda nao informado', 240),
+    NOME_APRESENTADOR: atividades_sanitizePortalText_(record.NOME_APRESENTADOR || record.NOME_PESSOA_PRINCIPAL_PUBLICO || record.NOME_MEMBRO || 'Apresentador ainda nao definido', 180),
     DATA_ATIVIDADE: record.DATA_ATIVIDADE || '',
+    EIXO_TEMATICO_PRINCIPAL: String(record.EIXO_TEMATICO_PRINCIPAL || '').trim(),
+    EIXO_TEMATICO_SECUNDARIO: String(record.EIXO_TEMATICO_SECUNDARIO || '').trim(),
+    STATUS_APRESENTACAO: String(record.STATUS_APRESENTACAO || '').trim(),
+    STATUS_TITULO_EIXO: String(record.STATUS_TITULO_EIXO || record.STATUS_EIXO_TEMATICO || '').trim(),
+    STATUS_ENVIO_MATERIAL: String(record.STATUS_ENVIO_MATERIAL || '').trim(),
+    NOME_ARQUIVO_MATERIAL: String(record.NOME_ARQUIVO_MATERIAL || '').trim(),
+    LINK_MATERIAL_APRESENTACAO: String(record.LINK_MATERIAL_APRESENTACAO || '').trim(),
     PRAZO: prazo || '',
     DIAS_EM_ABERTO: dias,
     RESPONSAVEL_SUGERIDO: record.RESPONSAVEL_INTERNO || '',

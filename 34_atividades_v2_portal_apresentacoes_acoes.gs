@@ -11,7 +11,8 @@ var ATIVIDADES_V2_APRESENTACOES_TITULO_STATUS = Object.freeze([
   'RECEBIDO',
   'EM_ANALISE',
   'AJUSTE_SOLICITADO',
-  'APROVADO'
+  'APROVADO',
+  'REPROVADO'
 ]);
 
 var ATIVIDADES_V2_APRESENTACOES_MATERIAL_STATUS = Object.freeze([
@@ -27,6 +28,10 @@ var ATIVIDADES_V2_APRESENTACOES_MATERIAL_STATUS = Object.freeze([
 
 function atividadesV2_portalListarEixosTematicos_(contexto) {
   atividades_normalizePortalContext_(contexto);
+  var cacheKey = portalCacheBuildKey_('eixos_tematicos', 'ativos');
+  var cached = portalCacheGetJson_(cacheKey);
+  if (cached) return cached;
+
   var eixos = atividades_getMapaEixosApresentacoes_().map(function(item) {
     var raw = item.raw || {};
     return {
@@ -40,11 +45,13 @@ function atividadesV2_portalListarEixosTematicos_(contexto) {
       exemplosTemas: String(raw.EXEMPLOS_TEMAS || '').trim()
     };
   });
-  return {
+  var result = {
     ok: true,
     data: { eixos: eixos },
     origem: ATIVIDADES_CFG.STABLE_KEYS.THEMATIC_AXES
   };
+  portalCachePutJson_(cacheKey, result, ATIVIDADES_V2_PORTAL_CONFIG_CACHE_TTL_SECONDS);
+  return result;
 }
 
 function atividadesV2_portalEnviarTituloEixoApresentacao_(payload, contexto) {
@@ -65,6 +72,9 @@ function atividadesV2_portalEnviarTituloEixoApresentacao_(payload, contexto) {
 
       var config = atividadesV2_portalGetActivityConfig_(ss, bundle.atividade);
       var normalized = atividadesV2_validateTituloEixoPayload_(action.payload, config);
+      if (currentStatus === 'REPROVADO') {
+        atividadesV2_assertNewTitleAxisProposalChanged_(bundle.atividade, normalized);
+      }
       var now = new Date();
       var user = atividadesV2_portalActorToken_(action.contexto);
       var status = 'ENVIADO';
@@ -91,7 +101,10 @@ function atividadesV2_portalEnviarTituloEixoApresentacao_(payload, contexto) {
         statusTituloEixo: status,
         tituloPublico: normalized.titulo,
         eixoTematicoPrincipal: normalized.eixoPrincipal,
-        eixoTematicoSecundario: normalized.eixoSecundario
+        eixoTematicoSecundario: normalized.eixoSecundario,
+        idPessoa: bundle.apresentacao.ID_PESSOA || bundle.atividade.ID_PESSOA_PRINCIPAL || '',
+        email: bundle.apresentacao.EMAIL_MEMBRO || bundle.atividade.EMAIL_PESSOA_PRINCIPAL || '',
+        rga: bundle.apresentacao.RGA || bundle.atividade.RGA_PESSOA_PRINCIPAL || ''
       };
     }
   );
@@ -136,7 +149,110 @@ function atividadesV2_portalRevisarTituloEixoApresentacao_(payload, contexto) {
       return {
         idAtividade: bundle.atividade.ID_ATIVIDADE,
         idApresentacao: bundle.apresentacao.ID_APRESENTACAO,
-        statusTituloEixo: status
+        statusTituloEixo: status,
+        idPessoa: bundle.apresentacao.ID_PESSOA || bundle.atividade.ID_PESSOA_PRINCIPAL || '',
+        email: bundle.apresentacao.EMAIL_MEMBRO || bundle.atividade.EMAIL_PESSOA_PRINCIPAL || '',
+        rga: bundle.apresentacao.RGA || bundle.atividade.RGA_PESSOA_PRINCIPAL || ''
+      };
+    }
+  );
+}
+
+function atividadesV2_portalEditarEAprovarTituloEixoApresentacao_(payload, contexto) {
+  return atividadesV2_portalRunPresentationAction_(
+    'APRESENTACAO_TITULO_EIXO_EDITADO_APROVADO',
+    payload,
+    contexto,
+    function(ss, action) {
+      if (!atividades_isPrivilegedPortalProfile_(action.contexto)) {
+        throw atividadesV2_portalActionException_('PERMISSAO_NEGADA', 'Perfil sem permissao para editar e aprovar titulo/eixo.');
+      }
+      var bundle = atividadesV2_portalResolvePresentationActionBundle_(ss, action.payload);
+      var config = atividadesV2_portalGetActivityConfig_(ss, bundle.atividade);
+      var normalized = atividadesV2_validateTituloEixoPayload_(action.payload, config);
+      var now = new Date();
+      var user = atividadesV2_portalActorToken_(action.contexto);
+
+      atividadesV2_updateRowByHeaders_(bundle.atividadesSheet, bundle.atividade._rowNumber, {
+        TITULO: normalized.titulo,
+        TITULO_PUBLICO: normalized.titulo,
+        EIXO_TEMATICO_PRINCIPAL: normalized.eixoPrincipal,
+        EIXO_TEMATICO_SECUNDARIO: normalized.eixoSecundario,
+        STATUS_EIXO_TEMATICO: 'APROVADO',
+        ATUALIZADO_POR: user,
+        ATUALIZADO_EM: now
+      });
+      atividadesV2_updateRowByHeaders_(bundle.apresentacoesSheet, bundle.apresentacao._rowNumber, {
+        STATUS_TITULO_EIXO: 'APROVADO',
+        DATA_CONFIRMACAO_TITULO_EIXO: now,
+        ATUALIZADO_POR: user,
+        ATUALIZADO_EM: now,
+        OBSERVACOES: atividadesV2_joinObservacoes_(
+          bundle.apresentacao.OBSERVACOES,
+          atividadesV2_buildReviewObservation_(action.payload) || 'Titulo/eixo editado e aprovado pela gestao via Portal.'
+        )
+      });
+
+      return {
+        idAtividade: bundle.atividade.ID_ATIVIDADE,
+        idApresentacao: bundle.apresentacao.ID_APRESENTACAO,
+        statusTituloEixo: 'APROVADO',
+        tituloPublico: normalized.titulo,
+        eixoTematicoPrincipal: normalized.eixoPrincipal,
+        eixoTematicoSecundario: normalized.eixoSecundario,
+        idPessoa: bundle.apresentacao.ID_PESSOA || bundle.atividade.ID_PESSOA_PRINCIPAL || '',
+        email: bundle.apresentacao.EMAIL_MEMBRO || bundle.atividade.EMAIL_PESSOA_PRINCIPAL || '',
+        rga: bundle.apresentacao.RGA || bundle.atividade.RGA_PESSOA_PRINCIPAL || ''
+      };
+    }
+  );
+}
+
+function atividadesV2_portalReprovarTituloEixoApresentacao_(payload, contexto) {
+  return atividadesV2_portalRunPresentationAction_(
+    'APRESENTACAO_TITULO_EIXO_REPROVADO',
+    payload,
+    contexto,
+    function(ss, action) {
+      if (!atividades_isPrivilegedPortalProfile_(action.contexto)) {
+        throw atividadesV2_portalActionException_('PERMISSAO_NEGADA', 'Perfil sem permissao para reprovar titulo/eixo.');
+      }
+      var observacao = atividades_sanitizePortalText_(
+        action.payload.observacaoObrigatoria || action.payload.observacoes || action.payload.observacaoPublica,
+        500
+      );
+      if (!observacao) {
+        throw atividadesV2_portalActionException_('OBSERVACAO_OBRIGATORIA', 'Informe a justificativa da reprovacao do titulo/eixo.');
+      }
+
+      var bundle = atividadesV2_portalResolvePresentationActionBundle_(ss, action.payload);
+      var now = new Date();
+      var user = atividadesV2_portalActorToken_(action.contexto);
+      var valoresAnteriores = atividadesV2_getPreviousTitleAxisValues_(bundle.atividade, bundle.apresentacao);
+      atividadesV2_updateRowByHeaders_(bundle.atividadesSheet, bundle.atividade._rowNumber, {
+        STATUS_EIXO_TEMATICO: 'REPROVADO',
+        ATUALIZADO_POR: user,
+        ATUALIZADO_EM: now
+      });
+      atividadesV2_updateRowByHeaders_(bundle.apresentacoesSheet, bundle.apresentacao._rowNumber, {
+        STATUS_TITULO_EIXO: 'REPROVADO',
+        ATUALIZADO_POR: user,
+        ATUALIZADO_EM: now,
+        OBSERVACOES: atividadesV2_joinObservacoes_(
+          bundle.apresentacao.OBSERVACOES,
+          'Titulo/eixo reprovado via Portal: ' + observacao
+        )
+      });
+
+      return {
+        idAtividade: bundle.atividade.ID_ATIVIDADE,
+        idApresentacao: bundle.apresentacao.ID_APRESENTACAO,
+        statusApresentacao: bundle.apresentacao.STATUS_APRESENTACAO || '',
+        statusTituloEixo: 'REPROVADO',
+        valoresAnteriores: valoresAnteriores,
+        idPessoa: bundle.apresentacao.ID_PESSOA || bundle.atividade.ID_PESSOA_PRINCIPAL || '',
+        email: bundle.apresentacao.EMAIL_MEMBRO || bundle.atividade.EMAIL_PESSOA_PRINCIPAL || '',
+        rga: bundle.apresentacao.RGA || bundle.atividade.RGA_PESSOA_PRINCIPAL || ''
       };
     }
   );
@@ -177,7 +293,10 @@ function atividadesV2_portalRevisarMaterialApresentacao_(payload, contexto) {
       return {
         idAtividade: bundle.atividade.ID_ATIVIDADE,
         idApresentacao: bundle.apresentacao.ID_APRESENTACAO,
-        statusMaterial: status
+        statusMaterial: status,
+        idPessoa: bundle.apresentacao.ID_PESSOA || bundle.atividade.ID_PESSOA_PRINCIPAL || '',
+        email: bundle.apresentacao.EMAIL_MEMBRO || bundle.atividade.EMAIL_PESSOA_PRINCIPAL || '',
+        rga: bundle.apresentacao.RGA || bundle.atividade.RGA_PESSOA_PRINCIPAL || ''
       };
     }
   );
@@ -195,6 +314,7 @@ function atividadesV2_portalRegistrarMaterialApresentacao_(payload, contexto) {
       return true;
     });
     atividadesV2_refreshPresentationPortalViews_();
+    atividadesV2_invalidatePresentationPortalCaches_(result.contexto, materialResult);
     return {
       ok: true,
       message: 'Material registrado com sucesso na base DEV.',
@@ -213,18 +333,512 @@ function atividadesV2_portalListarPendenciasApresentacoesDiretoria_(contexto) {
   if (!atividades_isPrivilegedPortalProfile_(ctx)) {
     return atividadesV2_portalActionErrorResponse_(atividadesV2_portalActionException_('PERMISSAO_NEGADA', 'Perfil sem permissao para consultar pendencias de apresentacoes.'));
   }
+  var cacheKey = portalCacheBuildKey_('pendencias_apresentacoes', 'gestao');
+  var cached = portalCacheGetJson_(cacheKey);
+  if (cached) return cached;
+
   var result = atividadesV2_portalGetPendenciasDiretoria_(ctx);
   if (!result.ok) return result;
   var pendencias = (result.data && result.data.pendencias || []).filter(function(item) {
-    return String(item.tipo || '').indexOf('APRESENTACAO_') === 0;
+    return atividadesV2_isPresentationPendingType_(item.tipo || item.tipoPendencia);
   });
-  return {
+  var cards = atividadesV2_groupPresentationPendenciesForPortal_(pendencias);
+  var response = {
     ok: true,
     data: {
-      resumo: { total: pendencias.length },
-      pendencias: pendencias
+      resumo: { total: cards.length, totalPendenciasInternas: pendencias.length },
+      pendencias: cards
     }
   };
+  portalCachePutJson_(cacheKey, response, ATIVIDADES_V2_PORTAL_PENDENCIAS_CACHE_TTL_SECONDS);
+  return response;
+}
+
+function atividadesV2_atualizarStatusRealizacaoApresentacoesDev_(options) {
+  options = options || {};
+  var dryRun = options.dryRun !== false;
+  var atualizarViews = options.atualizarViews === true;
+  var report = {
+    ok: true,
+    dryRun: dryRun,
+    candidatos: [],
+    totalCandidatos: 0,
+    totalAtualizados: 0,
+    avisos: [],
+    erros: []
+  };
+
+  var lock = null;
+  if (!dryRun) {
+    lock = LockService.getScriptLock();
+    if (!lock.tryLock(30000)) throw new Error('LOCK_INDISPONIVEL: nao foi possivel atualizar status de realizacao agora.');
+  }
+
+  try {
+    var ss = atividadesV2_getDatabaseSpreadsheetDev_();
+    var atividadesSheet = atividadesV2_getTargetSheet_(ss, ATIVIDADES_V2_SHEETS.ATIVIDADES);
+    var apresentacoesSheet = atividadesV2_getTargetSheet_(ss, ATIVIDADES_V2_SHEETS.APRESENTACOES);
+    atividadesV2_applyHeadersIfMissing_(atividadesSheet, ATIVIDADES_V2_SCHEMA.ATIVIDADES);
+    atividadesV2_applyHeadersIfMissing_(apresentacoesSheet, ATIVIDADES_V2_SCHEMA.APRESENTACOES);
+
+    var atividades = atividadesV2_readSheetObjects_(atividadesSheet);
+    var atividadesById = atividadesV2_indexByField_(atividades, 'ID_ATIVIDADE');
+    var apresentacoes = atividadesV2_readSheetObjects_(apresentacoesSheet);
+    var now = options.now ? atividades_parseDateOrNull_(options.now) || new Date() : new Date();
+    var user = atividadesV2_safeUserToken_(options.atualizadoPor || 'SISTEMA_ATIVIDADES_V2');
+
+    apresentacoes.forEach(function(apresentacao) {
+      var evaluation = atividadesV2_evaluateRealizacaoPresentationCandidate_(atividadesById, apresentacao, options, now);
+      if (!evaluation.candidate) {
+        if (evaluation.aviso) report.avisos.push(evaluation.aviso);
+        return;
+      }
+      report.candidatos.push(evaluation.item);
+      if (dryRun) return;
+
+      try {
+        atividadesV2_updateRowByHeaders_(atividadesSheet, evaluation.atividade._rowNumber, {
+          STATUS_OPERACIONAL: 'REALIZADA',
+          ATUALIZADO_POR: user,
+          ATUALIZADO_EM: now
+        });
+        atividadesV2_updateRowByHeaders_(apresentacoesSheet, apresentacao._rowNumber, {
+          STATUS_APRESENTACAO: 'REALIZADA',
+          ATUALIZADO_POR: user,
+          ATUALIZADO_EM: now
+        });
+        atividadesV2_appendV2Log_(ss, {
+          FLUXO: 'APRESENTACOES_V2',
+          ACAO: 'APRESENTACAO_MARCADA_REALIZADA',
+          NIVEL: 'INFO',
+          STATUS: 'OK',
+          ID_ATIVIDADE: evaluation.item.idAtividade,
+          ID_ENTIDADE: evaluation.item.idApresentacao,
+          TIPO_ENTIDADE: 'APRESENTACAO',
+          MENSAGEM: 'Apresentacao V2 marcada como REALIZADA por rotina controlada.',
+          DETALHES_JSON: atividadesV2_safeLogData_(evaluation.item)
+        });
+        report.totalAtualizados++;
+      } catch (err) {
+        report.erros.push({
+          idAtividade: evaluation.item.idAtividade,
+          idApresentacao: evaluation.item.idApresentacao,
+          erro: atividadesV2_errorMessage_(err)
+        });
+      }
+    });
+
+    report.totalCandidatos = report.candidatos.length;
+    if (!dryRun && atualizarViews) {
+      report.atualizacaoViews = atividadesV2_atualizarViewsPortal_({ dryRun: false, stopOnError: false });
+      atividadesV2_invalidatePresentationPortalCaches_({}, {});
+    }
+    return report;
+  } finally {
+    if (lock) lock.releaseLock();
+  }
+}
+
+function atividadesV2_evaluateRealizacaoPresentationCandidate_(atividadesById, apresentacao, options, now) {
+  var idAtividade = String(apresentacao.ID_ATIVIDADE || '').trim();
+  var idApresentacao = String(apresentacao.ID_APRESENTACAO || '').trim();
+  if (options.idAtividade && String(options.idAtividade).trim() !== idAtividade) return { candidate: false };
+  if (options.idApresentacao && String(options.idApresentacao).trim() !== idApresentacao) return { candidate: false };
+
+  var atividade = atividadesById[idAtividade];
+  if (!atividade) return { candidate: false, aviso: 'Apresentacao sem atividade vinculada: ' + (idApresentacao || apresentacao._rowNumber) };
+  if (atividades_normalizeTextUpper_(atividade.ATIVO || 'SIM') === 'NAO') return { candidate: false };
+  if (atividades_normalizeTextUpper_(apresentacao.ATIVO || 'SIM') === 'NAO') return { candidate: false };
+  if (atividadesV2_isBlockedOrCancelledForRealization_(atividade, apresentacao)) return { candidate: false };
+
+  var subtipo = atividades_normalizeTextUpper_(atividade.SUBTIPO_ATIVIDADE || atividade.TIPO_ATIVIDADE);
+  if (subtipo !== 'APRESENTACAO_MEMBRO') return { candidate: false };
+
+  var statusOperacional = atividades_normalizeTextUpper_(atividade.STATUS_OPERACIONAL || 'PLANEJADA');
+  var statusApresentacao = atividades_normalizeTextUpper_(apresentacao.STATUS_APRESENTACAO || 'PLANEJADA');
+  if (statusOperacional === 'REALIZADA' && statusApresentacao === 'REALIZADA') return { candidate: false };
+  if (['PLANEJADA', 'PUBLICADA', 'AGENDADA', 'ENVIADA', 'RASCUNHO'].indexOf(statusOperacional || 'PLANEJADA') === -1) return { candidate: false };
+
+  var endDateTime = atividadesV2_buildActivityEndDateTimeForRealization_(atividade);
+  if (!endDateTime) return { candidate: false, aviso: 'Atividade sem data valida para realizacao: ' + idAtividade };
+  if (endDateTime.getTime() > now.getTime()) return { candidate: false };
+
+  var titleStatus = atividades_normalizeTextUpper_(apresentacao.STATUS_TITULO_EIXO || atividade.STATUS_EIXO_TEMATICO);
+  if (['APROVADO', 'RECEBIDO', 'HISTORICO'].indexOf(titleStatus) === -1) return { candidate: false };
+
+  var materialStatus = atividades_normalizeTextUpper_(apresentacao.STATUS_ENVIO_MATERIAL || '');
+  if (['RECEBIDO', 'APROVADO', 'HISTORICO', 'DISPENSADO'].indexOf(materialStatus) === -1) return { candidate: false };
+
+  return {
+    candidate: true,
+    atividade: atividade,
+    item: {
+      idAtividade: idAtividade,
+      idApresentacao: idApresentacao,
+      statusOperacionalAntes: statusOperacional,
+      statusApresentacaoAntes: statusApresentacao,
+      statusOperacionalDepois: 'REALIZADA',
+      statusApresentacaoDepois: 'REALIZADA',
+      motivo: 'Data/horario da apresentacao ja passou, titulo/eixos validados e material resolvido.'
+    }
+  };
+}
+
+function atividadesV2_isBlockedOrCancelledForRealization_(atividade, apresentacao) {
+  var statusOperacional = atividades_normalizeTextUpper_(atividade.STATUS_OPERACIONAL);
+  var statusPublicacao = atividades_normalizeTextUpper_(atividade.STATUS_PUBLICACAO_PORTAL);
+  var statusApresentacao = atividades_normalizeTextUpper_(apresentacao.STATUS_APRESENTACAO);
+  if (['CANCELADA', 'CANCELADO', 'SUSPENSA', 'SUSPENSO', 'ARQUIVADA', 'ARQUIVADO'].indexOf(statusOperacional) >= 0) return true;
+  if (['CANCELADA', 'CANCELADO', 'SUSPENSA', 'SUSPENSO'].indexOf(statusPublicacao) >= 0) return true;
+  if (['CANCELADA', 'CANCELADO', 'SUSPENSA', 'SUSPENSO'].indexOf(statusApresentacao) >= 0) return true;
+  return atividades_isTruthySim_(atividade.BLOQUEADO_PARA_EDICAO) ||
+    atividades_isTruthySim_(apresentacao.BLOQUEADO_PARA_EDICAO);
+}
+
+function atividadesV2_buildActivityEndDateTimeForRealization_(atividade) {
+  var date = atividades_parseDateOrNull_(atividade && atividade.DATA_ATIVIDADE);
+  if (!date) return null;
+  var minutes = atividades_parseTimeValueToMinutes_(atividade && atividade.HORARIO_FIM);
+  if (minutes === null || minutes === undefined) minutes = 23 * 60 + 59;
+  var out = new Date(date.getTime());
+  out.setHours(Math.floor(minutes / 60), minutes % 60, 0, 0);
+  return out;
+}
+
+function atividadesV2_groupPresentationPendenciesForPortal_(pendencias) {
+  var byPresentation = {};
+  (pendencias || []).forEach(function(item) {
+    var id = String(item.idApresentacao || item.ID_APRESENTACAO || '').trim() ||
+      String(item.idAtividade || item.ID_ATIVIDADE || '').trim() ||
+      String(item.idPendencia || item.ID_PENDENCIA || '').trim();
+    if (!byPresentation[id]) byPresentation[id] = atividadesV2_createPresentationPendencyCard_(item);
+    atividadesV2_mergePresentationPendencyIntoCard_(byPresentation[id], item);
+  });
+
+  return Object.keys(byPresentation).map(function(key) {
+    var card = byPresentation[key];
+    card.tipoPendencia = card.tiposPendencia.join('|');
+    return atividadesV2_finalizePresentationPendencyCard_(card);
+  }).sort(function(a, b) {
+    var da = atividades_parseDateOrNull_(a.dataAtividade);
+    var db = atividades_parseDateOrNull_(b.dataAtividade);
+    var ta = da ? da.getTime() : Number.MAX_SAFE_INTEGER;
+    var tb = db ? db.getTime() : Number.MAX_SAFE_INTEGER;
+    if (ta !== tb) return ta - tb;
+    return String(a.idApresentacao || '').localeCompare(String(b.idApresentacao || ''));
+  });
+}
+
+function atividadesV2_createPresentationPendencyCard_(item) {
+  return {
+    idPendencia: String(item.idPendencia || '').trim(),
+    tipo: 'APRESENTACAO_COM_PENDENCIAS',
+    tipoPendencia: 'APRESENTACAO_COM_PENDENCIAS',
+    tiposPendencia: [],
+    gravidade: String(item.gravidade || item.severidade || 'MEDIA').trim() || 'MEDIA',
+    idAtividade: String(item.idAtividade || '').trim(),
+    idApresentacao: String(item.idApresentacao || '').trim(),
+    dataAtividade: item.dataAtividade || '',
+    rotuloSemestre: String(item.rotuloSemestre || '').trim(),
+    titulo: item.tituloApresentacao || item.titulo || item.tituloAtividade || '',
+    tituloAtividade: item.tituloAtividade || '',
+    tituloApresentacao: item.tituloApresentacao || item.titulo || '',
+    tituloExibicao: '',
+    atividadeRotulo: '',
+    nomeApresentador: item.nomeApresentador || item.responsavelSugerido || item.responsavel || '',
+    eixoTematicoPrincipal: item.eixoTematicoPrincipal || '',
+    eixoTematicoSecundario: item.eixoTematicoSecundario || '',
+    eixosResumo: '',
+    statusApresentacao: item.statusApresentacao || '',
+    statusTituloEixo: item.statusTituloEixo || '',
+    statusMaterial: item.statusMaterial || '',
+    statusTituloEixoRotulo: '',
+    statusMaterialRotulo: '',
+    nomeArquivoMaterial: item.nomeArquivoMaterial || '',
+    linkMaterialPublico: item.linkMaterialPublico || '',
+    prazo: item.prazo || '',
+    diasEmAberto: item.diasEmAberto || '',
+    dataFormatada: '',
+    dataRotulo: '',
+    badges: [],
+    badgesRotulos: [],
+    pendenciasResumo: [],
+    acoesDisponiveis: [],
+    detalhesTecnicos: [],
+    mostrarDetalhesTecnicos: false,
+    pendenciasInternas: [],
+    blocoTituloEixos: {
+      status: item.statusTituloEixo || '',
+      acoesGestao: atividadesV2_emptyTitleManagementActions_()
+    },
+    blocoMaterial: {
+      status: item.statusMaterial || '',
+      nomeArquivoMaterial: item.nomeArquivoMaterial || '',
+      linkMaterialPublico: item.linkMaterialPublico || '',
+      acoesGestao: atividadesV2_emptyMaterialManagementActions_()
+    },
+    acoesGestao: {
+      podeAprovarTituloEixo: false,
+      podeEditarEAprovarTituloEixo: false,
+      podeSolicitarAjusteTituloEixo: false,
+      podeReprovarTituloEixo: false,
+      podeAprovarMaterial: false,
+      podeSolicitarAjusteMaterial: false,
+      podeDispensarMaterial: false
+    }
+  };
+}
+
+function atividadesV2_mergePresentationPendencyIntoCard_(card, item) {
+  var tipo = String(item.tipoPendencia || item.tipo || '').trim();
+  if (tipo && card.tiposPendencia.indexOf(tipo) === -1) card.tiposPendencia.push(tipo);
+  card.idPendencia = card.idPendencia || String(item.idPendencia || '').trim();
+  card.gravidade = atividadesV2_highestPendencySeverity_(card.gravidade, item.gravidade || item.severidade);
+  card.pendenciasInternas.push(item);
+
+  var actions = item.acoesGestao || {};
+  if (tipo.indexOf('TITULO_EIXO_') === 0 || tipo === 'APRESENTACAO_SEM_APRESENTADOR') {
+    card.blocoTituloEixos.acoesGestao = atividadesV2_mergeActions_(card.blocoTituloEixos.acoesGestao, actions);
+  }
+  if (tipo.indexOf('MATERIAL_') === 0) {
+    card.blocoMaterial.acoesGestao = atividadesV2_mergeActions_(card.blocoMaterial.acoesGestao, actions);
+  }
+  card.acoesGestao = atividadesV2_mergeActions_(card.acoesGestao, actions);
+  card.acoesGestao.podeEditarEAprovarTituloEixo = card.blocoTituloEixos.acoesGestao.podeEditarEAprovarTituloEixo;
+  card.acoesGestao.podeReprovarTituloEixo = card.blocoTituloEixos.acoesGestao.podeReprovarTituloEixo;
+}
+
+function atividadesV2_finalizePresentationPendencyCard_(card) {
+  card.dataFormatada = atividadesV2_formatPortalDateBr_(card.dataAtividade);
+  card.rotuloSemestre = atividadesV2_normalizePortalSemesterLabel_(card.rotuloSemestre, card.dataAtividade, card.idAtividade);
+  card.dataRotulo = [card.dataFormatada, card.rotuloSemestre].filter(function(part) { return !!part; }).join(' - ');
+
+  card.atividadeRotulo = atividadesV2_cleanPortalDisplayText_(card.tituloAtividade || 'Apresentacao de Membro', 240) || 'Apresentacao de Membro';
+  card.tituloExibicao = atividadesV2_resolvePresentationTitleForCard_(card.tituloApresentacao || card.titulo);
+  card.titulo = card.tituloExibicao;
+  card.eixosResumo = atividadesV2_buildPresentationAxesSummary_(card.eixoTematicoPrincipal, card.eixoTematicoSecundario);
+  card.statusTituloEixoRotulo = atividadesV2_prettyStatusLabel_(card.statusTituloEixo || 'PENDENTE');
+  card.statusMaterialRotulo = atividadesV2_prettyStatusLabel_(card.statusMaterial || 'PENDENTE');
+  card.badges = atividadesV2_buildPresentationPendencyBadges_(card);
+  card.badgesRotulos = card.badges.map(function(badge) { return badge.label; });
+  card.pendenciasResumo = atividadesV2_buildPresentationPendencySummary_(card);
+  card.acoesDisponiveis = atividadesV2_buildPresentationAvailableActions_(card.acoesGestao);
+  card.detalhesTecnicos = atividadesV2_buildPresentationTechnicalDetails_(card);
+  card.descricaoPendencia = card.pendenciasResumo.join(' ');
+  return card;
+}
+
+function atividadesV2_buildPresentationPendencyBadges_(card) {
+  var badges = [];
+  if (card.gravidade) {
+    badges.push({
+      id: 'gravidade',
+      label: atividadesV2_prettyStatusLabel_(card.gravidade),
+      nivel: atividades_normalizeTextUpper_(card.gravidade || 'MEDIA')
+    });
+  }
+  card.tiposPendencia.forEach(function(tipo) {
+    var badge = atividadesV2_pendencyTypeBadge_(tipo);
+    if (badge) badges.push(badge);
+  });
+  return badges;
+}
+
+function atividadesV2_pendencyTypeBadge_(tipo) {
+  var normalized = atividades_normalizeTextUpper_(tipo);
+  var labels = {
+    APRESENTACAO_SEM_APRESENTADOR: 'SEM APRESENTADOR',
+    APRESENTACAO_SEM_ATIVIDADE: 'SEM ATIVIDADE',
+    TITULO_EIXO_PENDENTE: 'TITULO/EIXOS PENDENTE',
+    TITULO_EIXO_AGUARDANDO_ANALISE: 'TITULO/EIXOS AGUARDANDO ANALISE',
+    TITULO_EIXO_AJUSTE_SOLICITADO: 'TITULO/EIXOS COM AJUSTE SOLICITADO',
+    MATERIAL_PENDENTE: 'MATERIAL PENDENTE',
+    MATERIAL_AGUARDANDO_ANALISE: 'MATERIAL AGUARDANDO ANALISE',
+    MATERIAL_AJUSTE_SOLICITADO: 'MATERIAL COM AJUSTE SOLICITADO'
+  };
+  if (!labels[normalized]) return null;
+  return { id: normalized, label: labels[normalized], nivel: atividadesV2_pendencyTypeLevel_(normalized) };
+}
+
+function atividadesV2_pendencyTypeLevel_(tipo) {
+  if (tipo === 'APRESENTACAO_SEM_ATIVIDADE' || tipo === 'APRESENTACAO_SEM_APRESENTADOR') return 'ALTA';
+  if (tipo.indexOf('AJUSTE_SOLICITADO') >= 0) return 'BAIXA';
+  return 'MEDIA';
+}
+
+function atividadesV2_buildPresentationPendencySummary_(card) {
+  var messagesByType = {
+    APRESENTACAO_SEM_APRESENTADOR: 'Informar apresentador da apresentacao.',
+    APRESENTACAO_SEM_ATIVIDADE: 'Vincular apresentacao a uma atividade v2.',
+    TITULO_EIXO_PENDENTE: 'Aguardando envio do titulo/eixos pelo apresentador.',
+    TITULO_EIXO_AGUARDANDO_ANALISE: 'Revisar titulo/eixos enviados.',
+    TITULO_EIXO_AJUSTE_SOLICITADO: 'Aguardando ajuste do titulo/eixos pelo apresentador.',
+    MATERIAL_PENDENTE: 'Material ainda nao enviado.',
+    MATERIAL_AGUARDANDO_ANALISE: 'Revisar material enviado.',
+    MATERIAL_AJUSTE_SOLICITADO: 'Aguardando reenvio do material ajustado.'
+  };
+  var out = [];
+  card.tiposPendencia.forEach(function(tipo) {
+    var message = messagesByType[atividades_normalizeTextUpper_(tipo)];
+    if (message && out.indexOf(message) === -1) out.push(message);
+  });
+  return out;
+}
+
+function atividadesV2_buildPresentationAvailableActions_(actions) {
+  var definitions = [
+    ['podeAprovarTituloEixo', 'aprovarTituloEixo', 'Aprovar titulo/eixos'],
+    ['podeEditarEAprovarTituloEixo', 'editarEAprovarTituloEixo', 'Editar e aprovar'],
+    ['podeSolicitarAjusteTituloEixo', 'solicitarAjusteTituloEixo', 'Solicitar ajuste'],
+    ['podeReprovarTituloEixo', 'reprovarTituloEixo', 'Rejeitar proposta de tema'],
+    ['podeAprovarMaterial', 'aprovarMaterial', 'Aprovar material'],
+    ['podeSolicitarAjusteMaterial', 'solicitarAjusteMaterial', 'Solicitar ajuste de material'],
+    ['podeDispensarMaterial', 'dispensarMaterial', 'Dispensar material']
+  ];
+  return definitions.filter(function(def) {
+    return actions && actions[def[0]] === true;
+  }).map(function(def) {
+    return { id: def[1], label: def[2], flag: def[0] };
+  });
+}
+
+function atividadesV2_buildPresentationTechnicalDetails_(card) {
+  return card.pendenciasInternas.map(function(item) {
+    return {
+      idPendencia: String(item.idPendencia || '').trim(),
+      tipoPendencia: String(item.tipoPendencia || item.tipo || '').trim(),
+      descricaoPendencia: String(item.descricaoPendencia || item.descricaoPublica || '').trim(),
+      acaoRecomendada: String(item.acaoRecomendada || '').trim(),
+      statusTituloEixo: String(item.statusTituloEixo || card.statusTituloEixo || '').trim(),
+      statusMaterial: String(item.statusMaterial || card.statusMaterial || '').trim()
+    };
+  });
+}
+
+function atividadesV2_resolvePresentationTitleForCard_(title) {
+  var cleaned = atividadesV2_cleanPortalDisplayText_(title, 240);
+  if (!cleaned || atividadesV2_isGenericPresentationTitle_(cleaned)) return 'Titulo ainda nao informado';
+  return cleaned;
+}
+
+function atividadesV2_isGenericPresentationTitle_(title) {
+  var normalized = atividades_normalizeTextUpper_(title);
+  return [
+    'APRESENTACAO DE MEMBRO',
+    'APRESENTACAO',
+    'TITULO AINDA NAO INFORMADO'
+  ].indexOf(normalized) >= 0;
+}
+
+function atividadesV2_buildPresentationAxesSummary_(mainAxis, secondaryAxis) {
+  var parts = [
+    atividadesV2_cleanPortalDisplayText_(mainAxis, 240),
+    atividadesV2_cleanPortalDisplayText_(secondaryAxis, 240)
+  ].filter(function(part) { return !!part; });
+  return parts.length ? parts.join(' / ') : 'Eixos ainda nao informados';
+}
+
+function atividadesV2_formatPortalDateBr_(value) {
+  var date = atividades_parseDateOrNull_(value);
+  if (!date) return '';
+  return Utilities.formatDate(date, Session.getScriptTimeZone(), 'dd/MM/yyyy');
+}
+
+function atividadesV2_normalizePortalSemesterLabel_(label, dateValue, idAtividade) {
+  var raw = String(label || '').trim();
+  if (/^\d{4}\/[12]$/.test(raw)) return raw;
+  var fromId = String(idAtividade || '').trim().match(/^ATV-(\d{4})-([12])-\d{4}$/);
+  if (fromId) return fromId[1] + '/' + fromId[2];
+  var date = atividades_parseDateOrNull_(dateValue);
+  if (!date) return '';
+  var month = date.getMonth() + 1;
+  return date.getFullYear() + '/' + (month <= 6 ? '1' : '2');
+}
+
+function atividadesV2_prettyStatusLabel_(value) {
+  return String(value || '').trim().replace(/_/g, ' ');
+}
+
+function atividadesV2_cleanPortalDisplayText_(value, maxLength) {
+  var text = String(value || '').trim();
+  if (!text) return '';
+  return text.slice(0, maxLength || 240);
+}
+
+function atividadesV2_invalidatePresentationPortalCaches_(contexto, result) {
+  portalCacheRemove_(portalCacheBuildKey_('pendencias_apresentacoes', 'gestao'));
+  portalCacheRemove_(portalCacheBuildKey_('eixos_tematicos', 'ativos'));
+  ['calendario', 'detalhes', 'bundle'].forEach(function(scope) {
+    portalCacheRemove_(portalCacheBuildKey_(scope, ''));
+  });
+
+  var contexts = [contexto || {}];
+  if (result && (result.idPessoa || result.email || result.rga)) {
+    contexts.push({
+      perfil: 'MEMBRO',
+      idPessoa: result.idPessoa || '',
+      email: result.email || '',
+      rga: result.rga || '',
+      somenteVisiveis: true
+    });
+  }
+
+  contexts.forEach(function(ctx) {
+    var normalized = atividades_normalizePortalContext_(ctx || {});
+    var token = portalCacheContextToken_(normalized);
+    portalCacheRemove_(portalCacheBuildKey_('minhas_apresentacoes', token));
+    portalCacheRemove_(portalCacheBuildKey_('calendario', token));
+    portalCacheRemove_(portalCacheBuildKey_('detalhes', token));
+    portalCacheRemove_(portalCacheBuildKey_('bundle', token));
+    if (result && result.idAtividade) {
+      portalCacheRemove_(portalCacheBuildKey_('atividade:detalhes', String(result.idAtividade || '').trim() + ':' + token));
+    }
+  });
+}
+
+function atividadesV2_emptyTitleManagementActions_() {
+  return {
+    podeAprovarTituloEixo: false,
+    podeEditarEAprovarTituloEixo: false,
+    podeSolicitarAjusteTituloEixo: false,
+    podeReprovarTituloEixo: false
+  };
+}
+
+function atividadesV2_emptyMaterialManagementActions_() {
+  return {
+    podeAprovarMaterial: false,
+    podeSolicitarAjusteMaterial: false,
+    podeDispensarMaterial: false
+  };
+}
+
+function atividadesV2_mergeActions_(base, next) {
+  var out = Object.assign({}, base || {});
+  Object.keys(next || {}).forEach(function(key) {
+    out[key] = out[key] === true || next[key] === true;
+  });
+  return out;
+}
+
+function atividadesV2_highestPendencySeverity_(current, next) {
+  var order = { BAIXA: 1, MEDIA: 2, ALTA: 3, CRITICA: 4 };
+  var a = atividades_normalizeTextUpper_(current || 'MEDIA');
+  var b = atividades_normalizeTextUpper_(next || '');
+  return (order[b] || 0) > (order[a] || 0) ? b : a;
+}
+
+function atividadesV2_isPresentationPendingType_(tipo) {
+  return [
+    'APRESENTACAO_SEM_APRESENTADOR',
+    'APRESENTACAO_SEM_ATIVIDADE',
+    'TITULO_EIXO_PENDENTE',
+    'TITULO_EIXO_AGUARDANDO_ANALISE',
+    'TITULO_EIXO_AJUSTE_SOLICITADO',
+    'MATERIAL_PENDENTE',
+    'MATERIAL_AGUARDANDO_ANALISE',
+    'MATERIAL_AJUSTE_SOLICITADO'
+  ].indexOf(atividades_normalizeTextUpper_(tipo)) >= 0;
 }
 
 function atividadesV2_diagnosticarFluxoApresentacoesPortalDev_() {
@@ -238,7 +852,9 @@ function atividadesV2_diagnosticarFluxoApresentacoesPortalDev_() {
     semAtividade: 0,
     semApresentador: 0,
     tituloEixoPendentes: 0,
-    materiaisPendentes: 0
+    materiaisPendentes: 0,
+    historicasComMaterial: 0,
+    historicasComAcaoMembroIndevida: 0
   };
   var avisos = [];
   data.apresentacoes.forEach(function(apresentacao) {
@@ -253,6 +869,21 @@ function atividadesV2_diagnosticarFluxoApresentacoesPortalDev_() {
     if (!atividadesV2_presentationHasPresenter_(atividade, apresentacao)) stats.semApresentador++;
     if (!String(atividade.TITULO_PUBLICO || atividade.TITULO || '').trim() || !String(atividade.EIXO_TEMATICO_PRINCIPAL || '').trim()) stats.tituloEixoPendentes++;
     if (!String(apresentacao.ID_ARQUIVO_MATERIAL || apresentacao.LINK_MATERIAL_APRESENTACAO || '').trim()) stats.materiaisPendentes++;
+    var statusApresentacao = atividades_normalizeTextUpper_(apresentacao.STATUS_APRESENTACAO);
+    var statusMaterial = atividades_normalizeTextUpper_(apresentacao.STATUS_ENVIO_MATERIAL);
+    if (statusApresentacao === 'REALIZADA' && ['RECEBIDO', 'HISTORICO', 'APROVADO'].indexOf(statusMaterial) >= 0) {
+      stats.historicasComMaterial++;
+      var flags = atividadesV2_portalPresentationActionFlags_({
+        statusApresentacao: statusApresentacao,
+        statusTituloEixo: apresentacao.STATUS_TITULO_EIXO || atividade.STATUS_EIXO_TEMATICO,
+        statusMaterial: statusMaterial,
+        idArquivoMaterial: apresentacao.ID_ARQUIVO_MATERIAL,
+        linkMaterialPublico: apresentacao.LINK_MATERIAL_APRESENTACAO
+      }, { perfil: 'ADMIN_TECNICO' });
+      if (flags.acoesMembro.podeEditarTituloEixo || flags.acoesMembro.podeEnviarMaterial || flags.acoesMembro.podeReenviarMaterial) {
+        stats.historicasComAcaoMembroIndevida++;
+      }
+    }
   });
   return { ok: true, modo: 'DEV', stats: stats, avisos: avisos };
 }
@@ -278,6 +909,7 @@ function atividadesV2_portalRunPresentationAction_(tipoAcao, payload, contexto, 
       return data;
     });
     atividadesV2_refreshPresentationPortalViews_();
+    atividadesV2_invalidatePresentationPortalCaches_(action.contexto, result);
     return {
       ok: true,
       message: 'Acao de apresentacao registrada com sucesso na base DEV.',
@@ -313,7 +945,10 @@ function atividadesV2_portalActionSuccess_(ss, acao, resultado) {
     ID_ENTIDADE: resultado && resultado.idApresentacao || acao.payload.idApresentacao || '',
     TIPO_ENTIDADE: 'APRESENTACAO',
     MENSAGEM: 'Acao de apresentacao processada pelo Portal GEAPA DEV.',
-    DETALHES_JSON: atividadesV2_safeLogData_({ tipoAcao: acao.tipoAcao })
+    DETALHES_JSON: atividadesV2_safeLogData_({
+      tipoAcao: acao.tipoAcao,
+      valoresAnteriores: resultado && resultado.valoresAnteriores || undefined
+    })
   });
 }
 
@@ -373,7 +1008,11 @@ function atividadesV2_buildPortalActionRow_(acao, status, resultado, erro) {
     TIPO_ENTIDADE: 'APRESENTACAO',
     PAYLOAD_JSON: atividadesV2_safeLogData_(payload),
     STATUS_PROCESSAMENTO: status,
-    RESULTADO_JSON: resultado ? atividadesV2_safeLogData_({ ok: true, status: resultado.statusTituloEixo || resultado.statusMaterial || '' }) : '',
+    RESULTADO_JSON: resultado ? atividadesV2_safeLogData_({
+      ok: true,
+      status: resultado.statusTituloEixo || resultado.statusMaterial || '',
+      valoresAnteriores: resultado.valoresAnteriores || undefined
+    }) : '',
     ERRO_CODIGO: erro && erro.code || '',
     ERRO_MENSAGEM: erro ? atividadesV2_errorMessage_(erro).slice(0, 300) : '',
     PROCESSADO_EM: now,
@@ -475,6 +1114,33 @@ function atividadesV2_validateTituloEixoPayload_(payload, config) {
   };
 }
 
+function atividadesV2_assertNewTitleAxisProposalChanged_(atividade, normalized) {
+  var previous = [
+    atividades_normalizarComparacaoApresentacoes_(atividade.TITULO_PUBLICO || atividade.TITULO || ''),
+    atividades_normalizarComparacaoApresentacoes_(atividade.EIXO_TEMATICO_PRINCIPAL || ''),
+    atividades_normalizarComparacaoApresentacoes_(atividade.EIXO_TEMATICO_SECUNDARIO || '')
+  ].join('|');
+  var next = [
+    atividades_normalizarComparacaoApresentacoes_(normalized.titulo || ''),
+    atividades_normalizarComparacaoApresentacoes_(normalized.eixoPrincipal || ''),
+    atividades_normalizarComparacaoApresentacoes_(normalized.eixoSecundario || '')
+  ].join('|');
+  if (previous === next) {
+    throw atividadesV2_portalActionException_('PROPOSTA_TEMA_IGUAL_REPROVADA', 'A nova proposta de titulo/eixos deve ser diferente da proposta reprovada.');
+  }
+}
+
+function atividadesV2_getPreviousTitleAxisValues_(atividade, apresentacao) {
+  return {
+    titulo: String(atividade.TITULO || '').trim(),
+    tituloPublico: String(atividade.TITULO_PUBLICO || '').trim(),
+    eixoTematicoPrincipal: String(atividade.EIXO_TEMATICO_PRINCIPAL || '').trim(),
+    eixoTematicoSecundario: String(atividade.EIXO_TEMATICO_SECUNDARIO || '').trim(),
+    statusEixoTematico: String(atividade.STATUS_EIXO_TEMATICO || '').trim(),
+    statusTituloEixo: String(apresentacao.STATUS_TITULO_EIXO || '').trim()
+  };
+}
+
 function atividadesV2_resolveEixoPortal_(value, required, errorCode) {
   var raw = String(value || '').trim();
   if (!raw) {
@@ -503,6 +1169,14 @@ function atividadesV2_portalGetActivityConfig_(ss, atividade) {
 }
 
 function atividadesV2_refreshPresentationPortalViews_() {
+  var statusResult = atividadesV2_atualizarStatusRealizacaoApresentacoesDev_({
+    dryRun: false,
+    atualizarViews: false,
+    atualizadoPor: 'SISTEMA_ATIVIDADES_V2'
+  });
+  if (statusResult.erros && statusResult.erros.length) {
+    Logger.log('GEAPA-ATIVIDADES-V2-PORTAL apresentacoes: atualizacao de status com erros: ' + atividadesV2_safeLogData_(statusResult));
+  }
   var result = atividadesV2_atualizarViewsPortal_({ dryRun: false, stopOnError: false });
   if (!result.ok) {
     Logger.log('GEAPA-ATIVIDADES-V2-PORTAL apresentacoes: views atualizadas com avisos/erros: ' + atividadesV2_safeLogData_(result));

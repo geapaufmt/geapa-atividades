@@ -51,34 +51,80 @@ function atividadesV2_portalGetMinhasApresentacoes_(contexto) {
 
   try {
     var ctx = atividades_normalizePortalContext_(contexto);
+    var cacheKey = atividadesV2_portalOwnPresentationsCacheKey_(ctx);
+    var cached = cacheKey ? portalCacheGetJson_(cacheKey) : null;
+    if (cached) {
+      portalPerfMark_(perf, 'cache_hit_minhas_apresentacoes', { total: cached.apresentacoes ? cached.apresentacoes.length : 0 });
+      var cachedPerf = portalPerfEnd_(perf);
+      return {
+        ok: true,
+        data: cached,
+        origem: 'cache',
+        cacheHit: true,
+        tempoTotalMs: cachedPerf ? cachedPerf.totalMs : ''
+      };
+    }
+
     var ss = atividadesV2_getDatabaseSpreadsheetDev_();
     portalPerfMark_(perf, 'abrir_planilha_v2_dev');
-    var records = atividades_readPortalActivityDetailViewRecordsV2Dev_(ss, perf);
-    var apresentacoes = [];
-
-    records.forEach(function(record) {
-      if (!atividades_canShowActivityInPortal_(record, ctx)) return;
-      atividadesV2_parsePublicJsonArray_(record.APRESENTACOES_PUBLICAS_JSON).forEach(function(apresentacao) {
-        if (!atividadesV2_portalApresentacaoBelongsToContext_(apresentacao, ctx)) return;
-        apresentacoes.push(atividadesV2_portalMapApresentacaoPublica_(apresentacao, record, ctx));
-      });
-    });
+    var apresentacoes = atividadesV2_readOwnPresentationRecordsDev_(ss, ctx, perf);
 
     var perfResult = portalPerfEnd_(perf);
+    var data = {
+      resumo: { total: apresentacoes.length },
+      ultimaAtualizacao: atividadesV2_latestPresentationUpdate_(apresentacoes),
+      apresentacoes: apresentacoes
+    };
+    if (cacheKey) {
+      portalCachePutJson_(cacheKey, data, ATIVIDADES_V2_PORTAL_PRIVATE_CACHE_TTL_SECONDS);
+    }
     return {
       ok: true,
-      data: {
-        resumo: { total: apresentacoes.length },
-        ultimaAtualizacao: atividadesV2_portalLatestUpdate_(records),
-        apresentacoes: apresentacoes
-      },
-      origem: 'atividades-v2:' + ATIVIDADES_V2_SHEETS.PORTAL_ATIVIDADES_DETALHES,
+      data: data,
+      origem: 'atividades-v2:base-operacional',
+      cacheHit: false,
       tempoTotalMs: perfResult ? perfResult.totalMs : ''
     };
   } catch (err) {
     var errorPerf = portalPerfEnd_(perf);
     return atividadesV2_portalReadonlyError_('atividadesV2_portalGetMinhasApresentacoes', err, errorPerf);
   }
+}
+
+function atividadesV2_portalOwnPresentationsCacheKey_(ctx) {
+  var normalized = atividades_normalizePortalContext_(ctx || {});
+  if (!normalized.idPessoa && !normalized.email && !normalized.rga) return '';
+  return portalCacheBuildKey_('minhas_apresentacoes', portalCacheContextToken_(normalized));
+}
+
+function atividadesV2_readOwnPresentationRecordsDev_(ss, ctx, perf) {
+  var atividadesSheet = atividadesV2_getTargetSheet_(ss, ATIVIDADES_V2_SHEETS.ATIVIDADES);
+  var apresentacoesSheet = atividadesV2_getTargetSheet_(ss, ATIVIDADES_V2_SHEETS.APRESENTACOES);
+  var atividades = atividadesV2_readSheetObjects_(atividadesSheet).filter(function(record) {
+    return atividades_normalizeTextUpper_(record.ATIVO || 'SIM') !== 'NAO';
+  });
+  if (perf) portalPerfMark_(perf, 'ler_aba_atividades', { linhas: atividades.length });
+
+  var atividadesById = atividadesV2_indexByField_(atividades, 'ID_ATIVIDADE');
+  var apresentacoes = atividadesV2_readSheetObjects_(apresentacoesSheet).filter(function(record) {
+    return String(record.ID_APRESENTACAO || '').trim() &&
+      atividades_normalizeTextUpper_(record.ATIVO || 'SIM') !== 'NAO';
+  });
+  if (perf) portalPerfMark_(perf, 'ler_aba_apresentacoes', { linhas: apresentacoes.length });
+
+  var own = [];
+  apresentacoes.forEach(function(apresentacao) {
+    var atividade = atividadesById[String(apresentacao.ID_ATIVIDADE || '').trim()];
+    if (!atividade) return;
+    if (!atividadesV2_portalBasePresentationBelongsToContext_(atividade, apresentacao, ctx)) return;
+    own.push(atividadesV2_portalOnlyMemberPresentationActions_(
+      atividadesV2_portalMapBaseApresentacaoPublica_(apresentacao, atividade, ctx)
+    ));
+  });
+
+  own.sort(atividadesV2_sortPortalPresentations_);
+  if (perf) portalPerfMark_(perf, 'montar_minhas_apresentacoes', { total: own.length });
+  return own;
 }
 
 function atividadesV2_portalGetMinhasJustificativas_(contexto) {
@@ -278,6 +324,8 @@ function atividadesV2_portalMapFrequenciaMembro_(record) {
 }
 
 function atividadesV2_portalMapApresentacaoPublica_(apresentacao, atividade, contexto) {
+  var idArquivoMaterial = String(apresentacao.idArquivoMaterial || '').trim();
+  var idPastaDrive = String(atividade.ID_PASTA_DRIVE || '').trim();
   var mapped = {
     idPessoa: String(apresentacao.idPessoa || '').trim(),
     rga: String(apresentacao.rga || '').trim(),
@@ -293,27 +341,126 @@ function atividadesV2_portalMapApresentacaoPublica_(apresentacao, atividade, con
     statusApresentacao: String(apresentacao.statusApresentacao || '').trim(),
     statusTituloEixo: String(apresentacao.statusTituloEixo || '').trim(),
     statusMaterial: String(apresentacao.statusMaterial || '').trim(),
-    idArquivoMaterial: String(apresentacao.idArquivoMaterial || '').trim(),
+    bloqueadoParaEdicao: atividadesV2_isTruthyFlag_(apresentacao.bloqueadoParaEdicao),
+    idPastaDrive: idPastaDrive,
+    linkPastaDrive: atividades_sanitizePortalUrl_(atividade.LINK_PASTA_DRIVE) || atividadesV2_buildDriveFolderUrl_(idPastaDrive),
+    idArquivoMaterial: idArquivoMaterial,
     nomeArquivoMaterial: atividades_sanitizePortalText_(apresentacao.nomeArquivoMaterial, 240),
-    linkMaterialPublico: atividades_sanitizePortalUrl_(apresentacao.linkMaterialPublico),
+    linkMaterialPublico: atividades_sanitizePortalUrl_(apresentacao.linkMaterialPublico) || atividadesV2_buildDriveFileUrl_(idArquivoMaterial),
     versaoMaterial: String(apresentacao.versaoMaterial || '').trim(),
+    mensagemTituloEixo: atividades_normalizeTextUpper_(apresentacao.statusTituloEixo) === 'REPROVADO'
+      ? 'Proposta de titulo/eixos reprovada. Informe uma nova proposta diferente da anterior.'
+      : '',
     ultimaAtualizacao: String(atividade.ULTIMA_ATUALIZACAO || '').trim()
   };
   return Object.assign(mapped, atividadesV2_portalPresentationActionFlags_(mapped, contexto));
+}
+
+function atividadesV2_portalMapBaseApresentacaoPublica_(apresentacao, atividade, contexto) {
+  return atividadesV2_portalMapApresentacaoPublica_({
+    idPessoa: apresentacao.ID_PESSOA || atividade.ID_PESSOA_PRINCIPAL,
+    rga: apresentacao.RGA || atividade.RGA_PESSOA_PRINCIPAL,
+    email: apresentacao.EMAIL_MEMBRO || atividade.EMAIL_PESSOA_PRINCIPAL,
+    idApresentacao: apresentacao.ID_APRESENTACAO,
+    idAtividade: apresentacao.ID_ATIVIDADE || atividade.ID_ATIVIDADE,
+    titulo: atividade.TITULO_PUBLICO || atividade.TITULO,
+    nomeApresentador: atividade.NOME_PESSOA_PRINCIPAL_PUBLICO || apresentacao.NOME_MEMBRO,
+    eixoTematicoPrincipal: atividade.EIXO_TEMATICO_PRINCIPAL || apresentacao.EIXO_TEMATICO_PRINCIPAL,
+    eixoTematicoSecundario: atividade.EIXO_TEMATICO_SECUNDARIO || apresentacao.EIXO_TEMATICO_SECUNDARIO,
+    statusApresentacao: apresentacao.STATUS_APRESENTACAO,
+    statusTituloEixo: apresentacao.STATUS_TITULO_EIXO || atividade.STATUS_EIXO_TEMATICO,
+    statusMaterial: apresentacao.STATUS_ENVIO_MATERIAL,
+    bloqueadoParaEdicao: apresentacao.BLOQUEADO_PARA_EDICAO || atividade.BLOQUEADO_PARA_EDICAO,
+    idArquivoMaterial: apresentacao.ID_ARQUIVO_MATERIAL,
+    nomeArquivoMaterial: apresentacao.NOME_ARQUIVO_MATERIAL,
+    linkMaterialPublico: apresentacao.LINK_MATERIAL_APRESENTACAO,
+    versaoMaterial: apresentacao.VERSAO_MATERIAL
+  }, atividade, contexto);
 }
 
 function atividadesV2_portalPresentationActionFlags_(apresentacao, contexto) {
   var privileged = atividades_isPrivilegedPortalProfile_(contexto);
   var statusTitulo = atividades_normalizeTextUpper_(apresentacao.statusTituloEixo);
   var statusMaterial = atividades_normalizeTextUpper_(apresentacao.statusMaterial);
+  var statusApresentacao = atividades_normalizeTextUpper_(apresentacao.statusApresentacao);
   var hasMaterial = !!String(apresentacao.idArquivoMaterial || apresentacao.linkMaterialPublico || '').trim();
-  return {
-    podeEditarTituloEixo: privileged || ['APROVADO'].indexOf(statusTitulo) === -1,
-    podeEnviarMaterial: privileged || (!hasMaterial && ['APROVADO', 'DISPENSADO'].indexOf(statusMaterial) === -1),
-    podeReenviarMaterial: privileged || (hasMaterial && ['APROVADO', 'DISPENSADO'].indexOf(statusMaterial) === -1),
-    podeAprovarTituloEixo: privileged,
-    podeRevisarMaterial: privileged
+  var hasFolder = !!String(apresentacao.linkPastaDrive || apresentacao.idPastaDrive || '').trim();
+  var bloqueado = atividadesV2_isTruthyFlag_(apresentacao.bloqueadoParaEdicao);
+  var isRealizada = statusApresentacao === 'REALIZADA';
+  var isClosed = isRealizada;
+  var tituloEditavel = !bloqueado && ['PENDENTE', 'ENVIADO', 'AJUSTE_SOLICITADO', 'REPROVADO'].indexOf(statusTitulo || 'PENDENTE') >= 0 && !isClosed;
+  if (!bloqueado && statusTitulo === 'AJUSTE_SOLICITADO') tituloEditavel = true;
+  var acoesMembro = {
+    podeEditarTituloEixo: tituloEditavel,
+    podeEnviarMaterial: !bloqueado && !isClosed && !hasMaterial && ['PENDENTE', 'AJUSTE_SOLICITADO'].indexOf(statusMaterial || 'PENDENTE') >= 0,
+    podeReenviarMaterial: !bloqueado && !isClosed && hasMaterial && statusMaterial === 'AJUSTE_SOLICITADO',
+    podeAbrirMaterial: !!String(apresentacao.linkMaterialPublico || apresentacao.idArquivoMaterial || '').trim(),
+    podeAbrirPastaAtividade: hasFolder
   };
+  var canReviewTitle = privileged && ['ENVIADO', 'RECEBIDO', 'EM_ANALISE'].indexOf(statusTitulo) >= 0;
+  var canReviewMaterial = privileged && ['RECEBIDO', 'REENVIADO', 'EM_ANALISE'].indexOf(statusMaterial) >= 0;
+  var acoesGestao = {
+    podeAprovarTituloEixo: canReviewTitle,
+    podeEditarEAprovarTituloEixo: canReviewTitle,
+    podeSolicitarAjusteTituloEixo: canReviewTitle,
+    podeReprovarTituloEixo: privileged && ['ENVIADO', 'RECEBIDO', 'EM_ANALISE'].indexOf(statusTitulo) >= 0,
+    podeAprovarMaterial: canReviewMaterial,
+    podeSolicitarAjusteMaterial: canReviewMaterial,
+    podeDispensarMaterial: privileged && ['PENDENTE', 'AJUSTE_SOLICITADO'].indexOf(statusMaterial || 'PENDENTE') >= 0
+  };
+  return {
+    acoesMembro: acoesMembro,
+    acoesGestao: acoesGestao,
+    podeEditarTituloEixo: acoesMembro.podeEditarTituloEixo,
+    podeEnviarMaterial: acoesMembro.podeEnviarMaterial,
+    podeReenviarMaterial: acoesMembro.podeReenviarMaterial,
+    podeAprovarTituloEixo: acoesGestao.podeAprovarTituloEixo,
+    podeRevisarMaterial: acoesGestao.podeAprovarMaterial || acoesGestao.podeSolicitarAjusteMaterial || acoesGestao.podeDispensarMaterial
+  };
+}
+
+function atividadesV2_isTruthyFlag_(value) {
+  if (value === true) return true;
+  var normalized = atividades_normalizeTextUpper_(value);
+  return ['SIM', 'TRUE', '1', 'S', 'YES'].indexOf(normalized) >= 0;
+}
+
+function atividadesV2_portalOnlyMemberPresentationActions_(item) {
+  var emptyGestao = {
+    podeAprovarTituloEixo: false,
+    podeSolicitarAjusteTituloEixo: false,
+    podeAprovarMaterial: false,
+    podeSolicitarAjusteMaterial: false,
+    podeDispensarMaterial: false
+  };
+  item.acoesGestao = emptyGestao;
+  item.podeAprovarTituloEixo = false;
+  item.podeRevisarMaterial = false;
+  return item;
+}
+
+function atividadesV2_portalBasePresentationBelongsToContext_(atividade, apresentacao, ctx) {
+  var ctxIdPessoa = String(ctx && ctx.idPessoa || '').trim();
+  var ctxRga = String(ctx && ctx.rga || '').trim().toLowerCase();
+  var ctxEmail = String(ctx && ctx.email || '').trim().toLowerCase();
+
+  var idsPessoa = [
+    atividade && atividade.ID_PESSOA_PRINCIPAL,
+    apresentacao && apresentacao.ID_PESSOA
+  ].map(function(value) { return String(value || '').trim(); });
+  if (ctxIdPessoa && idsPessoa.indexOf(ctxIdPessoa) >= 0) return true;
+
+  var rgas = [
+    atividade && atividade.RGA_PESSOA_PRINCIPAL,
+    apresentacao && apresentacao.RGA
+  ].map(function(value) { return String(value || '').trim().toLowerCase(); });
+  if (ctxRga && rgas.indexOf(ctxRga) >= 0) return true;
+
+  var emails = [
+    atividade && atividade.EMAIL_PESSOA_PRINCIPAL,
+    apresentacao && apresentacao.EMAIL_MEMBRO
+  ].map(function(value) { return String(value || '').trim().toLowerCase(); });
+  return !!ctxEmail && emails.indexOf(ctxEmail) >= 0;
 }
 
 function atividadesV2_portalApresentacaoBelongsToContext_(apresentacao, ctx) {
@@ -328,6 +475,29 @@ function atividadesV2_portalApresentacaoBelongsToContext_(apresentacao, ctx) {
   if (rga && ctxRga && rga === ctxRga) return true;
   if (email && ctxEmail && email === ctxEmail) return true;
   return false;
+}
+
+function atividadesV2_sortPortalPresentations_(a, b) {
+  var dateA = atividades_parseDateOrNull_(a.dataAtividade);
+  var dateB = atividades_parseDateOrNull_(b.dataAtividade);
+  var timeA = dateA ? dateA.getTime() : Number.MAX_SAFE_INTEGER;
+  var timeB = dateB ? dateB.getTime() : Number.MAX_SAFE_INTEGER;
+  if (timeA !== timeB) return timeA - timeB;
+  return String(a.idApresentacao || '').localeCompare(String(b.idApresentacao || ''));
+}
+
+function atividadesV2_latestPresentationUpdate_(items) {
+  var latest = '';
+  (items || []).forEach(function(item) {
+    var value = String(item.ultimaAtualizacao || '').trim();
+    if (value && (!latest || value > latest)) latest = value;
+  });
+  return latest;
+}
+
+function atividadesV2_buildDriveFileUrl_(fileId) {
+  var id = String(fileId || '').trim();
+  return id ? 'https://drive.google.com/file/d/' + encodeURIComponent(id) + '/view' : '';
 }
 
 function atividadesV2_parsePublicJsonArray_(value) {
@@ -365,13 +535,53 @@ function atividadesV2_portalMapPendenciaDiretoria_(record) {
     tipo: String(record.TIPO_PENDENCIA || '').trim(),
     idAtividade: String(record.ID_ATIVIDADE || '').trim(),
     idApresentacao: String(record.ID_APRESENTACAO || '').trim(),
-    titulo: atividades_sanitizePortalText_(record.TITULO_ATIVIDADE || record.ID_ATIVIDADE, 240),
+    tipoPendencia: String(record.TIPO_PENDENCIA || '').trim(),
+    gravidade: String(record.GRAVIDADE || '').trim(),
+    dataAtividade: atividades_formatPortalDateIso_(record.DATA_ATIVIDADE),
+    rotuloSemestre: String(record.ROTULO_SEMESTRE || '').trim(),
+    titulo: atividades_sanitizePortalText_(record.TITULO_APRESENTACAO || record.TITULO_ATIVIDADE || 'Titulo ainda nao informado', 240),
+    tituloAtividade: atividades_sanitizePortalText_(record.TITULO_ATIVIDADE || 'Titulo ainda nao informado', 240),
+    tituloApresentacao: atividades_sanitizePortalText_(record.TITULO_APRESENTACAO || record.TITULO_ATIVIDADE || 'Titulo ainda nao informado', 240),
+    nomeApresentador: atividades_sanitizePortalText_(record.NOME_APRESENTADOR || record.RESPONSAVEL_SUGERIDO || 'Apresentador ainda nao definido', 180),
+    eixoTematicoPrincipal: String(record.EIXO_TEMATICO_PRINCIPAL || '').trim(),
+    eixoTematicoSecundario: String(record.EIXO_TEMATICO_SECUNDARIO || '').trim(),
+    statusApresentacao: String(record.STATUS_APRESENTACAO || '').trim(),
+    statusTituloEixo: String(record.STATUS_TITULO_EIXO || '').trim(),
+    statusMaterial: String(record.STATUS_ENVIO_MATERIAL || '').trim(),
+    nomeArquivoMaterial: atividades_sanitizePortalText_(record.NOME_ARQUIVO_MATERIAL, 240),
+    linkMaterialPublico: atividades_sanitizePortalUrl_(record.LINK_MATERIAL_APRESENTACAO),
+    descricaoPendencia: atividades_sanitizePortalText_(record.DESCRICAO_PENDENCIA, 500),
     descricaoPublica: atividades_sanitizePortalText_(record.DESCRICAO_PENDENCIA, 500),
+    acaoRecomendada: atividades_sanitizePortalText_(record.ACAO_RECOMENDADA, 300),
     status: String(record.STATUS_PENDENCIA || '').trim(),
     severidade: String(record.GRAVIDADE || '').trim(),
     responsavelGrupo: String(record.RESPONSAVEL_SUGERIDO || '').trim(),
+    responsavelSugerido: atividades_sanitizePortalText_(record.RESPONSAVEL_SUGERIDO, 180),
+    responsavel: atividades_sanitizePortalText_(record.RESPONSAVEL_SUGERIDO, 180),
     prazo: atividades_formatPortalDateIso_(record.PRAZO),
-    atualizadaEm: String(record.ULTIMA_ATUALIZACAO || '').trim()
+    diasEmAberto: record.DIAS_EM_ABERTO || '',
+    atualizadaEm: String(record.ULTIMA_ATUALIZACAO || '').trim(),
+    acoesGestao: atividadesV2_buildPendenciaGestaoActions_(record)
+  };
+}
+
+function atividadesV2_buildPendenciaGestaoActions_(record) {
+  var tipo = atividades_normalizeTextUpper_(record.TIPO_PENDENCIA);
+  var statusTitulo = atividades_normalizeTextUpper_(record.STATUS_TITULO_EIXO);
+  var statusMaterial = atividades_normalizeTextUpper_(record.STATUS_ENVIO_MATERIAL);
+  var canReviewTitle = ['TITULO_EIXO_AGUARDANDO_ANALISE'].indexOf(tipo) >= 0 &&
+    ['ENVIADO', 'RECEBIDO', 'EM_ANALISE'].indexOf(statusTitulo) >= 0;
+  var canReviewMaterial = ['MATERIAL_AGUARDANDO_ANALISE'].indexOf(tipo) >= 0 &&
+    ['RECEBIDO', 'REENVIADO', 'EM_ANALISE'].indexOf(statusMaterial) >= 0;
+  return {
+    podeAprovarTituloEixo: canReviewTitle,
+    podeEditarEAprovarTituloEixo: canReviewTitle,
+    podeSolicitarAjusteTituloEixo: canReviewTitle,
+    podeReprovarTituloEixo: canReviewTitle,
+    podeAprovarMaterial: canReviewMaterial,
+    podeSolicitarAjusteMaterial: canReviewMaterial,
+    podeDispensarMaterial: ['MATERIAL_PENDENTE', 'MATERIAL_AJUSTE_SOLICITADO'].indexOf(tipo) >= 0 &&
+      ['PENDENTE', 'AJUSTE_SOLICITADO'].indexOf(statusMaterial || 'PENDENTE') >= 0
   };
 }
 

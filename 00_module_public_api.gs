@@ -287,10 +287,28 @@ function atividadesV2_portalRevisarTituloEixoApresentacao(payload, contexto) {
   }, { entrypoint: 'atividadesV2_portalRevisarTituloEixoApresentacao' });
 }
 
+function atividadesV2_portalEditarEAprovarTituloEixoApresentacao(payload, contexto) {
+  return atividades_runWithOperationalGuard_('ATUALIZACAO_PORTAL_V2', null, function() {
+    return atividadesV2_portalEditarEAprovarTituloEixoApresentacao_(payload || {}, contexto || {});
+  }, { entrypoint: 'atividadesV2_portalEditarEAprovarTituloEixoApresentacao' });
+}
+
+function atividadesV2_portalReprovarTituloEixoApresentacao(payload, contexto) {
+  return atividades_runWithOperationalGuard_('ATUALIZACAO_PORTAL_V2', null, function() {
+    return atividadesV2_portalReprovarTituloEixoApresentacao_(payload || {}, contexto || {});
+  }, { entrypoint: 'atividadesV2_portalReprovarTituloEixoApresentacao' });
+}
+
 function atividadesV2_portalRevisarMaterialApresentacao(payload, contexto) {
   return atividades_runWithOperationalGuard_('ATUALIZACAO_PORTAL_V2', null, function() {
     return atividadesV2_portalRevisarMaterialApresentacao_(payload || {}, contexto || {});
   }, { entrypoint: 'atividadesV2_portalRevisarMaterialApresentacao' });
+}
+
+function atividadesV2_atualizarStatusRealizacaoApresentacoesDev(options) {
+  return atividades_runWithOperationalGuard_('ATUALIZACAO_PORTAL_V2', null, function() {
+    return atividadesV2_atualizarStatusRealizacaoApresentacoesDev_(options || {});
+  }, { entrypoint: 'atividadesV2_atualizarStatusRealizacaoApresentacoesDev' });
 }
 
 function atividadesV2_diagnosticarFluxoApresentacoesPortalDev() {

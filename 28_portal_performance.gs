@@ -9,6 +9,8 @@ var ATIVIDADES_V2_PORTAL_CACHE_TTL_SECONDS = 300;
 var ATIVIDADES_V2_PORTAL_CALENDARIO_CACHE_TTL_SECONDS = 300;
 var ATIVIDADES_V2_PORTAL_DETALHES_CACHE_TTL_SECONDS = 300;
 var ATIVIDADES_V2_PORTAL_CONFIG_CACHE_TTL_SECONDS = 600;
+var ATIVIDADES_V2_PORTAL_PRIVATE_CACHE_TTL_SECONDS = 90;
+var ATIVIDADES_V2_PORTAL_PENDENCIAS_CACHE_TTL_SECONDS = 90;
 var ATIVIDADES_V2_PORTAL_CACHE_PREFIX = 'portal:v2:atividades:';
 var ATIVIDADES_V2_PORTAL_CONFIG_DEFAULTS = Object.freeze({
   ATIVIDADES_CHAMADA_ANTECEDENCIA_MINUTOS: 60,
@@ -109,7 +111,7 @@ function portalCacheContextToken_(contexto) {
   return [
     atividadesV2_sanitizeIdToken_(ctx.perfil || 'MEMBRO'),
     ctx.somenteVisiveis ? 'VISIVEIS' : 'TODAS',
-    portalCacheHash_([ctx.email || '', ctx.rga || ''].join('|'))
+    portalCacheHash_([ctx.idPessoa || '', ctx.email || '', ctx.rga || ''].join('|'))
   ].join(':');
 }
 
@@ -329,7 +331,9 @@ function atividadesV2_limparCachePortalDev_() {
   [
     portalCacheBuildKey_('calendario', ''),
     portalCacheBuildKey_('detalhes', ''),
-    portalCacheBuildKey_('bundle', '')
+    portalCacheBuildKey_('bundle', ''),
+    portalCacheBuildKey_('eixos_tematicos', 'ativos'),
+    portalCacheBuildKey_('pendencias_apresentacoes', 'gestao')
   ].forEach(function(key) {
     portalCacheRemove_(key);
   });
