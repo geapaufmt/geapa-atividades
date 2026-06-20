@@ -40,9 +40,10 @@ function atividadesV2_portalGetMinhaFrequencia_(contexto) {
   var perf = portalPerfStart_('atividadesV2_portalGetMinhaFrequencia');
   try {
     var ctx = atividades_normalizePortalContext_(contexto || {});
-    var cacheKey = portalCacheBuildKey_('frequencia', portalCacheContextToken_(ctx));
+    var cacheKey = portalCacheBuildKey_('frequencia_detalhada_v2', portalCacheContextToken_(ctx));
     var cached = portalCacheGetJson_(cacheKey);
-    if (cached) return cached;
+    if (cached && atividadesV2_isMinhaFrequenciaDetailedResponse_(cached)) return cached;
+    if (cached) portalCacheRemove_(cacheKey);
 
     var ss = atividadesV2_getDatabaseSpreadsheetDev_();
     portalPerfMark_(perf, 'abrir_planilha_v2_dev');
@@ -52,6 +53,7 @@ function atividadesV2_portalGetMinhaFrequencia_(contexto) {
       ok: true,
       data: data,
       origem: 'atividades-v2:Atividades_Presencas_Registros',
+      contrato: 'MINHA_FREQUENCIA_DETALHADA_V2',
       tempoTotalMs: perfResult ? perfResult.totalMs : ''
     };
     portalCachePutJson_(cacheKey, response, ATIVIDADES_V2_PORTAL_PRIVATE_CACHE_TTL_SECONDS);
@@ -60,6 +62,14 @@ function atividadesV2_portalGetMinhaFrequencia_(contexto) {
     var errorPerf = portalPerfEnd_(perf);
     return atividadesV2_portalReadonlyError_('atividadesV2_portalGetMinhaFrequencia', err, errorPerf);
   }
+}
+
+function atividadesV2_isMinhaFrequenciaDetailedResponse_(response) {
+  var data = response && response.data || {};
+  if (data.contrato && data.contrato !== 'MINHA_FREQUENCIA_DETALHADA_V2') return false;
+  if (!Array.isArray(data.ciclos)) return false;
+  if (!data.ciclos.length) return true;
+  return Array.isArray(data.ciclos[0].registros);
 }
 
 function atividadesV2_buildMinhaFrequenciaPortalData_(ss, ctx, perf) {
@@ -108,6 +118,7 @@ function atividadesV2_buildMinhaFrequenciaPortalData_(ss, ctx, perf) {
   if (perf) portalPerfMark_(perf, 'montar_frequencia_por_ciclo', { ciclos: ciclos.length });
 
   return {
+    contrato: 'MINHA_FREQUENCIA_DETALHADA_V2',
     resumoGeral: resumoGeral,
     cicloAtual: ciclos.length ? ciclos[0].ciclo : '',
     ciclos: ciclos,
@@ -403,6 +414,67 @@ function atividadesV2_portalGetMinhasJustificativas_(contexto) {
     var errorPerf = portalPerfEnd_(perf);
     return atividadesV2_portalReadonlyError_('atividadesV2_portalGetMinhasJustificativas', err, errorPerf);
   }
+}
+
+function atividadesV2_runTesteMinhaFrequenciaDetalhadaDev_(contexto) {
+  var ctx = atividades_normalizePortalContext_(contexto || {});
+  var avisos = [];
+  if (!ctx.idPessoa && !ctx.rga && !ctx.email) {
+    var sample = atividadesV2_findSamplePresenceContextForFrequencyTest_();
+    ctx = atividades_normalizePortalContext_(sample);
+    avisos.push('Contexto nao informado; usado primeiro registro de presenca com identificador disponivel na V2 DEV.');
+  }
+
+  var token = portalCacheContextToken_(ctx);
+  portalCacheRemove_(portalCacheBuildKey_('frequencia', token));
+  portalCacheRemove_(portalCacheBuildKey_('frequencia_detalhada_v2', token));
+
+  var response = atividadesV2_portalGetMinhaFrequencia_(ctx);
+  var data = response && response.data || {};
+  var ciclos = Array.isArray(data.ciclos) ? data.ciclos : [];
+  var cicloAtual = ciclos[0] || {};
+  var registros = Array.isArray(cicloAtual.registros) ? cicloAtual.registros : [];
+  var primeiro = registros[0] || {};
+  var payloadAntigo = !Array.isArray(data.ciclos) && Array.isArray(data.registros);
+
+  return {
+    ok: !!(response && response.ok && Array.isArray(data.ciclos) && (!ciclos.length || Array.isArray(cicloAtual.registros))),
+    contrato: response && response.contrato || data.contrato || '',
+    origem: response && response.origem || '',
+    payloadAntigoDetectado: payloadAntigo,
+    totalCiclos: ciclos.length,
+    cicloAtual: data.cicloAtual || '',
+    totalRegistrosCicloAtual: registros.length,
+    primeiroRegistro: primeiro ? {
+      idRegistroPresenca: primeiro.idRegistroPresenca || '',
+      idAtividade: primeiro.idAtividade || '',
+      dataAtividade: primeiro.dataAtividade || '',
+      tituloAtividade: primeiro.tituloAtividade || '',
+      statusPresenca: primeiro.statusPresenca || '',
+      statusPresencaRotulo: primeiro.statusPresencaRotulo || ''
+    } : {},
+    avisos: avisos
+  };
+}
+
+function atividadesV2_findSamplePresenceContextForFrequencyTest_() {
+  var ss = atividadesV2_getDatabaseSpreadsheetDev_();
+  var sheet = atividadesV2_getTargetSheet_(ss, ATIVIDADES_V2_SHEETS.PRESENCAS_REGISTROS);
+  var records = atividadesV2_readSheetObjects_(sheet);
+  for (var i = 0; i < records.length; i++) {
+    var record = records[i];
+    if (atividades_normalizeTextUpper_(record.ATIVO || 'SIM') === 'NAO') continue;
+    if (String(record.ID_PESSOA || record.RGA || record.EMAIL_PARTICIPANTE || '').trim()) {
+      return {
+        perfil: 'MEMBRO',
+        idPessoa: String(record.ID_PESSOA || '').trim(),
+        rga: String(record.RGA || '').trim(),
+        email: String(record.EMAIL_PARTICIPANTE || '').trim(),
+        somenteVisiveis: true
+      };
+    }
+  }
+  return { perfil: 'MEMBRO', somenteVisiveis: true };
 }
 
 function atividadesV2_portalGetPendenciasDiretoria_(contexto) {

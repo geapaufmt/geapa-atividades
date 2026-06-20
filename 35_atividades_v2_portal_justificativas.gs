@@ -1272,6 +1272,7 @@ function atividadesV2_invalidateJustificativasPortalCaches_(contexto, result) {
     var token = portalCacheContextToken_(atividades_normalizePortalContext_(ctx || {}));
     portalCacheRemove_(portalCacheBuildKey_('minhas_justificativas', token));
     portalCacheRemove_(portalCacheBuildKey_('frequencia', token));
+    portalCacheRemove_(portalCacheBuildKey_('frequencia_detalhada_v2', token));
     portalCacheRemove_(portalCacheBuildKey_('calendario', token));
     portalCacheRemove_(portalCacheBuildKey_('detalhes', token));
     portalCacheRemove_(portalCacheBuildKey_('bundle', token));

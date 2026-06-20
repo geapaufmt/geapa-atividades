@@ -9,6 +9,7 @@ Funcoes publicas:
 ```js
 atividadesV2_portalGetMinhasJustificativas(contexto)
 atividadesV2_portalGetMinhaFrequencia(contexto)
+atividadesV2_runTesteMinhaFrequenciaDetalhadaDev(contexto)
 atividadesV2_portalGetJustificativasConfig(contexto)
 atividadesV2_portalEnviarJustificativa(payload, contexto)
 atividadesV2_portalListarJustificativasPendentesDiretoria(contexto)
@@ -90,6 +91,8 @@ Cada falta justificavel informa prazo, situacao de prazo, se exige ciencia por f
 ## Minha Frequencia
 
 `atividadesV2_portalGetMinhaFrequencia(contexto)` le a aba operacional `Atividades_Presencas_Registros`, filtra no backend pelo usuario logado e retorna registros por ciclo.
+
+O retorno traz `contrato = MINHA_FREQUENCIA_DETALHADA_V2` e usa cache versionado (`frequencia_detalhada_v2`) para evitar reaproveitar payload antigo baseado em `PORTAL_FREQUENCIA_MEMBROS`.
 
 Formato resumido:
 
@@ -289,8 +292,9 @@ Durante a homologacao, o botao do e-mail ainda pode abrir o formulario antigo co
 10. Enviar justificativa fora do prazo com ciencia e conferir `OBSERVACOES_INTERNAS`.
 11. Enviar justificativa com `documentoComprobatorio.conteudoBase64` e conferir link no Drive.
 12. Consultar `atividadesV2_portalGetMinhaFrequencia(contexto)` e conferir ciclos/registros.
-13. Listar pendencias com `atividadesV2_portalListarJustificativasPendentesDiretoria(contexto)`.
-14. Testar `DEFERIR`, `ABONAR`, `INDEFERIR` e `SOLICITAR_AJUSTE`.
+13. Rodar `atividadesV2_runTesteMinhaFrequenciaDetalhadaDev(contexto)` e confirmar `payloadAntigoDetectado = false`.
+14. Listar pendencias com `atividadesV2_portalListarJustificativasPendentesDiretoria(contexto)`.
+15. Testar `DEFERIR`, `ABONAR`, `INDEFERIR` e `SOLICITAR_AJUSTE`.
 
 Depois das escritas, conferir:
 

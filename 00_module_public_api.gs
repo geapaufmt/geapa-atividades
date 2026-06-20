@@ -70,6 +70,12 @@ function atividadesV2_portalGetJustificativasConfig(contexto) {
   return atividadesV2_portalGetJustificativasConfig_(contexto || {});
 }
 
+function atividadesV2_runTesteMinhaFrequenciaDetalhadaDev(contexto) {
+  return atividades_runWithOperationalGuard_('CONFERENCIA_V2', null, function() {
+    return atividadesV2_runTesteMinhaFrequenciaDetalhadaDev_(contexto || {});
+  }, { entrypoint: 'atividadesV2_runTesteMinhaFrequenciaDetalhadaDev' });
+}
+
 function atividadesV2_portalGetPendenciasDiretoria(contexto) {
   return atividadesV2_portalGetPendenciasDiretoria_(contexto);
 }
