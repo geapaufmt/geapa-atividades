@@ -8,6 +8,8 @@ Funcoes publicas:
 
 ```js
 atividadesV2_portalGetMinhasJustificativas(contexto)
+atividadesV2_portalGetMinhaFrequencia(contexto)
+atividadesV2_portalGetJustificativasConfig(contexto)
 atividadesV2_portalEnviarJustificativa(payload, contexto)
 atividadesV2_portalListarJustificativasPendentesDiretoria(contexto)
 atividadesV2_portalAnalisarJustificativa(payload, contexto)
@@ -85,6 +87,58 @@ Se ja existir justificativa ativa do membro para a mesma atividade, o card deve 
 
 Cada falta justificavel informa prazo, situacao de prazo, se exige ciencia por fora do prazo e mensagem segura para o Portal.
 
+## Minha Frequencia
+
+`atividadesV2_portalGetMinhaFrequencia(contexto)` le a aba operacional `Atividades_Presencas_Registros`, filtra no backend pelo usuario logado e retorna registros por ciclo.
+
+Formato resumido:
+
+```js
+{
+  resumoGeral: {},
+  cicloAtual: "2026/1",
+  ciclos: [
+    {
+      ciclo: "2026/1",
+      cicloOperacional: "GEAPA_2026",
+      ano: "2026",
+      semestre: "1",
+      resumo: {},
+      registros: [
+        {
+          idRegistroPresenca,
+          idAtividade,
+          dataAtividade,
+          tituloAtividade,
+          tipoAtividade,
+          subtipoAtividade,
+          statusPresenca,
+          statusPresencaRotulo,
+          cargaHorariaConsiderada,
+          contaFalta,
+          contaPresenca,
+          idJustificativa,
+          statusJustificativa,
+          podeEnviarJustificativa,
+          podeVerJustificativa,
+          podeComplementarJustificativa,
+          acaoJustificativa
+        }
+      ]
+    }
+  ]
+}
+```
+
+Acoes possiveis em `acaoJustificativa`:
+
+- `ENVIAR_JUSTIFICATIVA`;
+- `ENVIAR_JUSTIFICATIVA_FORA_PRAZO`;
+- `VER_JUSTIFICATIVA`;
+- `COMPLEMENTAR_JUSTIFICATIVA`.
+
+Atividades futuras continuam em `Atividades -> Proximas atividades`; `Minha frequencia` deve focar em registros de presenca/falta ja existentes.
+
 ## Envio
 
 Payload para falta passada:
@@ -109,7 +163,59 @@ Validacoes principais para falta passada:
 - atividade permite justificativa;
 - nao ha justificativa ativa duplicada, exceto reenvio quando `STATUS_ANALISE = AJUSTE_SOLICITADO`;
 - motivo e descricao sao obrigatorios;
-- link de documento e obrigatorio quando `POSSUI_DOCUMENTO_COMPROBATORIO = SIM`.
+- motivo deve usar enum padronizado;
+- comprovante ou link de documento e obrigatorio quando `POSSUI_DOCUMENTO_COMPROBATORIO = SIM`.
+
+Motivos aceitos:
+
+- `SAUDE`
+- `COMPROMISSO_ACADEMICO`
+- `COMPROMISSO_PROFISSIONAL`
+- `MOTIVO_PESSOAL_RELEVANTE`
+- `FORCA_MAIOR`
+- `OUTRO`
+
+O Portal pode consultar `atividadesV2_portalGetJustificativasConfig(contexto)` para obter opcoes e limites de upload. Quando o motivo for `OUTRO`, a descricao deve trazer detalhamento suficiente.
+
+## Upload de Comprovante
+
+O envio de justificativa aceita comprovante em base64:
+
+```js
+{
+  idRegistroPresenca,
+  motivoDeclarado: "SAUDE",
+  descricaoJustificativa,
+  possuiDocumentoComprobatorio: "SIM",
+  documentoComprobatorio: {
+    nomeArquivo: "atestado.pdf",
+    mimeType: "application/pdf",
+    conteudoBase64: "..."
+  }
+}
+```
+
+Formatos aceitos inicialmente: PDF, JPG/JPEG, PNG, DOC e DOCX. Limite inicial: 10 MB.
+
+O backend salva o arquivo no Drive e grava o link gerado em `LINK_DOCUMENTO_COMPROBATORIO`. Para isso, configure a pasta raiz por Script Properties:
+
+- `ATIVIDADES_V2_JUSTIFICATIVAS_ROOT_FOLDER_ID`; ou
+- `JUSTIFICATIVAS_PASTA_RAIZ_ID`.
+
+Como fallback, o backend tenta localizar no Registry:
+
+- `JUSTIFICATIVAS_PASTA_RAIZ`; ou
+- `ATIVIDADES_V2_JUSTIFICATIVAS_PASTA_RAIZ`.
+
+A organizacao dentro da pasta raiz segue:
+
+```text
+2026-1/
+  ATV-2026-1-0001/
+    Nome membro - RGA - ID_JUSTIFICATIVA.pdf
+```
+
+Nao foram criadas colunas novas para metadados do arquivo neste pacote; o contrato minimo continua sendo `POSSUI_DOCUMENTO_COMPROBATORIO` e `LINK_DOCUMENTO_COMPROBATORIO`.
 
 Envio fora do prazo e permitido. O backend calcula o prazo com `atividades_calculateJustificativaDeadline_` quando disponivel. Se estiver fora do prazo, o payload deve trazer ciencia obrigatoria; a condicao fica registrada em `OBSERVACOES_INTERNAS`, sem criar coluna nova.
 
@@ -181,8 +287,10 @@ Durante a homologacao, o botao do e-mail ainda pode abrir o formulario antigo co
 8. Enviar justificativa dentro do prazo.
 9. Enviar justificativa fora do prazo sem ciencia e confirmar bloqueio.
 10. Enviar justificativa fora do prazo com ciencia e conferir `OBSERVACOES_INTERNAS`.
-11. Listar pendencias com `atividadesV2_portalListarJustificativasPendentesDiretoria(contexto)`.
-12. Testar `DEFERIR`, `ABONAR`, `INDEFERIR` e `SOLICITAR_AJUSTE`.
+11. Enviar justificativa com `documentoComprobatorio.conteudoBase64` e conferir link no Drive.
+12. Consultar `atividadesV2_portalGetMinhaFrequencia(contexto)` e conferir ciclos/registros.
+13. Listar pendencias com `atividadesV2_portalListarJustificativasPendentesDiretoria(contexto)`.
+14. Testar `DEFERIR`, `ABONAR`, `INDEFERIR` e `SOLICITAR_AJUSTE`.
 
 Depois das escritas, conferir:
 

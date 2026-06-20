@@ -37,13 +37,267 @@ function atividades_isPrivilegedPortalProfile_(contexto) {
 }
 
 function atividadesV2_portalGetMinhaFrequencia_(contexto) {
-  return atividadesV2_portalReadOwnView_({
-    label: 'atividadesV2_portalGetMinhaFrequencia',
-    sheetName: ATIVIDADES_V2_SHEETS.PORTAL_FREQUENCIA_MEMBROS,
-    listField: 'registros',
-    summaryFields: ['TOTAL_PRESENCAS', 'TOTAL_FALTAS', 'TOTAL_JUSTIFICADAS', 'FALTAS_LIQUIDAS', 'PERCENTUAL_FREQUENCIA'],
-    mapper: atividadesV2_portalMapFrequenciaMembro_
-  }, contexto);
+  var perf = portalPerfStart_('atividadesV2_portalGetMinhaFrequencia');
+  try {
+    var ctx = atividades_normalizePortalContext_(contexto || {});
+    var cacheKey = portalCacheBuildKey_('frequencia', portalCacheContextToken_(ctx));
+    var cached = portalCacheGetJson_(cacheKey);
+    if (cached) return cached;
+
+    var ss = atividadesV2_getDatabaseSpreadsheetDev_();
+    portalPerfMark_(perf, 'abrir_planilha_v2_dev');
+    var data = atividadesV2_buildMinhaFrequenciaPortalData_(ss, ctx, perf);
+    var perfResult = portalPerfEnd_(perf);
+    var response = {
+      ok: true,
+      data: data,
+      origem: 'atividades-v2:Atividades_Presencas_Registros',
+      tempoTotalMs: perfResult ? perfResult.totalMs : ''
+    };
+    portalCachePutJson_(cacheKey, response, ATIVIDADES_V2_PORTAL_PRIVATE_CACHE_TTL_SECONDS);
+    return response;
+  } catch (err) {
+    var errorPerf = portalPerfEnd_(perf);
+    return atividadesV2_portalReadonlyError_('atividadesV2_portalGetMinhaFrequencia', err, errorPerf);
+  }
+}
+
+function atividadesV2_buildMinhaFrequenciaPortalData_(ss, ctx, perf) {
+  var atividadesSheet = atividadesV2_getTargetSheet_(ss, ATIVIDADES_V2_SHEETS.ATIVIDADES);
+  var presencasSheet = atividadesV2_getTargetSheet_(ss, ATIVIDADES_V2_SHEETS.PRESENCAS_REGISTROS);
+  var justificativasSheet = atividadesV2_getTargetSheet_(ss, ATIVIDADES_V2_SHEETS.JUSTIFICATIVAS);
+  var atividades = atividadesV2_readSheetObjects_(atividadesSheet);
+  var presencas = atividadesV2_readSheetObjects_(presencasSheet);
+  var justificativas = atividadesV2_readSheetObjects_(justificativasSheet);
+  if (perf) {
+    portalPerfMark_(perf, 'ler_bases_frequencia', {
+      atividades: atividades.length,
+      presencas: presencas.length,
+      justificativas: justificativas.length
+    });
+  }
+
+  var atividadesById = atividadesV2_indexByField_(atividades, 'ID_ATIVIDADE');
+  var justificativasByRegistro = atividadesV2_indexActiveJustificativasByRegistro_(justificativas);
+  var justificativasByAtividade = atividadesV2_indexActiveJustificativasByActivityForContext_(justificativas, ctx);
+  var cycles = {};
+  var latest = '';
+
+  presencas.forEach(function(record) {
+    if (!atividadesV2_presenceBelongsToContext_(record, ctx)) return;
+    if (atividades_normalizeTextUpper_(record.ATIVO || 'SIM') === 'NAO') return;
+    var atividade = atividadesById[String(record.ID_ATIVIDADE || '').trim()] || {};
+    var cicloKey = atividadesV2_frequencyCycleKey_(record, atividade);
+    if (!cycles[cicloKey]) cycles[cicloKey] = atividadesV2_emptyFrequencyCycle_(record, atividade, cicloKey);
+    var item = atividadesV2_mapRegistroFrequenciaPortal_(record, atividade, justificativasByRegistro, justificativasByAtividade);
+    cycles[cicloKey].registros.push(item);
+    atividadesV2_incrementFrequencyResumo_(cycles[cicloKey].resumo, item);
+    var updated = String(record.ATUALIZADO_EM || record.REGISTRADO_EM || '').trim();
+    if (updated && (!latest || updated > latest)) latest = updated;
+  });
+
+  var ciclos = Object.keys(cycles).map(function(key) {
+    var ciclo = cycles[key];
+    atividadesV2_finalizeFrequencyResumo_(ciclo.resumo);
+    ciclo.registros.sort(atividadesV2_sortFrequencyRecords_);
+    return ciclo;
+  }).sort(atividadesV2_sortFrequencyCycles_);
+
+  var resumoGeral = atividadesV2_mergeFrequencyResumo_(ciclos.map(function(ciclo) { return ciclo.resumo; }));
+  atividadesV2_finalizeFrequencyResumo_(resumoGeral);
+  if (perf) portalPerfMark_(perf, 'montar_frequencia_por_ciclo', { ciclos: ciclos.length });
+
+  return {
+    resumoGeral: resumoGeral,
+    cicloAtual: ciclos.length ? ciclos[0].ciclo : '',
+    ciclos: ciclos,
+    ultimaAtualizacao: latest || new Date().toISOString()
+  };
+}
+
+function atividadesV2_emptyFrequencyCycle_(record, atividade, key) {
+  var ano = String(record.ANO || atividade.ANO || '').trim();
+  var semestre = String(record.SEMESTRE || atividade.SEMESTRE || '').trim();
+  return {
+    ciclo: key,
+    cicloOperacional: String(record.CICLO || atividade.CICLO || '').trim(),
+    ano: ano,
+    semestre: semestre,
+    resumo: atividadesV2_emptyFrequencyResumo_(),
+    registros: []
+  };
+}
+
+function atividadesV2_emptyFrequencyResumo_() {
+  return {
+    totalRegistros: 0,
+    totalPresencas: 0,
+    totalFaltas: 0,
+    totalJustificadas: 0,
+    totalAbonadas: 0,
+    totalNaoSeAplica: 0,
+    faltasLiquidas: 0,
+    limiteFaltasPeriodo: '',
+    percentualFrequencia: '',
+    percentualUsoLimite: '',
+    situacaoDisciplinar: '',
+    cargaHorariaTotal: 0,
+    elegivelCertificado: ''
+  };
+}
+
+function atividadesV2_mapRegistroFrequenciaPortal_(record, atividade, justificativasByRegistro, justificativasByAtividade) {
+  var idRegistro = String(record.ID_REGISTRO_PRESENCA || '').trim();
+  var idAtividade = String(record.ID_ATIVIDADE || '').trim();
+  var justificativa = justificativasByRegistro[idRegistro] || justificativasByAtividade[idAtividade] || null;
+  var status = atividadesV2_normalizePresenceStatusForPortal_(record);
+  var action = atividadesV2_frequencyJustificativaAction_(record, atividade, justificativa);
+  return {
+    idRegistroPresenca: idRegistro,
+    idAtividade: idAtividade,
+    idPessoa: String(record.ID_PESSOA || '').trim(),
+    rga: String(record.RGA || '').trim(),
+    ciclo: atividadesV2_frequencyCycleKey_(record, atividade),
+    cicloOperacional: String(record.CICLO || atividade.CICLO || '').trim(),
+    ano: String(record.ANO || atividade.ANO || '').trim(),
+    semestre: String(record.SEMESTRE || atividade.SEMESTRE || '').trim(),
+    dataAtividade: atividades_formatPortalDateIso_(record.DATA_ATIVIDADE || atividade.DATA_ATIVIDADE),
+    tituloAtividade: atividades_sanitizePortalText_(record.TITULO_ATIVIDADE || atividade.TITULO_PUBLICO || atividade.TITULO, 240),
+    tipoAtividade: String(record.TIPO_ATIVIDADE || atividade.TIPO_ATIVIDADE || '').trim(),
+    subtipoAtividade: String(record.SUBTIPO_ATIVIDADE || atividade.SUBTIPO_ATIVIDADE || '').trim(),
+    statusPresenca: status.status,
+    statusPresencaRotulo: status.rotulo,
+    codigoPresenca: status.codigo,
+    cargaHorariaConsiderada: record.CARGA_HORARIA_CONSIDERADA || record.CARGA_HORARIA_TOTAL_ATIVIDADE || atividade.CARGA_HORARIA || '',
+    contaFalta: atividades_isTruthySim_(record.CONTA_FALTA) ? 'SIM' : 'NAO',
+    contaPresenca: atividades_isTruthySim_(record.CONTA_PRESENCA) ? 'SIM' : 'NAO',
+    idJustificativa: justificativa ? String(justificativa.ID_JUSTIFICATIVA || '').trim() : String(record.ID_JUSTIFICATIVA || '').trim(),
+    statusJustificativa: justificativa ? String(justificativa.STATUS_ANALISE || '').trim() : String(record.STATUS_JUSTIFICATIVA || '').trim(),
+    podeEnviarJustificativa: action.podeEnviarJustificativa,
+    podeVerJustificativa: action.podeVerJustificativa,
+    podeComplementarJustificativa: action.podeComplementarJustificativa,
+    acaoJustificativa: action.acaoJustificativa,
+    mensagemPortal: action.mensagemPortal
+  };
+}
+
+function atividadesV2_frequencyJustificativaAction_(record, atividade, justificativa) {
+  var statusJust = atividades_normalizeTextUpper_(justificativa && justificativa.STATUS_ANALISE || record.STATUS_JUSTIFICATIVA || '');
+  if (justificativa) {
+    return {
+      podeEnviarJustificativa: statusJust === 'AJUSTE_SOLICITADO',
+      podeVerJustificativa: true,
+      podeComplementarJustificativa: statusJust === 'AJUSTE_SOLICITADO',
+      acaoJustificativa: statusJust === 'AJUSTE_SOLICITADO' ? 'COMPLEMENTAR_JUSTIFICATIVA' : 'VER_JUSTIFICATIVA',
+      mensagemPortal: statusJust === 'AJUSTE_SOLICITADO' ? 'Ajuste solicitado pela Diretoria/Secretaria.' : ''
+    };
+  }
+  if (!atividadesV2_isPresenceJustificavel_(record) || !atividadesV2_activityAllowsJustificativa_(atividade || {})) {
+    return {
+      podeEnviarJustificativa: false,
+      podeVerJustificativa: false,
+      podeComplementarJustificativa: false,
+      acaoJustificativa: '',
+      mensagemPortal: ''
+    };
+  }
+  var prazo = atividadesV2_classificarPrazoJustificativaPresenca_(record, atividade || {}, new Date());
+  return {
+    podeEnviarJustificativa: true,
+    podeVerJustificativa: false,
+    podeComplementarJustificativa: false,
+    acaoJustificativa: prazo.envioForaDoPrazo === 'SIM' ? 'ENVIAR_JUSTIFICATIVA_FORA_PRAZO' : 'ENVIAR_JUSTIFICATIVA',
+    mensagemPortal: prazo.mensagemPortal
+  };
+}
+
+function atividadesV2_normalizePresenceStatusForPortal_(record) {
+  var raw = atividades_normalizeTextUpper_(record.STATUS_PRESENCA || record.CODIGO_PRESENCA || '');
+  var map = {
+    P: { status: 'PRESENTE_PRESENCIAL', codigo: 'P', rotulo: 'Presente' },
+    R: { status: 'PRESENTE_REMOTO', codigo: 'R', rotulo: 'Presente remoto' },
+    F: { status: 'FALTA', codigo: 'F', rotulo: 'Falta' },
+    J: { status: 'JUSTIFICADA', codigo: 'J', rotulo: 'Falta justificada' },
+    A: { status: 'ABONADA', codigo: 'A', rotulo: 'Falta abonada' },
+    'N/A': { status: 'NAO_SE_APLICA', codigo: 'N/A', rotulo: 'Nao aplicavel' },
+    PRESENTE_PRESENCIAL: { status: 'PRESENTE_PRESENCIAL', codigo: 'P', rotulo: 'Presente' },
+    PRESENTE_REMOTO: { status: 'PRESENTE_REMOTO', codigo: 'R', rotulo: 'Presente remoto' },
+    FALTA: { status: 'FALTA', codigo: 'F', rotulo: 'Falta' },
+    JUSTIFICADA: { status: 'JUSTIFICADA', codigo: 'J', rotulo: 'Falta justificada' },
+    ABONADA: { status: 'ABONADA', codigo: 'A', rotulo: 'Falta abonada' },
+    NAO_SE_APLICA: { status: 'NAO_SE_APLICA', codigo: 'N/A', rotulo: 'Nao aplicavel' }
+  };
+  return map[raw] || { status: raw || 'PENDENTE', codigo: String(record.CODIGO_PRESENCA || '').trim(), rotulo: raw ? atividadesV2_titleCaseStatus_(raw) : 'Sem marcacao' };
+}
+
+function atividadesV2_incrementFrequencyResumo_(resumo, item) {
+  resumo.totalRegistros++;
+  var status = atividades_normalizeTextUpper_(item.statusPresenca);
+  var carga = Number(String(item.cargaHorariaConsiderada || '').replace(',', '.'));
+  if (isFinite(carga)) resumo.cargaHorariaTotal += carga;
+  if (status === 'PRESENTE_PRESENCIAL' || status === 'PRESENTE_REMOTO') resumo.totalPresencas++;
+  else if (status === 'FALTA') resumo.totalFaltas++;
+  else if (status === 'JUSTIFICADA') resumo.totalJustificadas++;
+  else if (status === 'ABONADA') resumo.totalAbonadas++;
+  else if (status === 'NAO_SE_APLICA') resumo.totalNaoSeAplica++;
+}
+
+function atividadesV2_finalizeFrequencyResumo_(resumo) {
+  resumo.faltasLiquidas = Math.max(0, Number(resumo.totalFaltas || 0));
+  var totalComputavel = Number(resumo.totalPresencas || 0) + Number(resumo.totalFaltas || 0) + Number(resumo.totalJustificadas || 0) + Number(resumo.totalAbonadas || 0);
+  var presencasEquivalentes = Number(resumo.totalPresencas || 0) + Number(resumo.totalJustificadas || 0) + Number(resumo.totalAbonadas || 0);
+  resumo.percentualFrequencia = totalComputavel ? Math.round((presencasEquivalentes / totalComputavel) * 10000) / 100 : '';
+  resumo.situacaoDisciplinar = atividadesV2_frequencySituation_(resumo);
+  resumo.elegivelCertificado = resumo.faltasLiquidas > 0 ? 'A_CONFERIR' : 'SIM';
+  return resumo;
+}
+
+function atividadesV2_mergeFrequencyResumo_(items) {
+  var total = atividadesV2_emptyFrequencyResumo_();
+  (items || []).forEach(function(item) {
+    total.totalRegistros += Number(item.totalRegistros || 0);
+    total.totalPresencas += Number(item.totalPresencas || 0);
+    total.totalFaltas += Number(item.totalFaltas || 0);
+    total.totalJustificadas += Number(item.totalJustificadas || 0);
+    total.totalAbonadas += Number(item.totalAbonadas || 0);
+    total.totalNaoSeAplica += Number(item.totalNaoSeAplica || 0);
+    total.cargaHorariaTotal += Number(item.cargaHorariaTotal || 0);
+  });
+  return total;
+}
+
+function atividadesV2_frequencySituation_(resumo) {
+  var faltas = Number(resumo && resumo.faltasLiquidas || 0);
+  var limite = Number(resumo && resumo.limiteFaltasPeriodo || 0);
+  if (!limite) return faltas ? 'A_CONFERIR' : 'NORMAL';
+  var uso = faltas / limite;
+  resumo.percentualUsoLimite = Math.round(uso * 10000) / 100;
+  if (uso >= 1) return 'LIMITE_ATINGIDO';
+  if (uso >= 0.8) return 'ALERTA_80';
+  if (uso >= 0.6) return 'ALERTA_60';
+  return 'NORMAL';
+}
+
+function atividadesV2_frequencyCycleKey_(record, atividade) {
+  var ano = String(record && record.ANO || atividade && atividade.ANO || '').trim();
+  var semestre = String(record && record.SEMESTRE || atividade && atividade.SEMESTRE || '').trim();
+  if (ano && semestre) return ano + '/' + semestre;
+  var ciclo = String(record && record.CICLO || atividade && atividade.CICLO || '').trim();
+  var match = ciclo.match(/(\d{4}).*?([12])$/);
+  return match ? match[1] + '/' + match[2] : (ciclo || 'SEM_CICLO');
+}
+
+function atividadesV2_sortFrequencyRecords_(a, b) {
+  return String(b.dataAtividade || '').localeCompare(String(a.dataAtividade || '')) ||
+    String(a.tituloAtividade || '').localeCompare(String(b.tituloAtividade || ''));
+}
+
+function atividadesV2_sortFrequencyCycles_(a, b) {
+  return String(b.ciclo || '').localeCompare(String(a.ciclo || ''));
+}
+
+function atividadesV2_titleCaseStatus_(value) {
+  return String(value || '').toLowerCase().replace(/_/g, ' ').replace(/\b\w/g, function(ch) { return ch.toUpperCase(); });
 }
 
 function atividadesV2_portalGetMinhasApresentacoes_(contexto) {

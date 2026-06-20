@@ -20,6 +20,27 @@ var ATIVIDADES_V2_JUSTIFICATIVAS_STATUS_FINAIS = Object.freeze([
   'CANCELADA'
 ]);
 
+var ATIVIDADES_V2_JUSTIFICATIVAS_MOTIVOS = Object.freeze([
+  'SAUDE',
+  'COMPROMISSO_ACADEMICO',
+  'COMPROMISSO_PROFISSIONAL',
+  'MOTIVO_PESSOAL_RELEVANTE',
+  'FORCA_MAIOR',
+  'OUTRO'
+]);
+
+var ATIVIDADES_V2_JUSTIFICATIVAS_MOTIVOS_ROTULOS = Object.freeze({
+  SAUDE: 'Saude',
+  COMPROMISSO_ACADEMICO: 'Compromisso academico',
+  COMPROMISSO_PROFISSIONAL: 'Compromisso profissional',
+  MOTIVO_PESSOAL_RELEVANTE: 'Motivo pessoal relevante',
+  FORCA_MAIOR: 'Forca maior',
+  OUTRO: 'Outro'
+});
+
+var ATIVIDADES_V2_JUSTIFICATIVAS_MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
+var ATIVIDADES_V2_JUSTIFICATIVAS_ROOT_FOLDER_PROP = 'ATIVIDADES_V2_JUSTIFICATIVAS_ROOT_FOLDER_ID';
+
 function atividadesV2_portalEnviarJustificativa_(payload, contexto) {
   return atividadesV2_portalRunJustificativaAction_(
     'JUSTIFICATIVA_ENVIADA_PORTAL',
@@ -27,7 +48,6 @@ function atividadesV2_portalEnviarJustificativa_(payload, contexto) {
     contexto,
     function(ss, action) {
       var bundle = atividadesV2_resolveJustificativaSubmissionBundle_(ss, action.payload, action.contexto);
-      var normalized = atividadesV2_validateJustificativaSubmissionPayload_(action.payload, bundle.prazo);
       var now = new Date();
       var user = atividadesV2_justificativaActorToken_(action.contexto);
       var existing = bundle.existingActive;
@@ -35,6 +55,13 @@ function atividadesV2_portalEnviarJustificativa_(payload, contexto) {
       var idJustificativa = existing
         ? String(existing.ID_JUSTIFICATIVA || '').trim()
         : atividadesV2_buildNextJustificativaIdForRecord_(bundle.justificativas, bundle.presenca, bundle.atividade);
+      var normalized = atividadesV2_validateJustificativaSubmissionPayload_(action.payload, bundle.prazo);
+      var uploadResult = atividadesV2_processJustificativaDocumentoUpload_(ss, action.payload, bundle, idJustificativa);
+      if (uploadResult && uploadResult.linkDocumentoComprobatorio) {
+        normalized.possuiDocumentoComprobatorio = 'SIM';
+        normalized.linkDocumentoComprobatorio = uploadResult.linkDocumentoComprobatorio;
+      }
+      atividadesV2_assertJustificativaDocumentoRequirement_(normalized);
       var observacaoForaPrazo = bundle.prazo.envioForaDoPrazo === 'SIM'
         ? 'Justificativa enviada fora do prazo em ' + now.toISOString() + '. Membro confirmou ciencia no portal.'
         : '';
@@ -79,12 +106,43 @@ function atividadesV2_portalEnviarJustificativa_(payload, contexto) {
         justificativaPrevia: bundle.isPrevia ? 'SIM' : 'NAO',
         envioForaDoPrazo: bundle.prazo.envioForaDoPrazo,
         statusPrazo: bundle.prazo.statusPrazo,
+        documentoComprobatorio: uploadResult ? {
+          enviado: 'SIM',
+          nomeArquivo: uploadResult.nomeArquivo || '',
+          link: uploadResult.linkDocumentoComprobatorio || ''
+        } : { enviado: 'NAO' },
         idPessoa: bundle.presenca.ID_PESSOA || '',
         rga: bundle.presenca.RGA || '',
         email: bundle.presenca.EMAIL_PARTICIPANTE || ''
       };
     }
   );
+}
+
+function atividadesV2_portalGetJustificativasConfig_() {
+  return {
+    ok: true,
+    data: {
+      motivos: ATIVIDADES_V2_JUSTIFICATIVAS_MOTIVOS.map(function(value) {
+        return {
+          value: value,
+          label: ATIVIDADES_V2_JUSTIFICATIVAS_MOTIVOS_ROTULOS[value] || value
+        };
+      }),
+      uploadComprovante: {
+        habilitado: true,
+        maxBytes: ATIVIDADES_V2_JUSTIFICATIVAS_MAX_UPLOAD_BYTES,
+        extensoesAceitas: ['.pdf', '.jpg', '.jpeg', '.png', '.doc', '.docx'],
+        mimeTypesAceitos: [
+          'application/pdf',
+          'image/jpeg',
+          'image/png',
+          'application/msword',
+          'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+        ]
+      }
+    }
+  };
 }
 
 function atividadesV2_promoverJustificativasPreviasDev_(options) {
@@ -546,14 +604,17 @@ function atividadesV2_readJustificativasPortalData_(ss) {
 }
 
 function atividadesV2_validateJustificativaSubmissionPayload_(payload, prazo) {
-  var motivo = atividades_sanitizePortalText_(payload && payload.motivoDeclarado, 180);
+  var motivo = atividadesV2_normalizeJustificativaMotivo_(payload && (payload.motivoDeclarado || payload.motivoCategoria || payload.motivo));
   var descricao = atividades_sanitizePortalText_(payload && payload.descricaoJustificativa, 1500);
   var possuiDocumento = atividades_normalizeYesNoValue_(payload && payload.possuiDocumentoComprobatorio);
   var linkDocumento = atividades_sanitizePortalUrl_(payload && payload.linkDocumentoComprobatorio);
   if (!motivo) throw atividadesV2_portalActionException_('MOTIVO_OBRIGATORIO', 'Informe o motivo da justificativa.');
+  if (ATIVIDADES_V2_JUSTIFICATIVAS_MOTIVOS.indexOf(motivo) === -1) {
+    throw atividadesV2_portalActionException_('MOTIVO_INVALIDO', 'Motivo de justificativa invalido.');
+  }
   if (!descricao) throw atividadesV2_portalActionException_('DESCRICAO_OBRIGATORIA', 'Informe a descricao da justificativa.');
-  if (possuiDocumento === 'SIM' && !linkDocumento) {
-    throw atividadesV2_portalActionException_('DOCUMENTO_OBRIGATORIO', 'Informe o link do documento comprobatorio.');
+  if (motivo === 'OUTRO' && descricao.length < 20) {
+    throw atividadesV2_portalActionException_('DESCRICAO_OUTRO_INSUFICIENTE', 'Detalhe melhor a justificativa quando o motivo for OUTRO.');
   }
   if (prazo && prazo.envioForaDoPrazo === 'SIM' && !atividadesV2_isTruthyFlag_(payload && (payload.confirmouCienciaForaPrazo || payload.cienciaForaPrazo))) {
     throw atividadesV2_portalActionException_('CIENCIA_FORA_PRAZO_OBRIGATORIA', 'Confirme ciencia de que a justificativa esta fora do prazo.');
@@ -565,6 +626,129 @@ function atividadesV2_validateJustificativaSubmissionPayload_(payload, prazo) {
     linkDocumentoComprobatorio: linkDocumento,
     observacoes: atividades_sanitizePortalText_(payload && payload.observacoes, 500)
   };
+}
+
+function atividadesV2_normalizeJustificativaMotivo_(value) {
+  return atividades_normalizeTextUpper_(value).replace(/\s+/g, '_');
+}
+
+function atividadesV2_assertJustificativaDocumentoRequirement_(normalized) {
+  if (normalized && normalized.possuiDocumentoComprobatorio === 'SIM' && !normalized.linkDocumentoComprobatorio) {
+    throw atividadesV2_portalActionException_('DOCUMENTO_OBRIGATORIO', 'Envie o comprovante ou informe o link do documento comprobatorio.');
+  }
+}
+
+function atividadesV2_processJustificativaDocumentoUpload_(ss, payload, bundle, idJustificativa) {
+  var file = atividadesV2_extractJustificativaUpload_(payload);
+  if (!file) return null;
+  atividadesV2_assertJustificativaUploadAllowed_(file);
+  var rootFolderId = atividadesV2_getJustificativasRootFolderId_();
+  if (!rootFolderId) {
+    throw atividadesV2_portalActionException_(
+      'PASTA_JUSTIFICATIVAS_NAO_CONFIGURADA',
+      'Configure a pasta raiz de justificativas antes de receber comprovantes pelo Portal.'
+    );
+  }
+  var root = DriveApp.getFolderById(rootFolderId);
+  var activityIdentity = atividadesV2_resolveActivityIdentity_(Object.assign({}, bundle.atividade || {}, bundle.presenca || {}));
+  var cycleFolderName = activityIdentity.ano + '-' + activityIdentity.semestre;
+  var activityFolderName = String(bundle.presenca.ID_ATIVIDADE || bundle.atividade.ID_ATIVIDADE || 'ATV').trim();
+  var folder = atividadesV2_getOrCreateSubfolder_(atividadesV2_getOrCreateSubfolder_(root, cycleFolderName), activityFolderName);
+  var originalName = file.nomeArquivo || 'comprovante.pdf';
+  var fileName = atividadesV2_buildNomeComprovanteJustificativa_(bundle, idJustificativa, originalName);
+  var resolvedName = atividadesV2_resolveMaterialFileName_(folder, fileName);
+  var created = atividadesV2_createMaterialFileFromBase64_(folder, resolvedName.nomeArquivo, file.conteudoBase64, file.mimeType);
+  atividadesV2_appendV2Log_(ss, {
+    FLUXO: 'JUSTIFICATIVAS_PORTAL_V2',
+    ACAO: 'UPLOAD_COMPROVANTE_JUSTIFICATIVA',
+    NIVEL: 'INFO',
+    STATUS: 'OK',
+    ID_ATIVIDADE: bundle.presenca.ID_ATIVIDADE || '',
+    ID_ENTIDADE: idJustificativa,
+    TIPO_ENTIDADE: 'JUSTIFICATIVA',
+    MENSAGEM: 'Comprovante de justificativa salvo no Drive.',
+    DETALHES_JSON: atividadesV2_safeLogData_({
+      idJustificativa: idJustificativa,
+      nomeArquivo: created.getName(),
+      mimeType: created.getMimeType()
+    })
+  });
+  return {
+    fileId: created.getId(),
+    nomeArquivo: created.getName(),
+    mimeType: created.getMimeType(),
+    linkDocumentoComprobatorio: created.getUrl()
+  };
+}
+
+function atividadesV2_extractJustificativaUpload_(payload) {
+  var source = payload && (payload.documentoComprobatorio || payload.arquivoComprovante || payload.comprovante) || {};
+  var base64 = String(source.conteudoBase64 || source.base64 || payload && (payload.conteudoBase64Documento || payload.base64Documento) || '').trim();
+  if (!base64) return null;
+  return {
+    conteudoBase64: base64,
+    nomeArquivo: String(source.nomeArquivo || source.name || payload && payload.nomeArquivoDocumento || 'comprovante.pdf').trim(),
+    mimeType: String(source.mimeType || source.type || payload && payload.mimeTypeDocumento || '').trim()
+  };
+}
+
+function atividadesV2_assertJustificativaUploadAllowed_(file) {
+  var name = String(file && file.nomeArquivo || '').trim();
+  var mime = String(file && file.mimeType || '').trim();
+  var ext = atividadesV2_getFileExtension_(name);
+  var allowedExt = ['.pdf', '.jpg', '.jpeg', '.png', '.doc', '.docx'];
+  var allowedMime = [
+    'application/pdf',
+    'image/jpeg',
+    'image/png',
+    'application/msword',
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+  ];
+  if (allowedExt.indexOf(ext) === -1 && allowedMime.indexOf(mime) === -1) {
+    throw atividadesV2_portalActionException_('TIPO_COMPROVANTE_INVALIDO', 'Envie comprovante em PDF, JPG, PNG, DOC ou DOCX.');
+  }
+  var size = Math.floor(String(file.conteudoBase64 || '').replace(/^data:[^;]+;base64,/, '').length * 0.75);
+  if (size > ATIVIDADES_V2_JUSTIFICATIVAS_MAX_UPLOAD_BYTES) {
+    throw atividadesV2_portalActionException_('COMPROVANTE_MUITO_GRANDE', 'O comprovante excede o limite de 10 MB.');
+  }
+}
+
+function atividadesV2_getJustificativasRootFolderId_() {
+  try {
+    var props = PropertiesService.getScriptProperties();
+    var byProp = String(
+      props.getProperty(ATIVIDADES_V2_JUSTIFICATIVAS_ROOT_FOLDER_PROP) ||
+      props.getProperty('JUSTIFICATIVAS_PASTA_RAIZ_ID') ||
+      ''
+    ).trim();
+    if (byProp) return byProp;
+  } catch (err) {
+    // Continua para tentativa via Registry.
+  }
+  try {
+    var entry = atividades_getRegistryEntryByKey_('JUSTIFICATIVAS_PASTA_RAIZ') ||
+      atividades_getRegistryEntryByKey_('ATIVIDADES_V2_JUSTIFICATIVAS_PASTA_RAIZ');
+    return entry ? String(entry.id || '').trim() : '';
+  } catch (registryErr) {
+    return '';
+  }
+}
+
+function atividadesV2_getOrCreateSubfolder_(parent, name) {
+  var folderName = atividadesV2_sanitizeDriveFileName_(name || 'JUSTIFICATIVAS');
+  var existing = parent.getFoldersByName(folderName);
+  return existing.hasNext() ? existing.next() : parent.createFolder(folderName);
+}
+
+function atividadesV2_buildNomeComprovanteJustificativa_(bundle, idJustificativa, originalName) {
+  var ext = atividadesV2_getFileExtension_(originalName) || '.pdf';
+  var person = bundle.presenca.NOME_PARTICIPANTE || bundle.presenca.RGA || bundle.presenca.ID_PESSOA || 'membro';
+  var base = [
+    atividadesV2_sanitizeDriveFileName_(String(person || '').slice(0, 80)),
+    atividadesV2_sanitizeDriveFileName_(String(bundle.presenca.RGA || bundle.presenca.ID_PESSOA || 'sem-id').slice(0, 60)),
+    atividadesV2_sanitizeDriveFileName_(idJustificativa || 'JUS')
+  ].join(' - ');
+  return atividadesV2_sanitizeDriveFileName_(base).slice(0, 180) + ext;
 }
 
 function atividadesV2_buildJustificativaPortalRow_(opts) {

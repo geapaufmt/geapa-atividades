@@ -2653,6 +2653,7 @@ function atividadesV2_buildValidationRules_(sheetName) {
   atividadesV2_addRule_(rules, 'VISIBILIDADE_PORTAL', enums.VISIBILIDADE_PORTAL, 'Nivel de visibilidade no Portal GEAPA.');
   atividadesV2_addRule_(rules, 'VISIBILIDADE_PORTAL_PADRAO', enums.VISIBILIDADE_PORTAL, 'Visibilidade padrao no Portal GEAPA.');
   atividadesV2_addRule_(rules, 'STATUS_ANALISE', enums.STATUS_ANALISE, 'Status da analise administrativa da justificativa.');
+  atividadesV2_addRule_(rules, 'MOTIVO_DECLARADO', enums.MOTIVO_JUSTIFICATIVA, 'Motivo padronizado da justificativa pelo Portal.');
 
   return rules;
 }

@@ -66,6 +66,10 @@ function atividadesV2_portalGetMinhasJustificativas(contexto) {
   return atividadesV2_portalGetMinhasJustificativas_(contexto);
 }
 
+function atividadesV2_portalGetJustificativasConfig(contexto) {
+  return atividadesV2_portalGetJustificativasConfig_(contexto || {});
+}
+
 function atividadesV2_portalGetPendenciasDiretoria(contexto) {
   return atividadesV2_portalGetPendenciasDiretoria_(contexto);
 }
