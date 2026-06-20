@@ -449,19 +449,28 @@ function atividadesV2_atualizarPortalJustificativas_(options) {
     var rows = justificativas.filter(function(record) {
       return atividades_normalizeTextUpper_(record.ATIVO || 'SIM') !== 'NAO';
     }).map(function(record) {
+      var prazo = typeof atividadesV2_classificarPrazoJustificativaRecord_ === 'function'
+        ? atividadesV2_classificarPrazoJustificativaRecord_(record, new Date())
+        : { statusPrazo: '', envioForaDoPrazo: 'NAO', mensagemPortal: '' };
       return {
         ID_JUSTIFICATIVA: record.ID_JUSTIFICATIVA || '',
+        ID_REGISTRO_PRESENCA: record.ID_REGISTRO_PRESENCA || '',
         ID_PESSOA: record.ID_PESSOA || '',
         RGA: record.RGA || '',
         NOME_MEMBRO: atividades_sanitizePortalText_(record.NOME_MEMBRO, 180),
         ID_ATIVIDADE: record.ID_ATIVIDADE || '',
         DATA_ATIVIDADE: record.DATA_ATIVIDADE || '',
         TITULO_ATIVIDADE: atividades_sanitizePortalText_(record.TITULO_ATIVIDADE, 240),
+        DATA_LIMITE_JUSTIFICATIVA: record.DATA_LIMITE_JUSTIFICATIVA || '',
         MOTIVO_DECLARADO: atividades_sanitizePortalText_(record.MOTIVO_DECLARADO, 180),
         DATA_ENVIO: record.DATA_ENVIO || '',
+        STATUS_PRAZO: prazo.statusPrazo || '',
+        ENVIO_FORA_DO_PRAZO: prazo.envioForaDoPrazo || 'NAO',
         STATUS_ANALISE: record.STATUS_ANALISE || '',
         DECISAO_APLICADA: record.DECISAO_APLICADA_NA_PRESENCA || '',
         OBSERVACAO_PUBLICA: atividades_sanitizePortalText_(record.OBSERVACAO_PUBLICA, 500),
+        PODE_REENVIAR_AJUSTE: atividades_normalizeTextUpper_(record.STATUS_ANALISE) === 'AJUSTE_SOLICITADO' ? 'SIM' : 'NAO',
+        MENSAGEM_PORTAL: prazo.mensagemPortal || '',
         ULTIMA_ATUALIZACAO: record.ATUALIZADO_EM || now
       };
     });
@@ -498,7 +507,9 @@ function atividadesV2_atualizarPortalStatus_(options) {
       TOTAL_ATIVIDADES_REALIZADAS: data.atividades.filter(function(r) { return atividades_normalizeTextUpper_(r.STATUS_OPERACIONAL) === 'REALIZADA'; }).length,
       TOTAL_APRESENTACOES: data.apresentacoes.length,
       TOTAL_PRESENCAS_REGISTRADAS: data.presencas.length,
-      TOTAL_JUSTIFICATIVAS_PENDENTES: data.justificativas.filter(function(r) { return ['PENDENTE', 'EM_ANALISE'].indexOf(atividades_normalizeTextUpper_(r.STATUS_ANALISE)) >= 0; }).length,
+      TOTAL_JUSTIFICATIVAS_PENDENTES: data.justificativas.filter(function(r) {
+        return ['PENDENTE', 'ENVIADA', 'EM_ANALISE', 'AJUSTE_SOLICITADO'].indexOf(atividades_normalizeTextUpper_(r.STATUS_ANALISE)) >= 0;
+      }).length,
       TOTAL_PENDENCIAS_DIRETORIA: pendencias.length,
       ULTIMO_PROCESSAMENTO: now,
       ULTIMO_ERRO: '',
@@ -1093,7 +1104,54 @@ function atividadesV2_buildPendenciasDiretoriaRows_(data, now) {
     }
     atividadesV2_addPresentationWorkflowPendencias_(rows, atividade, record, now);
   });
+  atividadesV2_addJustificativasWorkflowPendencias_(rows, data.justificativas, now);
   return rows.filter(function(row) { return !!row.ID_PENDENCIA; });
+}
+
+function atividadesV2_addJustificativasWorkflowPendencias_(rows, justificativas, now) {
+  (justificativas || []).forEach(function(record) {
+    if (atividades_normalizeTextUpper_(record.ATIVO || 'SIM') === 'NAO') return;
+    var status = atividades_normalizeTextUpper_(record.STATUS_ANALISE || 'ENVIADA');
+    if (status === 'PREVIA') return;
+    if (['ENVIADA', 'PENDENTE', 'EM_ANALISE', 'AJUSTE_SOLICITADO'].indexOf(status) === -1) return;
+    var prazo = typeof atividadesV2_classificarPrazoJustificativaRecord_ === 'function'
+      ? atividadesV2_classificarPrazoJustificativaRecord_(record, now)
+      : { envioForaDoPrazo: 'NAO', statusPrazo: '' };
+    if (status === 'AJUSTE_SOLICITADO') {
+      rows.push(atividadesV2_buildPendenciaJustificativaRow_('JUSTIFICATIVA_AJUSTE_SOLICITADO', 'BAIXA', record, prazo, 'Acompanhar ajuste solicitado ao membro.', now));
+      return;
+    }
+    rows.push(atividadesV2_buildPendenciaJustificativaRow_('JUSTIFICATIVA_AGUARDANDO_ANALISE', prazo.envioForaDoPrazo === 'SIM' ? 'ALTA' : 'MEDIA', record, prazo, 'Analisar justificativa enviada pelo membro.', now));
+    if (prazo.envioForaDoPrazo === 'SIM') {
+      rows.push(atividadesV2_buildPendenciaJustificativaRow_('JUSTIFICATIVA_FORA_DO_PRAZO', 'ALTA', record, prazo, 'Avaliar envio fora do prazo antes da decisao.', now));
+    }
+    if (atividades_normalizeTextUpper_(record.POSSUI_DOCUMENTO_COMPROBATORIO) === 'SIM' &&
+        !String(record.LINK_DOCUMENTO_COMPROBATORIO || '').trim()) {
+      rows.push(atividadesV2_buildPendenciaJustificativaRow_('JUSTIFICATIVA_COMPROVANTE_AUSENTE', 'MEDIA', record, prazo, 'Solicitar comprovante informado como obrigatorio.', now));
+    }
+  });
+}
+
+function atividadesV2_buildPendenciaJustificativaRow_(tipo, gravidade, record, prazo, acao, now) {
+  var row = atividadesV2_buildPendenciaRow_(tipo, gravidade, {
+    ID_ATIVIDADE: record.ID_ATIVIDADE,
+    ID_JUSTIFICATIVA: record.ID_JUSTIFICATIVA,
+    ID_REGISTRO_PRESENCA: record.ID_REGISTRO_PRESENCA,
+    TITULO_ATIVIDADE: record.TITULO_ATIVIDADE,
+    NOME_MEMBRO: record.NOME_MEMBRO,
+    DATA_ATIVIDADE: record.DATA_ATIVIDADE,
+    STATUS_ANALISE_JUSTIFICATIVA: record.STATUS_ANALISE
+  }, record.DATA_LIMITE_JUSTIFICATIVA, acao, now);
+  row.ID_PENDENCIA = atividadesV2_buildDeterministicId_('PEND', [tipo, record.ID_JUSTIFICATIVA || record.ID_REGISTRO_PRESENCA]);
+  row.ID_JUSTIFICATIVA = String(record.ID_JUSTIFICATIVA || '').trim();
+  row.ID_REGISTRO_PRESENCA = String(record.ID_REGISTRO_PRESENCA || '').trim();
+  row.NOME_MEMBRO = atividades_sanitizePortalText_(record.NOME_MEMBRO, 180);
+  row.STATUS_ANALISE_JUSTIFICATIVA = String(record.STATUS_ANALISE || '').trim();
+  row.STATUS_PRAZO_JUSTIFICATIVA = prazo.statusPrazo || '';
+  row.RESPONSAVEL_SUGERIDO = 'DIRETORIA/SECRETARIA';
+  row.DESCRICAO_PENDENCIA = atividades_sanitizePortalText_(acao + (prazo.envioForaDoPrazo === 'SIM' ? ' Enviada fora do prazo.' : ''), 500);
+  row.ACAO_RECOMENDADA = acao;
+  return row;
 }
 
 function atividadesV2_addPresentationWorkflowPendencias_(rows, atividade, apresentacao, now) {

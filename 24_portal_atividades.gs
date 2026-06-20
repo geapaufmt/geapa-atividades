@@ -128,13 +128,27 @@ function atividadesV2_readOwnPresentationRecordsDev_(ss, ctx, perf) {
 }
 
 function atividadesV2_portalGetMinhasJustificativas_(contexto) {
-  return atividadesV2_portalReadOwnView_({
-    label: 'atividadesV2_portalGetMinhasJustificativas',
-    sheetName: ATIVIDADES_V2_SHEETS.PORTAL_JUSTIFICATIVAS,
-    listField: 'justificativas',
-    summaryFields: [],
-    mapper: atividadesV2_portalMapJustificativa_
-  }, contexto);
+  var perf = portalPerfStart_('atividadesV2_portalGetMinhasJustificativas');
+  try {
+    var ctx = atividades_normalizePortalContext_(contexto || {});
+    var cacheKey = portalCacheBuildKey_('minhas_justificativas', portalCacheContextToken_(ctx));
+    var cached = portalCacheGetJson_(cacheKey);
+    if (cached) return cached;
+
+    var data = atividadesV2_getMinhasJustificativasPortalData_(ctx);
+    var perfResult = portalPerfEnd_(perf);
+    var response = {
+      ok: true,
+      data: data,
+      origem: 'atividades-v2:justificativas-base',
+      tempoTotalMs: perfResult ? perfResult.totalMs : ''
+    };
+    portalCachePutJson_(cacheKey, response, ATIVIDADES_V2_PORTAL_PRIVATE_CACHE_TTL_SECONDS);
+    return response;
+  } catch (err) {
+    var errorPerf = portalPerfEnd_(perf);
+    return atividadesV2_portalReadonlyError_('atividadesV2_portalGetMinhasJustificativas', err, errorPerf);
+  }
 }
 
 function atividadesV2_portalGetPendenciasDiretoria_(contexto) {
@@ -512,10 +526,14 @@ function atividadesV2_parsePublicJsonArray_(value) {
 }
 
 function atividadesV2_portalMapJustificativa_(record) {
+  var prazo = typeof atividadesV2_classificarPrazoJustificativaRecord_ === 'function'
+    ? atividadesV2_classificarPrazoJustificativaRecord_(record, new Date())
+    : { statusPrazo: String(record.STATUS_PRAZO || '').trim(), envioForaDoPrazo: String(record.ENVIO_FORA_DO_PRAZO || '').trim() };
   return {
     idPessoa: String(record.ID_PESSOA || '').trim(),
     rga: String(record.RGA || '').trim(),
     idJustificativa: String(record.ID_JUSTIFICATIVA || '').trim(),
+    idRegistroPresenca: String(record.ID_REGISTRO_PRESENCA || '').trim(),
     idAtividade: String(record.ID_ATIVIDADE || '').trim(),
     dataAtividade: atividades_formatPortalDateIso_(record.DATA_ATIVIDADE),
     tituloPublico: atividades_sanitizePortalText_(record.TITULO_ATIVIDADE, 240),
@@ -524,7 +542,13 @@ function atividadesV2_portalMapJustificativa_(record) {
     statusPublico: String(record.STATUS_ANALISE || '').trim(),
     decisaoAplicada: String(record.DECISAO_APLICADA || '').trim(),
     enviadaEm: atividades_formatPortalDateIso_(record.DATA_ENVIO),
-    observacaoPublica: atividades_sanitizePortalText_(record.OBSERVACAO_PUBLICA, 240),
+    dataLimiteJustificativa: atividades_formatPortalDateIso_(record.DATA_LIMITE_JUSTIFICATIVA),
+    statusPrazo: String(record.STATUS_PRAZO || prazo.statusPrazo || '').trim(),
+    envioForaDoPrazo: String(record.ENVIO_FORA_DO_PRAZO || prazo.envioForaDoPrazo || '').trim(),
+    podeReenviarAjuste: atividadesV2_isTruthyFlag_(record.PODE_REENVIAR_AJUSTE) ||
+      atividades_normalizeTextUpper_(record.STATUS_ANALISE) === 'AJUSTE_SOLICITADO',
+    observacaoPublica: atividades_sanitizePortalText_(record.OBSERVACAO_PUBLICA, 500),
+    mensagemPortal: atividades_sanitizePortalText_(record.MENSAGEM_PORTAL || prazo.mensagemPortal, 500),
     ultimaAtualizacao: String(record.ULTIMA_ATUALIZACAO || '').trim()
   };
 }
@@ -535,6 +559,8 @@ function atividadesV2_portalMapPendenciaDiretoria_(record) {
     tipo: String(record.TIPO_PENDENCIA || '').trim(),
     idAtividade: String(record.ID_ATIVIDADE || '').trim(),
     idApresentacao: String(record.ID_APRESENTACAO || '').trim(),
+    idJustificativa: String(record.ID_JUSTIFICATIVA || '').trim(),
+    idRegistroPresenca: String(record.ID_REGISTRO_PRESENCA || '').trim(),
     tipoPendencia: String(record.TIPO_PENDENCIA || '').trim(),
     gravidade: String(record.GRAVIDADE || '').trim(),
     dataAtividade: atividades_formatPortalDateIso_(record.DATA_ATIVIDADE),
@@ -542,12 +568,15 @@ function atividadesV2_portalMapPendenciaDiretoria_(record) {
     titulo: atividades_sanitizePortalText_(record.TITULO_APRESENTACAO || record.TITULO_ATIVIDADE || 'Titulo ainda nao informado', 240),
     tituloAtividade: atividades_sanitizePortalText_(record.TITULO_ATIVIDADE || 'Titulo ainda nao informado', 240),
     tituloApresentacao: atividades_sanitizePortalText_(record.TITULO_APRESENTACAO || record.TITULO_ATIVIDADE || 'Titulo ainda nao informado', 240),
+    nomeMembro: atividades_sanitizePortalText_(record.NOME_MEMBRO, 180),
     nomeApresentador: atividades_sanitizePortalText_(record.NOME_APRESENTADOR || record.RESPONSAVEL_SUGERIDO || 'Apresentador ainda nao definido', 180),
     eixoTematicoPrincipal: String(record.EIXO_TEMATICO_PRINCIPAL || '').trim(),
     eixoTematicoSecundario: String(record.EIXO_TEMATICO_SECUNDARIO || '').trim(),
     statusApresentacao: String(record.STATUS_APRESENTACAO || '').trim(),
     statusTituloEixo: String(record.STATUS_TITULO_EIXO || '').trim(),
     statusMaterial: String(record.STATUS_ENVIO_MATERIAL || '').trim(),
+    statusAnaliseJustificativa: String(record.STATUS_ANALISE_JUSTIFICATIVA || '').trim(),
+    statusPrazoJustificativa: String(record.STATUS_PRAZO_JUSTIFICATIVA || '').trim(),
     nomeArquivoMaterial: atividades_sanitizePortalText_(record.NOME_ARQUIVO_MATERIAL, 240),
     linkMaterialPublico: atividades_sanitizePortalUrl_(record.LINK_MATERIAL_APRESENTACAO),
     descricaoPendencia: atividades_sanitizePortalText_(record.DESCRICAO_PENDENCIA, 500),
@@ -769,10 +798,13 @@ function atividades_buildPortalPermissions_(record, contexto) {
   };
 }
 
-function atividades_buildPortalListItem_(record, contexto, statusChamada, portalConfig) {
+function atividades_buildPortalListItem_(record, contexto, statusChamada, portalConfig, justificativaContext) {
   var permissions = atividades_buildPortalPermissions_(record, contexto);
   var status = statusChamada || {};
   var chamadaMeta = atividadesV2_getChamadaWindowMeta_(record, status, contexto, null, portalConfig);
+  var justificativaPreviaMeta = typeof atividadesV2_buildPreviousJustificationActionMeta_ === 'function'
+    ? atividadesV2_buildPreviousJustificationActionMeta_(record, contexto, justificativaContext)
+    : { podeJustificarAusenciaFutura: false };
   return {
     idAtividade: String(record.ID_ATIVIDADE || '').trim(),
     ciclo: String(record.CICLO || '').trim(),
@@ -818,6 +850,12 @@ function atividades_buildPortalListItem_(record, contexto, statusChamada, portal
     statusChamada: chamadaMeta.statusChamada,
     statusChamadaRotulo: chamadaMeta.statusChamadaRotulo,
     statusChamadaAtualizadoEm: status.atualizadoEm || '',
+    podeJustificarAusenciaFutura: justificativaPreviaMeta.podeJustificarAusenciaFutura === true,
+    justificativaPreviaEnviada: justificativaPreviaMeta.justificativaPreviaEnviada === true,
+    idJustificativaPrevia: justificativaPreviaMeta.idJustificativaPrevia || '',
+    statusJustificativaPrevia: justificativaPreviaMeta.statusJustificativaPrevia || '',
+    motivoJustificativaPreviaIndisponivel: justificativaPreviaMeta.motivoJustificativaPreviaIndisponivel || '',
+    mensagemJustificativaPrevia: justificativaPreviaMeta.mensagemJustificativaPrevia || '',
     visibilidadePortal: atividades_getPortalVisibilidade_(record),
     podeVerDetalhes: permissions.podeVerDetalhes,
     podeJustificarFalta: permissions.podeJustificarFalta,
@@ -1021,9 +1059,12 @@ function atividadesV2_portalGetCalendario_(contexto) {
         return record.ID_ATIVIDADE;
       }))
       : {};
+    var justificativaContext = typeof atividadesV2_getPreviousJustificationCalendarContext_ === 'function'
+      ? atividadesV2_getPreviousJustificationCalendarContext_(ss, ctx)
+      : null;
     var data = visiveis.map(function(record) {
         var idAtividade = String(record.ID_ATIVIDADE || '').trim();
-        return atividades_buildPortalListItem_(record, ctx, statusMap[idAtividade], portalConfig);
+        return atividades_buildPortalListItem_(record, ctx, statusMap[idAtividade], portalConfig, justificativaContext);
       });
 
     var payloadBytes = portalApproxPayloadBytes_(data);

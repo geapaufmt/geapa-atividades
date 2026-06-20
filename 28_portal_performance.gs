@@ -333,7 +333,8 @@ function atividadesV2_limparCachePortalDev_() {
     portalCacheBuildKey_('detalhes', ''),
     portalCacheBuildKey_('bundle', ''),
     portalCacheBuildKey_('eixos_tematicos', 'ativos'),
-    portalCacheBuildKey_('pendencias_apresentacoes', 'gestao')
+    portalCacheBuildKey_('pendencias_apresentacoes', 'gestao'),
+    portalCacheBuildKey_('pendencias_justificativas', 'gestao')
   ].forEach(function(key) {
     portalCacheRemove_(key);
   });

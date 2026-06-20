@@ -738,16 +738,18 @@ function atividades_buildLembreteAtividadeGeralPayload_(record, opts) {
     : '';
   var payload = {
     subtitle: 'Fluxo geral de atividades do GEAPA',
-    introText: 'Este e um lembrete automatico de atividade do GEAPA agendada para hoje ou amanha.',
+    introText: shouldIncludeJustificativa
+      ? 'Este e um lembrete automatico de atividade do GEAPA. Se voce ja sabe que nao podera participar, envie sua justificativa pelo Portal GEAPA: Proximas atividades -> Justificar ausencia futura.'
+      : 'Este e um lembrete automatico de atividade do GEAPA agendada para hoje ou amanha.',
     blocks: atividades_buildGeneralActivityMailBlocks_(record, { codigoAtividade: codigoAtividade }),
     footerNote: 'Mensagem automatica do GEAPA. Em caso de duvida, consulte a organizacao da atividade.'
   };
 
   if (codigoAtividade) {
     payload.cta = {
-      label: 'Abrir formulario de justificativa',
+      label: 'Abrir formulario de justificativa (fallback)',
       url: ATIVIDADES_CFG.JUSTIFICATIVA_FORM_URL,
-      helper: 'Se voce ja sabe que nao podera participar, use o codigo acima para registrar a justificativa previamente.'
+      helper: 'Preferencialmente use o Portal GEAPA: Proximas atividades -> Justificar ausencia futura. Enquanto o novo fluxo estiver em homologacao, o formulario antigo continua disponivel como alternativa.'
     };
   }
 

@@ -220,6 +220,25 @@ function atividadesV2_portalSalvarChamada_(payload, contexto) {
       operacao === ATIVIDADES_V2_CHAMADA_OPERACOES.FINALIZAR ? 'FINALIZADA' : 'SALVA',
       resumo
     );
+    var promocaoPrevias = typeof atividadesV2_promoverJustificativasPreviasNaPlanilha_ === 'function'
+      ? atividadesV2_promoverJustificativasPreviasNaPlanilha_(ss, {
+        ok: true,
+        dryRun: false,
+        totalPrevias: 0,
+        totalPromovidas: 0,
+        promovidas: [],
+        avisos: [],
+        erros: []
+      }, { idAtividade: wantedId })
+      : null;
+    if (promocaoPrevias && promocaoPrevias.totalPromovidas > 0 && typeof atividadesV2_invalidateJustificativasPortalCaches_ === 'function') {
+      atividadesV2_invalidateJustificativasPortalCaches_(ctx, {
+        idAtividade: wantedId,
+        idPessoa: '',
+        rga: '',
+        email: ''
+      });
+    }
     var perfResult = portalPerfEnd_(perf);
     return {
       ok: true,
@@ -237,6 +256,7 @@ function atividadesV2_portalSalvarChamada_(payload, contexto) {
         chamadaFinalizada: statusFinal.finalizada,
         statusChamadaAtualizadoEm: statusFinal.atualizadoEm,
         statusChamadaAtualizadoPor: statusFinal.atualizadoPor,
+        justificativasPreviasPromovidas: promocaoPrevias ? promocaoPrevias.totalPromovidas : 0,
         modo: 'DEV'
       },
       escrita: {

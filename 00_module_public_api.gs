@@ -305,10 +305,46 @@ function atividadesV2_portalRevisarMaterialApresentacao(payload, contexto) {
   }, { entrypoint: 'atividadesV2_portalRevisarMaterialApresentacao' });
 }
 
+function atividadesV2_portalEnviarJustificativa(payload, contexto) {
+  return atividades_runWithOperationalGuard_('ATUALIZACAO_PORTAL_V2', null, function() {
+    return atividadesV2_portalEnviarJustificativa_(payload || {}, contexto || {});
+  }, { entrypoint: 'atividadesV2_portalEnviarJustificativa' });
+}
+
+function atividadesV2_portalAnalisarJustificativa(payload, contexto) {
+  return atividades_runWithOperationalGuard_('ATUALIZACAO_PORTAL_V2', null, function() {
+    return atividadesV2_portalAnalisarJustificativa_(payload || {}, contexto || {});
+  }, { entrypoint: 'atividadesV2_portalAnalisarJustificativa' });
+}
+
+function atividadesV2_portalListarJustificativasPendentesDiretoria(contexto) {
+  return atividades_runWithOperationalGuard_('CONFERENCIA_V2', null, function() {
+    return atividadesV2_portalListarJustificativasPendentesDiretoria_(contexto || {});
+  }, { entrypoint: 'atividadesV2_portalListarJustificativasPendentesDiretoria' });
+}
+
+function atividadesV2_promoverJustificativasPreviasDev(options) {
+  return atividades_runWithOperationalGuard_('ATUALIZACAO_PORTAL_V2', null, function() {
+    return atividadesV2_promoverJustificativasPreviasDev_(options || {});
+  }, { entrypoint: 'atividadesV2_promoverJustificativasPreviasDev' });
+}
+
 function atividadesV2_atualizarStatusRealizacaoApresentacoesDev(options) {
   return atividades_runWithOperationalGuard_('ATUALIZACAO_PORTAL_V2', null, function() {
     return atividadesV2_atualizarStatusRealizacaoApresentacoesDev_(options || {});
   }, { entrypoint: 'atividadesV2_atualizarStatusRealizacaoApresentacoesDev' });
+}
+
+function atividadesV2_diagnosticarFluxoJustificativasPortalDev() {
+  return atividades_runWithOperationalGuard_('CONFERENCIA_V2', null, function() {
+    return atividadesV2_diagnosticarFluxoJustificativasPortalDev_();
+  }, { entrypoint: 'atividadesV2_diagnosticarFluxoJustificativasPortalDev' });
+}
+
+function atividadesV2_runTestePortalJustificativasDev() {
+  return atividades_runWithOperationalGuard_('CONFERENCIA_V2', null, function() {
+    return atividadesV2_runTestePortalJustificativasDev_();
+  }, { entrypoint: 'atividadesV2_runTestePortalJustificativasDev' });
 }
 
 function atividadesV2_diagnosticarFluxoApresentacoesPortalDev() {
