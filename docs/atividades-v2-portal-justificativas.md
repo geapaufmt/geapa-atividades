@@ -94,6 +94,8 @@ Cada falta justificavel informa prazo, situacao de prazo, se exige ciencia por f
 
 O retorno traz `contrato = MINHA_FREQUENCIA_DETALHADA_V2` e usa cache versionado (`frequencia_detalhada_v2`) para evitar reaproveitar payload antigo baseado em `PORTAL_FREQUENCIA_MEMBROS`.
 
+Esta rota e sempre de escopo proprio. Mesmo quando o usuario tem perfil `DIRETORIA`, `SECRETARIO` ou `ADMIN_TECNICO`, `Meu Vinculo -> Minha frequencia` retorna somente os registros vinculados ao `idPessoa`, `rga` ou `email` do usuario logado. Contextos sem identificador pessoal retornam erro controlado `USUARIO_NAO_IDENTIFICADO`, nunca todos os registros.
+
 Formato resumido:
 
 ```js
@@ -293,8 +295,10 @@ Durante a homologacao, o botao do e-mail ainda pode abrir o formulario antigo co
 11. Enviar justificativa com `documentoComprobatorio.conteudoBase64` e conferir link no Drive.
 12. Consultar `atividadesV2_portalGetMinhaFrequencia(contexto)` e conferir ciclos/registros.
 13. Rodar `atividadesV2_runTesteMinhaFrequenciaDetalhadaDev(contexto)` e confirmar `payloadAntigoDetectado = false`.
-14. Listar pendencias com `atividadesV2_portalListarJustificativasPendentesDiretoria(contexto)`.
-15. Testar `DEFERIR`, `ABONAR`, `INDEFERIR` e `SOLICITAR_AJUSTE`.
+14. Rodar o mesmo teste com `perfil: "DIRETORIA"` e identificadores pessoais do proprio usuario, conferindo que nao retorna registros de terceiros.
+15. Rodar com `{ perfil: "DIRETORIA" }` sem identificador e confirmar `errorCode = USUARIO_NAO_IDENTIFICADO`.
+16. Listar pendencias com `atividadesV2_portalListarJustificativasPendentesDiretoria(contexto)`.
+17. Testar `DEFERIR`, `ABONAR`, `INDEFERIR` e `SOLICITAR_AJUSTE`.
 
 Depois das escritas, conferir:
 

@@ -40,6 +40,17 @@ function atividadesV2_portalGetMinhaFrequencia_(contexto) {
   var perf = portalPerfStart_('atividadesV2_portalGetMinhaFrequencia');
   try {
     var ctx = atividades_normalizePortalContext_(contexto || {});
+    if (!atividadesV2_contextHasOwnIdentity_(ctx)) {
+      var noIdentityPerf = portalPerfEnd_(perf);
+      return {
+        ok: false,
+        errorCode: 'USUARIO_NAO_IDENTIFICADO',
+        message: 'Nao foi possivel identificar o usuario logado para carregar a frequencia propria.',
+        origem: 'atividades-v2:Atividades_Presencas_Registros',
+        contrato: 'MINHA_FREQUENCIA_DETALHADA_V2',
+        tempoTotalMs: noIdentityPerf ? noIdentityPerf.totalMs : ''
+      };
+    }
     var cacheKey = portalCacheBuildKey_('frequencia_detalhada_v2', portalCacheContextToken_(ctx));
     var cached = portalCacheGetJson_(cacheKey);
     if (cached && atividadesV2_isMinhaFrequenciaDetailedResponse_(cached)) return cached;
@@ -89,12 +100,12 @@ function atividadesV2_buildMinhaFrequenciaPortalData_(ss, ctx, perf) {
 
   var atividadesById = atividadesV2_indexByField_(atividades, 'ID_ATIVIDADE');
   var justificativasByRegistro = atividadesV2_indexActiveJustificativasByRegistro_(justificativas);
-  var justificativasByAtividade = atividadesV2_indexActiveJustificativasByActivityForContext_(justificativas, ctx);
+  var justificativasByAtividade = atividadesV2_indexActiveJustificativasByActivityForOwnContext_(justificativas, ctx);
   var cycles = {};
   var latest = '';
 
   presencas.forEach(function(record) {
-    if (!atividadesV2_presenceBelongsToContext_(record, ctx)) return;
+    if (!atividadesV2_presenceBelongsToOwnContext_(record, ctx)) return;
     if (atividades_normalizeTextUpper_(record.ATIVO || 'SIM') === 'NAO') return;
     var atividade = atividadesById[String(record.ID_ATIVIDADE || '').trim()] || {};
     var cicloKey = atividadesV2_frequencyCycleKey_(record, atividade);
@@ -124,6 +135,10 @@ function atividadesV2_buildMinhaFrequenciaPortalData_(ss, ctx, perf) {
     ciclos: ciclos,
     ultimaAtualizacao: latest || new Date().toISOString()
   };
+}
+
+function atividadesV2_contextHasOwnIdentity_(ctx) {
+  return !!String(ctx && (ctx.idPessoa || ctx.rga || ctx.email) || '').trim();
 }
 
 function atividadesV2_emptyFrequencyCycle_(record, atividade, key) {
@@ -419,7 +434,8 @@ function atividadesV2_portalGetMinhasJustificativas_(contexto) {
 function atividadesV2_runTesteMinhaFrequenciaDetalhadaDev_(contexto) {
   var ctx = atividades_normalizePortalContext_(contexto || {});
   var avisos = [];
-  if (!ctx.idPessoa && !ctx.rga && !ctx.email) {
+  var contextoInformado = contexto && Object.keys(contexto).length > 0;
+  if (!contextoInformado && !ctx.idPessoa && !ctx.rga && !ctx.email) {
     var sample = atividadesV2_findSamplePresenceContextForFrequencyTest_();
     ctx = atividades_normalizePortalContext_(sample);
     avisos.push('Contexto nao informado; usado primeiro registro de presenca com identificador disponivel na V2 DEV.');
@@ -441,6 +457,8 @@ function atividadesV2_runTesteMinhaFrequenciaDetalhadaDev_(contexto) {
     ok: !!(response && response.ok && Array.isArray(data.ciclos) && (!ciclos.length || Array.isArray(cicloAtual.registros))),
     contrato: response && response.contrato || data.contrato || '',
     origem: response && response.origem || '',
+    errorCode: response && response.errorCode || '',
+    message: response && response.message || '',
     payloadAntigoDetectado: payloadAntigo,
     totalCiclos: ciclos.length,
     cicloAtual: data.cicloAtual || '',

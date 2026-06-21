@@ -399,12 +399,12 @@ function atividadesV2_getMinhasJustificativasPortalData_(contexto) {
   var ss = atividadesV2_getDatabaseSpreadsheetDev_();
   var data = atividadesV2_readJustificativasPortalData_(ss);
   var justificativasByRegistro = atividadesV2_indexActiveJustificativasByRegistro_(data.justificativas);
-  var justificativasByAtividade = atividadesV2_indexActiveJustificativasByActivityForContext_(data.justificativas, ctx);
+  var justificativasByAtividade = atividadesV2_indexActiveJustificativasByActivityForOwnContext_(data.justificativas, ctx);
   var faltas = [];
   var justificativas = [];
 
   data.presencas.forEach(function(record) {
-    if (!atividadesV2_presenceBelongsToContext_(record, ctx)) return;
+    if (!atividadesV2_presenceBelongsToOwnContext_(record, ctx)) return;
     if (!atividadesV2_isPresenceJustificavel_(record)) return;
     var idRegistro = String(record.ID_REGISTRO_PRESENCA || '').trim();
     if (justificativasByRegistro[idRegistro]) return;
@@ -413,7 +413,7 @@ function atividadesV2_getMinhasJustificativasPortalData_(contexto) {
   });
 
   data.justificativas.forEach(function(record) {
-    if (!atividadesV2_justificativaBelongsToContext_(record, ctx)) return;
+    if (!atividadesV2_justificativaBelongsToOwnContext_(record, ctx)) return;
     if (atividades_normalizeTextUpper_(record.ATIVO || 'SIM') === 'NAO') return;
     justificativas.push(atividadesV2_mapJustificativaMembroPortal_(record));
   });
@@ -503,7 +503,7 @@ function atividadesV2_resolveJustificativaSubmissionBundle_(ss, payload, context
   if (!idRegistro) return atividadesV2_resolvePreviousJustificativaSubmissionBundle_(data, payload, contexto);
   var presenca = data.presencasById[idRegistro];
   if (!presenca) throw atividadesV2_portalActionException_('REGISTRO_PRESENCA_NAO_ENCONTRADO', 'Registro de presenca nao encontrado.');
-  if (!atividadesV2_presenceBelongsToContext_(presenca, contexto)) {
+  if (!atividadesV2_presenceBelongsToOwnContext_(presenca, atividades_normalizePortalContext_(contexto || {}))) {
     throw atividadesV2_portalActionException_('PERMISSAO_NEGADA', 'Registro de presenca nao pertence ao usuario logado.');
   }
   if (!atividadesV2_isPresenceJustificavel_(presenca)) {
@@ -889,12 +889,17 @@ function atividadesV2_activityAllowsPreviousJustificativa_(atividade, contexto) 
 
 function atividadesV2_presenceBelongsToContext_(record, ctx) {
   if (atividades_isPrivilegedPortalProfile_(ctx)) return true;
+  return atividadesV2_presenceBelongsToOwnContext_(record, ctx);
+}
+
+function atividadesV2_presenceBelongsToOwnContext_(record, ctx) {
   var idPessoa = String(record && record.ID_PESSOA || '').trim();
   var rga = String(record && record.RGA || '').trim().toLowerCase();
   var email = String(record && record.EMAIL_PARTICIPANTE || '').trim().toLowerCase();
   var ctxIdPessoa = String(ctx && ctx.idPessoa || '').trim();
   var ctxRga = String(ctx && ctx.rga || '').trim().toLowerCase();
   var ctxEmail = String(ctx && ctx.email || '').trim().toLowerCase();
+  if (!ctxIdPessoa && !ctxRga && !ctxEmail) return false;
   if (idPessoa && ctxIdPessoa && idPessoa === ctxIdPessoa) return true;
   if (rga && ctxRga && rga === ctxRga) return true;
   return !!email && !!ctxEmail && email === ctxEmail;
@@ -902,12 +907,17 @@ function atividadesV2_presenceBelongsToContext_(record, ctx) {
 
 function atividadesV2_justificativaBelongsToContext_(record, ctx) {
   if (atividades_isPrivilegedPortalProfile_(ctx)) return true;
+  return atividadesV2_justificativaBelongsToOwnContext_(record, ctx);
+}
+
+function atividadesV2_justificativaBelongsToOwnContext_(record, ctx) {
   var idPessoa = String(record && record.ID_PESSOA || '').trim();
   var rga = String(record && record.RGA || '').trim().toLowerCase();
   var email = String(record && record.EMAIL_MEMBRO || '').trim().toLowerCase();
   var ctxIdPessoa = String(ctx && ctx.idPessoa || '').trim();
   var ctxRga = String(ctx && ctx.rga || '').trim().toLowerCase();
   var ctxEmail = String(ctx && ctx.email || '').trim().toLowerCase();
+  if (!ctxIdPessoa && !ctxRga && !ctxEmail) return false;
   if (idPessoa && ctxIdPessoa && idPessoa === ctxIdPessoa) return true;
   if (rga && ctxRga && rga === ctxRga) return true;
   return !!email && !!ctxEmail && email === ctxEmail;
@@ -929,6 +939,18 @@ function atividadesV2_indexActiveJustificativasByActivityForContext_(records, co
   (records || []).forEach(function(record) {
     if (!atividadesV2_isActiveJustificativaRecord_(record)) return;
     if (!atividadesV2_justificativaBelongsToContext_(record, ctx)) return;
+    var idAtividade = String(record.ID_ATIVIDADE || '').trim();
+    if (idAtividade && !out[idAtividade]) out[idAtividade] = record;
+  });
+  return out;
+}
+
+function atividadesV2_indexActiveJustificativasByActivityForOwnContext_(records, contexto) {
+  var ctx = atividades_normalizePortalContext_(contexto || {});
+  var out = {};
+  (records || []).forEach(function(record) {
+    if (!atividadesV2_isActiveJustificativaRecord_(record)) return;
+    if (!atividadesV2_justificativaBelongsToOwnContext_(record, ctx)) return;
     var idAtividade = String(record.ID_ATIVIDADE || '').trim();
     if (idAtividade && !out[idAtividade]) out[idAtividade] = record;
   });
@@ -959,7 +981,7 @@ function atividadesV2_findActiveJustificativaForActivityAndPerson_(records, idAt
     var record = records[i];
     if (String(record.ID_ATIVIDADE || '').trim() === wanted &&
         atividadesV2_isActiveJustificativaRecord_(record) &&
-        atividadesV2_justificativaBelongsToContext_(record, ctx)) {
+        atividadesV2_justificativaBelongsToOwnContext_(record, ctx)) {
       return record;
     }
   }
