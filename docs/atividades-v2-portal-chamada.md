@@ -2,9 +2,26 @@
 
 ## Objetivo
 
-Preparar o primeiro fluxo operacional de diretoria no Portal GEAPA: buscar e salvar chamada/frequencia de uma atividade usando somente a base `ATIVIDADES_V2_DB`.
+Preparar o primeiro fluxo operacional de diretoria no Portal GEAPA: buscar, salvar rascunho, finalizar e reabrir chamada/frequencia de uma atividade usando somente a base `ATIVIDADES_V2_DB`.
 
-Esta etapa nao altera producao, nao escreve na base antiga, nao cria triggers, nao envia e-mails, nao gera certificados e nao implementa justificativas.
+Esta etapa nao altera producao, nao escreve na base antiga, nao cria triggers, nao envia e-mails, nao gera certificados, nao implementa autochamada e nao coloca justificativa/abono dentro da tela de chamada.
+
+O Portal deve expor a chamada como uma interface simples de duas marcacoes mutuamente exclusivas:
+
+```text
+Membro              Presencial   Remoto
+Luis Putton         [x]          [ ]
+Renata Andrade      [ ]          [x]
+Fulano              [ ]          [ ]
+```
+
+Mapeamento operacional:
+
+- Presencial marcado -> `PRESENTE_PRESENCIAL` / `P`;
+- Remoto marcado -> `PRESENTE_REMOTO` / `R`;
+- Sem marcacao no rascunho -> status vazio ou ausencia de registro;
+- Sem marcacao ao finalizar -> `FALTA` / `F`;
+- Membro nao aplicavel/bloqueado -> `NAO_SE_APLICA` / `N/A`.
 
 ## Funcoes Publicas
 
@@ -38,9 +55,17 @@ Regras:
 - revalida membros aplicaveis pela data da atividade;
 - impede presenca/falta para membro nao aplicavel;
 - valida status de presenca;
-- faz upsert por `ID_REGISTRO_PRESENCA`;
+- em `SALVAR`, nao transforma sem marcacao em falta;
+- em `FINALIZAR`, transforma membros aplicaveis sem marcacao em `FALTA`;
+- em `REABRIR`, altera apenas o status operacional da chamada para permitir ajustes;
+- faz upsert canonico por `ID_REGISTRO_PRESENCA` e tambem por `ID_ATIVIDADE + TIPO_PARTICIPANTE + ID_PESSOA/RGA/ID_REFERENCIA`;
+- preserva `ID_REGISTRO_PRESENCA` legado quando encontra um registro antigo por RGA e o novo payload chega com `ID_PESSOA`;
+- inativa duplicatas ativas detectadas pela mesma chave canonica;
 - escreve em lote;
-- registra log seguro em `Atividades_Log`.
+- registra log seguro em `Atividades_Log`;
+- registra status/auditoria em `Portal_Acoes`;
+- invalida caches de calendario, detalhes, bundle, frequencia e justificativas;
+- promove justificativas previas quando uma falta correspondente passa a existir.
 
 ### `atividadesV2_runTestePortalChamadaDev()`
 
@@ -70,10 +95,13 @@ Destino:
 Atividades_Presencas_Registros
 ```
 
-Chave de upsert:
+Chaves de upsert:
 
 ```text
 ID_REGISTRO_PRESENCA
+ID_ATIVIDADE + TIPO_PARTICIPANTE + ID_PESSOA
+ID_ATIVIDADE + TIPO_PARTICIPANTE + RGA
+ID_ATIVIDADE + TIPO_PARTICIPANTE + ID_REFERENCIA
 ```
 
 Formato gerado:
@@ -98,6 +126,71 @@ PRS-2026-1-0005-202321801022
 | NAO_SE_APLICA | N/A |
 
 Se o payload vier com codigo divergente, o backend corrige para o codigo esperado pelo status.
+
+`FALTA` so deve ser enviada pelo Portal na operacao `FINALIZAR`. Se o Portal tentar enviar `FALTA` em `SALVAR`, o backend rejeita com `STATUS_PRESENCA_INVALIDO`.
+
+Estados como `JUSTIFICADA`, `ABONADA`, `DEFERIDA`, `INDEFERIDA` ou ajuste solicitado pertencem ao fluxo de justificativas, nao a chamada operacional.
+
+## Operacoes
+
+### Rascunho
+
+Payload:
+
+```js
+{
+  idAtividade: 'ATV-2026-1-0005',
+  operacao: 'SALVAR',
+  registros: [
+    {
+      idPessoa: 'PES-001',
+      rga: '202311801000',
+      nome: 'Nome do membro',
+      statusPresenca: 'PRESENTE_PRESENCIAL',
+      codigoPresenca: 'P'
+    }
+  ],
+  externos: []
+}
+```
+
+No rascunho, membros sem marcacao podem ser omitidos. Se forem enviados com status vazio, ficam com `PRESENCA_REGISTRADA = NAO`.
+
+### Finalizacao
+
+Payload:
+
+```js
+{
+  idAtividade: 'ATV-2026-1-0005',
+  operacao: 'FINALIZAR',
+  registros: [
+    {
+      idPessoa: 'PES-001',
+      rga: '202311801000',
+      nome: 'Nome do membro',
+      statusPresenca: 'PRESENTE_REMOTO',
+      codigoPresenca: 'R'
+    }
+  ],
+  externos: []
+}
+```
+
+Na finalizacao, o backend reconsulta os membros aplicaveis no Core. Para cada membro aplicavel que nao veio no payload, gera `FALTA/F`. Para membros nao aplicaveis, gera `NAO_SE_APLICA/N/A`.
+
+### Reabertura
+
+Payload:
+
+```js
+{
+  idAtividade: 'ATV-2026-1-0005',
+  operacao: 'REABRIR'
+}
+```
+
+A reabertura registra `CHAMADA_REABERTA` em `Portal_Acoes`, grava log tecnico e permite novo salvamento/finalizacao conforme permissao e janela operacional.
 
 ## Janela Operacional
 
@@ -158,6 +251,26 @@ atividadesV2_portalSalvarChamada({
   externos: []
 }, { perfil: 'DIRETORIA' })
 ```
+
+5. Para finalizar chamada em DEV, informe `operacao: 'FINALIZAR'`. Confirme na aba `Atividades_Presencas_Registros` que membros sem marcacao viraram `FALTA` somente apos esta operacao.
+
+6. Para reabrir:
+
+```js
+atividadesV2_portalSalvarChamada({
+  idAtividade: 'ATV-2026-1-0005',
+  operacao: 'REABRIR'
+}, { perfil: 'DIRETORIA' })
+```
+
+7. Conferir:
+
+- uma atividade + um membro gera no maximo um registro ativo;
+- registro antigo por RGA e payload novo com `ID_PESSOA` atualizam a mesma linha;
+- `Portal_Acoes` registra `CHAMADA_SALVA`, `CHAMADA_FINALIZADA` ou `CHAMADA_REABERTA`;
+- `Atividades_Log` registra a acao sem payload sensivel;
+- caches de frequencia/justificativas sao invalidados;
+- views `PORTAL_*` continuam sendo atualizadas apenas por rotinas de materializacao.
 
 ## Fora de Escopo Nesta Etapa
 

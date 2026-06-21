@@ -178,13 +178,17 @@ function atividadesV2_portalSalvarChamada_(payload, contexto) {
     var applicableMembers = atividadesV2_indexApplicableMembersByRga_(membersResult.data);
     portalPerfMark_(perf, 'revalidar_membros_core', { total: membersResult.data.length });
 
-    var registros = atividadesV2_normalizeChamadaSavePayload_(data, activity, applicableMembers);
+    var convitesOperacao = atividadesV2_readChamadaConvites_(ss, wantedId);
+    var registros = atividadesV2_normalizeChamadaSavePayload_(data, activity, applicableMembers, {
+      operacao: operacao,
+      members: membersResult.data,
+      convites: convitesOperacao
+    });
     portalPerfMark_(perf, 'validar_payload', { total: registros.length });
 
     if (operacao === ATIVIDADES_V2_CHAMADA_OPERACOES.FINALIZAR) {
-      var convitesFinalizacao = atividadesV2_readChamadaConvites_(ss, wantedId);
-      atividadesV2_validateChamadaCompletaParaFinalizar_(membersResult.data, convitesFinalizacao, registros);
-      portalPerfMark_(perf, 'validar_chamada_completa', { total: registros.length });
+      atividadesV2_validateChamadaCompletaParaFinalizar_(membersResult.data, convitesOperacao, registros);
+      portalPerfMark_(perf, 'finalizar_chamada_completa', { total: registros.length });
     }
 
     var sheet = atividadesV2_getTargetSheet_(ss, ATIVIDADES_V2_SHEETS.PRESENCAS_REGISTROS);
@@ -208,7 +212,8 @@ function atividadesV2_portalSalvarChamada_(payload, contexto) {
         idAtividade: wantedId,
         totalRegistros: registros.length,
         inserts: writeResult.inserts,
-        updates: writeResult.updates
+        updates: writeResult.updates,
+        duplicatesInactivated: writeResult.duplicatesInactivated
       })
     });
 
@@ -239,6 +244,10 @@ function atividadesV2_portalSalvarChamada_(payload, contexto) {
         email: ''
       });
     }
+    atividadesV2_invalidateChamadaPortalCaches_(ctx, {
+      idAtividade: wantedId,
+      registros: registros
+    });
     var perfResult = portalPerfEnd_(perf);
     return {
       ok: true,
@@ -261,7 +270,8 @@ function atividadesV2_portalSalvarChamada_(payload, contexto) {
       },
       escrita: {
         inserts: writeResult.inserts,
-        updates: writeResult.updates
+        updates: writeResult.updates,
+        duplicatesInactivated: writeResult.duplicatesInactivated
       },
       tempoTotalMs: perfResult.totalMs
     };
@@ -677,19 +687,34 @@ function atividadesV2_normalizeChamadaOperacao_(operacao) {
 }
 
 function atividadesV2_validateChamadaCompletaParaFinalizar_(members, convites, registros) {
-  var totalEsperado = 0;
-  (members || []).forEach(function contarMembro(member) {
-    if (member && member.aplicavelNaData !== false) totalEsperado++;
-  });
-  (convites || []).forEach(function contarConvite(convite) {
-    var tipo = String(convite.TIPO_VINCULO_PESSOA || convite.TIPO_PARTICIPANTE || 'CONVIDADO').trim().toUpperCase();
-    if (tipo !== 'MEMBRO') totalEsperado++;
+  var coveredMembers = {};
+  (registros || []).forEach(function guardarRegistro(row) {
+    if (atividades_normalizeTextUpper_(row.TIPO_PARTICIPANTE) !== 'MEMBRO') return;
+    atividadesV2_chamadaRecordKeys_(row).forEach(function(key) {
+      if (key) coveredMembers[key] = true;
+    });
   });
 
-  if ((registros || []).length < totalEsperado) {
+  var missing = (members || []).filter(function(member) {
+    if (!member) return false;
+    var pessoa = atividadesV2_resolverPessoa_(member);
+    var keys = atividadesV2_chamadaRecordKeys_({
+      TIPO_PARTICIPANTE: 'MEMBRO',
+      ID_PESSOA: pessoa.idPessoa,
+      RGA: member.rga,
+      ID_REFERENCIA: pessoa.idPessoa || member.rga,
+      EMAIL_PARTICIPANTE: member.email,
+      NOME_PARTICIPANTE: member.nomeExibicao || member.nome
+    });
+    return !keys.some(function(key) {
+      return coveredMembers[key] === true;
+    });
+  });
+
+  if (missing.length) {
     throw atividadesV2_chamadaException_(
       'CHAMADA_INCOMPLETA',
-      'Marque todos os participantes antes de finalizar a chamada.'
+      'Nao foi possivel montar registros para todos os membros da chamada.'
     );
   }
 }
@@ -737,47 +762,95 @@ function atividadesV2_indexApplicableMembersByRga_(members) {
   return index;
 }
 
-function atividadesV2_normalizeChamadaSavePayload_(payload, activity, applicableMembers) {
+function atividadesV2_normalizeChamadaSavePayload_(payload, activity, applicableMembers, opts) {
+  opts = opts || {};
+  var operacao = opts.operacao || ATIVIDADES_V2_CHAMADA_OPERACOES.SALVAR;
   var out = [];
   var identity = atividadesV2_resolveActivityIdentity_(activity);
   var registros = Array.isArray(payload.registros) ? payload.registros : [];
   var externos = Array.isArray(payload.externos) ? payload.externos : [];
   var now = new Date();
   var user = Session.getActiveUser && Session.getActiveUser() ? Session.getActiveUser().getEmail() : '';
+  var inputByRef = atividadesV2_indexChamadaInputByReference_(registros);
 
-  registros.forEach(function(item) {
-    var pessoa = atividadesV2_resolverPessoa_(item);
-    var pessoaKey = atividadesV2_sanitizeIdToken_(pessoa.idPessoa);
-    var rgaKey = atividadesV2_sanitizeIdToken_(item.rga);
-    var member = pessoaKey ? applicableMembers['PESSOA:' + pessoaKey] : null;
-    if (!member && rgaKey) member = applicableMembers['RGA:' + rgaKey];
-    if (!member || member.aplicavelNaData === false) {
-      throw atividadesV2_chamadaException_('MEMBRO_NAO_APLICAVEL_NA_DATA', 'Membro nao aplicavel na data da atividade.');
-    }
-    var pessoaFinal = pessoa.idPessoa ? pessoa : atividadesV2_resolverPessoa_(member);
-    out.push(atividadesV2_buildChamadaPresenceRow_(activity, identity, item, {
-      tipoParticipante: 'MEMBRO',
-      idPessoa: pessoaFinal.idPessoa,
-      idReferencia: pessoaFinal.idPessoa || item.rga,
-      nome: item.nome || member.nomeExibicao,
-      rga: item.rga || member.rga,
-      vinculo: member.vinculo || 'Membro',
-      contaPresenca: member.contaPresenca !== false && atividades_isTruthySim_(activity.CONTA_PRESENCA),
-      contaFalta: member.contaFalta !== false && atividades_isTruthySim_(activity.CONTA_FALTA),
-      now: now,
-      user: user
-    }));
-  });
+  if (operacao === ATIVIDADES_V2_CHAMADA_OPERACOES.FINALIZAR) {
+    (opts.members || []).forEach(function(member) {
+      var pessoa = atividadesV2_resolverPessoa_(member);
+      var item = atividadesV2_findChamadaExistingByPessoa_(inputByRef, 'MEMBRO', pessoa, member) || {};
+      var statusInput = member.aplicavelNaData === false
+        ? 'NAO_SE_APLICA'
+        : atividadesV2_defaultChamadaStatusForFinalizacao_(item);
+      var pessoaFinal = pessoa.idPessoa ? pessoa : atividadesV2_resolverPessoa_(item);
+      var rgaInput = atividadesV2_firstNonEmpty_(item.rga, item.RGA);
+      var nomeInput = atividadesV2_firstNonEmpty_(item.nome, item.NOME, item.NOME_PARTICIPANTE);
+      out.push(atividadesV2_buildChamadaPresenceRow_(activity, identity, item, {
+        operacao: operacao,
+        statusPresenca: statusInput,
+        tipoParticipante: 'MEMBRO',
+        idPessoa: pessoaFinal.idPessoa,
+        idReferencia: pessoaFinal.idPessoa || rgaInput || member.rga,
+        nome: nomeInput || member.nomeExibicao || member.nome,
+        rga: rgaInput || member.rga,
+        vinculo: member.vinculo || 'Membro',
+        contaPresenca: member.contaPresenca !== false && atividades_isTruthySim_(activity.CONTA_PRESENCA),
+        contaFalta: member.contaFalta !== false && atividades_isTruthySim_(activity.CONTA_FALTA),
+        now: now,
+        user: user
+      }));
+    });
+  } else {
+    registros.forEach(function(item) {
+      var statusRascunho = atividades_normalizeTextUpper_(item.statusPresenca || item.STATUS_PRESENCA);
+      if (!statusRascunho) statusRascunho = atividadesV2_statusFromChamadaCode_(item.codigoPresenca || item.CODIGO_PRESENCA);
+      if (statusRascunho === 'FALTA') {
+        throw atividadesV2_chamadaException_(
+          'STATUS_PRESENCA_INVALIDO',
+          'Falta so pode ser registrada ao finalizar a chamada.'
+        );
+      }
+      var pessoa = atividadesV2_resolverPessoa_(item);
+      var rgaInput = atividadesV2_firstNonEmpty_(item.rga, item.RGA);
+      var nomeInput = atividadesV2_firstNonEmpty_(item.nome, item.NOME, item.NOME_PARTICIPANTE);
+      var pessoaKey = atividadesV2_sanitizeIdToken_(pessoa.idPessoa);
+      var rgaKey = atividadesV2_sanitizeIdToken_(rgaInput);
+      var member = pessoaKey ? applicableMembers['PESSOA:' + pessoaKey] : null;
+      if (!member && rgaKey) member = applicableMembers['RGA:' + rgaKey];
+      if (!member) {
+        throw atividadesV2_chamadaException_('MEMBRO_NAO_APLICAVEL_NA_DATA', 'Membro nao aplicavel na data da atividade.');
+      }
+      if (member.aplicavelNaData === false && statusRascunho && statusRascunho !== 'NAO_SE_APLICA') {
+        throw atividadesV2_chamadaException_('MEMBRO_NAO_APLICAVEL_NA_DATA', 'Membro nao aplicavel na data da atividade.');
+      }
+      var pessoaFinal = pessoa.idPessoa ? pessoa : atividadesV2_resolverPessoa_(member);
+      out.push(atividadesV2_buildChamadaPresenceRow_(activity, identity, item, {
+        operacao: operacao,
+        statusPresenca: statusRascunho,
+        tipoParticipante: 'MEMBRO',
+        idPessoa: pessoaFinal.idPessoa,
+        idReferencia: pessoaFinal.idPessoa || rgaInput,
+        nome: nomeInput || member.nomeExibicao,
+        rga: rgaInput || member.rga,
+        vinculo: member.vinculo || 'Membro',
+        contaPresenca: member.contaPresenca !== false && atividades_isTruthySim_(activity.CONTA_PRESENCA),
+        contaFalta: member.contaFalta !== false && atividades_isTruthySim_(activity.CONTA_FALTA),
+        now: now,
+        user: user
+      }));
+    });
+  }
 
   externos.forEach(function(item, index) {
     var pessoaExterna = atividadesV2_resolverPessoa_(item);
+    var emailExterno = atividadesV2_firstNonEmpty_(item.email, item.EMAIL, item.EMAIL_PARTICIPANTE);
+    var nomeExterno = atividadesV2_firstNonEmpty_(item.nome, item.NOME, item.NOME_PARTICIPANTE);
     out.push(atividadesV2_buildChamadaPresenceRow_(activity, identity, item, {
+      operacao: operacao,
       tipoParticipante: item.tipoParticipante || 'EXTERNO',
       idPessoa: pessoaExterna.idPessoa,
-      idReferencia: pessoaExterna.idPessoa || item.email || item.nome || ('EXT-' + (index + 1)),
-      nome: item.nome,
-      email: item.email,
-      vinculo: item.instituicao || '',
+      idReferencia: pessoaExterna.idPessoa || emailExterno || nomeExterno || ('EXT-' + (index + 1)),
+      nome: nomeExterno,
+      email: emailExterno,
+      vinculo: atividadesV2_firstNonEmpty_(item.instituicao, item.INSTITUICAO) || '',
       contaPresenca: atividades_isTruthySim_(activity.CONTA_PRESENCA),
       contaFalta: false,
       now: now,
@@ -788,9 +861,48 @@ function atividadesV2_normalizeChamadaSavePayload_(payload, activity, applicable
   return out;
 }
 
+function atividadesV2_indexChamadaInputByReference_(items) {
+  var index = {};
+  (items || []).forEach(function(item) {
+    var pessoa = atividadesV2_resolverPessoa_(item);
+    var tipo = item.tipoParticipante || item.TIPO_PARTICIPANTE || 'MEMBRO';
+    var raw = {
+      TIPO_PARTICIPANTE: tipo,
+      ID_PESSOA: pessoa.idPessoa,
+      RGA: item.rga || item.RGA,
+      ID_REFERENCIA: item.idReferencia || item.ID_REFERENCIA || pessoa.idPessoa,
+      EMAIL_PARTICIPANTE: item.email || item.EMAIL || item.EMAIL_PARTICIPANTE,
+      NOME_PARTICIPANTE: item.nome || item.NOME || item.NOME_PARTICIPANTE
+    };
+    atividadesV2_chamadaRecordKeys_(raw).forEach(function(key) {
+      if (key && !index[key]) index[key] = item;
+    });
+  });
+  return index;
+}
+
+function atividadesV2_defaultChamadaStatusForFinalizacao_(input) {
+  var status = atividades_normalizeTextUpper_(input && (input.statusPresenca || input.STATUS_PRESENCA));
+  if (!status) status = atividadesV2_statusFromChamadaCode_(input && (input.codigoPresenca || input.CODIGO_PRESENCA));
+  return status || 'FALTA';
+}
+
 function atividadesV2_buildChamadaPresenceRow_(activity, identity, input, opts) {
-  var normalizedStatus = atividadesV2_normalizeChamadaStatus_(input.statusPresenca);
-  var code = atividadesV2_normalizeChamadaCode_(input.codigoPresenca, normalizedStatus);
+  var rawStatus = opts.statusPresenca !== undefined
+    ? opts.statusPresenca
+    : atividadesV2_firstNonEmpty_(
+      input.statusPresenca,
+      input.STATUS_PRESENCA,
+      atividadesV2_statusFromChamadaCode_(input.codigoPresenca || input.CODIGO_PRESENCA)
+    );
+  var normalizedStatus = atividadesV2_normalizeChamadaStatusForOperacao_(
+    rawStatus,
+    opts.operacao || ATIVIDADES_V2_CHAMADA_OPERACOES.SALVAR
+  );
+  var code = atividadesV2_normalizeChamadaCode_(
+    atividadesV2_firstNonEmpty_(input.codigoPresenca, input.CODIGO_PRESENCA),
+    normalizedStatus
+  );
   var tipo = String(opts.tipoParticipante || 'MEMBRO').trim().toUpperCase();
   var ref = String(opts.idReferencia || '').trim();
   var idRegistro = atividadesV2_gerarIdRegistroPresenca_(identity.ano, identity.semestre, identity.sequencial, ref || opts.nome);
@@ -830,7 +942,7 @@ function atividadesV2_buildChamadaPresenceRow_(activity, identity, input, opts) 
     ATUALIZADO_POR: opts.user || '',
     ATUALIZADO_EM: opts.now,
     MOTIVO_AJUSTE: 'Registro de chamada via Portal GEAPA DEV',
-    OBSERVACOES: atividades_sanitizePortalText_(input.observacoes, 300),
+    OBSERVACOES: atividades_sanitizePortalText_(atividadesV2_firstNonEmpty_(input.observacoes, input.OBSERVACOES), 300),
     ATIVO: 'SIM'
   };
 }
@@ -847,32 +959,75 @@ function atividadesV2_upsertChamadaPresenceRows_(sheet, objects) {
     ? sheet.getRange(2, 1, lastRow - 1, headers.length).getValues()
     : [];
   var byKey = {};
+  var byCanonicalKey = {};
+  var duplicateRows = {};
   existingValues.forEach(function(row, index) {
     var key = String(row[keyCol - 1] || '').trim();
     if (key && !byKey[key]) byKey[key] = index;
+    var rowObject = atividadesV2_chamadaRowToObject_(headers, row);
+    if (atividades_normalizeTextUpper_(rowObject.ATIVO || 'SIM') === 'NAO') return;
+    atividadesV2_chamadaPresenceCanonicalKeys_(rowObject).forEach(function(canonicalKey) {
+      if (!canonicalKey) return;
+      if (byCanonicalKey[canonicalKey] === undefined) {
+        byCanonicalKey[canonicalKey] = index;
+      } else {
+        duplicateRows[index] = true;
+      }
+    });
   });
 
   var inserts = 0;
   var updates = 0;
+  var duplicatesInactivated = 0;
   objects.forEach(function(obj) {
     var key = String(obj[keyHeader] || '').trim();
     if (!key) return;
     var rowIndex = byKey[key];
     if (rowIndex === undefined) {
-      existingValues.push(headers.map(function(header) {
+      var canonicalKeys = atividadesV2_chamadaPresenceCanonicalKeys_(obj);
+      for (var i = 0; i < canonicalKeys.length; i++) {
+        if (byCanonicalKey[canonicalKeys[i]] !== undefined) {
+          rowIndex = byCanonicalKey[canonicalKeys[i]];
+          break;
+        }
+      }
+    }
+    if (rowIndex === undefined) {
+      var insertedRow = headers.map(function(header) {
         return Object.prototype.hasOwnProperty.call(obj, header) ? obj[header] : '';
-      }));
+      });
+      existingValues.push(insertedRow);
       byKey[key] = existingValues.length - 1;
+      atividadesV2_chamadaPresenceCanonicalKeys_(obj).forEach(function(canonicalKey) {
+        if (canonicalKey && byCanonicalKey[canonicalKey] === undefined) {
+          byCanonicalKey[canonicalKey] = existingValues.length - 1;
+        }
+      });
       inserts++;
       return;
     }
 
+    var existingKey = String(existingValues[rowIndex][keyCol - 1] || '').trim();
+    if (existingKey) obj[keyHeader] = existingKey;
+    delete duplicateRows[rowIndex];
     headers.forEach(function(header, colIndex) {
       if (Object.prototype.hasOwnProperty.call(obj, header)) {
         existingValues[rowIndex][colIndex] = obj[header];
       }
     });
+    atividadesV2_chamadaPresenceCanonicalKeys_(obj).forEach(function(canonicalKey) {
+      if (canonicalKey) byCanonicalKey[canonicalKey] = rowIndex;
+    });
     updates++;
+  });
+
+  Object.keys(duplicateRows).forEach(function(rowIndexText) {
+    var rowIndex = Number(rowIndexText);
+    if (rowIndex < 0 || rowIndex >= existingValues.length) return;
+    if (headerMap.ATIVO) existingValues[rowIndex][headerMap.ATIVO - 1] = 'NAO';
+    if (headerMap.MOTIVO_AJUSTE) existingValues[rowIndex][headerMap.MOTIVO_AJUSTE - 1] = 'Duplicata inativada por upsert canonico da chamada V2.';
+    if (headerMap.ATUALIZADO_EM) existingValues[rowIndex][headerMap.ATUALIZADO_EM - 1] = new Date();
+    duplicatesInactivated++;
   });
 
   if (existingValues.length) {
@@ -883,8 +1038,71 @@ function atividadesV2_upsertChamadaPresenceRows_(sheet, objects) {
     ok: true,
     inserts: inserts,
     updates: updates,
+    duplicatesInactivated: duplicatesInactivated,
     totalRows: objects.length
   };
+}
+
+function atividadesV2_chamadaRowToObject_(headers, row) {
+  var out = {};
+  headers.forEach(function(header, index) {
+    if (header) out[header] = row[index];
+  });
+  return out;
+}
+
+function atividadesV2_chamadaPresenceCanonicalKeys_(record) {
+  var idAtividade = atividadesV2_sanitizeIdToken_(record.ID_ATIVIDADE || record.idAtividade);
+  var tipo = atividadesV2_sanitizeIdToken_(record.TIPO_PARTICIPANTE || record.tipoParticipante || 'PARTICIPANTE');
+  if (!idAtividade || !tipo) return [];
+
+  var keys = [];
+  var idPessoa = atividadesV2_sanitizeIdToken_(record.ID_PESSOA || record.idPessoa);
+  var rga = atividadesV2_sanitizeIdToken_(record.RGA || record.rga);
+  var idReferencia = atividadesV2_sanitizeIdToken_(record.ID_REFERENCIA || record.idReferencia);
+  var email = atividadesV2_sanitizeIdToken_(record.EMAIL_PARTICIPANTE || record.email);
+  var nome = atividadesV2_sanitizeIdToken_(record.NOME_PARTICIPANTE || record.nome);
+
+  if (idPessoa) keys.push([idAtividade, tipo, 'PESSOA', idPessoa].join('|'));
+  if (rga) keys.push([idAtividade, tipo, 'RGA', rga].join('|'));
+  if (idReferencia) keys.push([idAtividade, tipo, 'REF', idReferencia].join('|'));
+  if (email) keys.push([idAtividade, tipo, 'EMAIL', email].join('|'));
+  if (!keys.length && nome) keys.push([idAtividade, tipo, 'NOME', nome].join('|'));
+
+  return keys.filter(function(key, index, arr) {
+    return key && arr.indexOf(key) === index;
+  });
+}
+
+function atividadesV2_invalidateChamadaPortalCaches_(contexto, result) {
+  if (typeof atividadesV2_limparCachePortalDev_ === 'function') atividadesV2_limparCachePortalDev_();
+
+  var ctx = atividadesV2_normalizeChamadaContext_(contexto || {});
+  var tokens = {};
+  var baseToken = portalCacheContextToken_(ctx);
+  if (baseToken) tokens[baseToken] = true;
+
+  (result.registros || []).forEach(function(record) {
+    var token = portalCacheContextToken_({
+      perfil: 'MEMBRO',
+      idPessoa: record.ID_PESSOA || '',
+      rga: record.RGA || '',
+      email: record.EMAIL_PARTICIPANTE || ''
+    });
+    if (token) tokens[token] = true;
+  });
+
+  Object.keys(tokens).forEach(function(token) {
+    portalCacheRemove_(portalCacheBuildKey_('frequencia', token));
+    portalCacheRemove_(portalCacheBuildKey_('frequencia_detalhada_v2', token));
+    portalCacheRemove_(portalCacheBuildKey_('minhas_justificativas', token));
+    portalCacheRemove_(portalCacheBuildKey_('calendario', token));
+    portalCacheRemove_(portalCacheBuildKey_('detalhes', token));
+    portalCacheRemove_(portalCacheBuildKey_('bundle', token));
+    if (result.idAtividade) {
+      portalCacheRemove_(portalCacheBuildKey_('atividade:detalhes', String(result.idAtividade || '').trim() + ':' + token));
+    }
+  });
 }
 
 function atividadesV2_normalizeChamadaStatus_(status) {
@@ -895,7 +1113,30 @@ function atividadesV2_normalizeChamadaStatus_(status) {
   return normalized;
 }
 
+function atividadesV2_normalizeChamadaStatusForOperacao_(status, operacao) {
+  var normalized = atividades_normalizeTextUpper_(status);
+  if (!normalized && operacao === ATIVIDADES_V2_CHAMADA_OPERACOES.SALVAR) return '';
+  if (!normalized && operacao === ATIVIDADES_V2_CHAMADA_OPERACOES.FINALIZAR) return 'FALTA';
+  if (operacao === ATIVIDADES_V2_CHAMADA_OPERACOES.SALVAR && normalized === 'FALTA') {
+    throw atividadesV2_chamadaException_(
+      'STATUS_PRESENCA_INVALIDO',
+      'Falta so pode ser registrada ao finalizar a chamada.'
+    );
+  }
+  return atividadesV2_normalizeChamadaStatus_(normalized);
+}
+
+function atividadesV2_statusFromChamadaCode_(code) {
+  var normalized = String(code || '').trim().toUpperCase();
+  if (normalized === 'P') return 'PRESENTE_PRESENCIAL';
+  if (normalized === 'R') return 'PRESENTE_REMOTO';
+  if (normalized === 'F') return 'FALTA';
+  if (normalized === 'N/A') return 'NAO_SE_APLICA';
+  return '';
+}
+
 function atividadesV2_normalizeChamadaCode_(code, status) {
+  if (!status) return '';
   var expected = ATIVIDADES_V2_CHAMADA_STATUS[status];
   var normalized = String(code || expected || '').trim().toUpperCase();
   if (normalized !== expected) return expected;
