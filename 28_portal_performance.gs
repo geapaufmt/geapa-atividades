@@ -11,6 +11,7 @@ var ATIVIDADES_V2_PORTAL_DETALHES_CACHE_TTL_SECONDS = 300;
 var ATIVIDADES_V2_PORTAL_CONFIG_CACHE_TTL_SECONDS = 600;
 var ATIVIDADES_V2_PORTAL_PRIVATE_CACHE_TTL_SECONDS = 90;
 var ATIVIDADES_V2_PORTAL_PENDENCIAS_CACHE_TTL_SECONDS = 90;
+var ATIVIDADES_V2_PORTAL_CHAMADA_CACHE_TTL_SECONDS = 300;
 var ATIVIDADES_V2_PORTAL_CACHE_PREFIX = 'portal:v2:atividades:';
 var ATIVIDADES_V2_PORTAL_CONFIG_DEFAULTS = Object.freeze({
   ATIVIDADES_CHAMADA_ANTECEDENCIA_MINUTOS: 60,
@@ -52,6 +53,27 @@ function portalPerfEnd_(context) {
   };
   Logger.log('GEAPA-PORTAL-PERF ' + portalPerfSafeJson_(payload));
   return payload;
+}
+
+function portalPerfBuildDiagnostics_(perfResult) {
+  if (!perfResult) return null;
+  return {
+    totalMs: perfResult.totalMs || 0,
+    etapas: (perfResult.marks || []).map(function(mark) {
+      return {
+        etapa: mark.label || '',
+        ms: mark.deltaMs || 0,
+        totalMs: mark.totalMs || 0
+      };
+    })
+  };
+}
+
+function portalPerfAttachDiagnostics_(response, perfResult) {
+  if (!response || typeof response !== 'object') return response;
+  response.tempoTotalMs = perfResult ? perfResult.totalMs : response.tempoTotalMs || '';
+  response.performance = portalPerfBuildDiagnostics_(perfResult);
+  return response;
 }
 
 function portalPerfSafeJson_(payload) {

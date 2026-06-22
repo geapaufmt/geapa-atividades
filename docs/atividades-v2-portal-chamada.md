@@ -40,12 +40,13 @@ Regras:
 - valida a janela operacional configurada em `portal_config` antes de carregar participantes;
 - permite visualizar chamada ja salva/finalizada conforme permissao, mesmo fora da janela de registro;
 - lista membros aplicaveis pela data da atividade via GEAPA Core;
-- mescla registros ja salvos em `Atividades_Presencas_Registros`;
+- se a chamada estiver finalizada, mescla registros oficiais de `Atividades_Presencas_Registros`;
+- se a chamada nao estiver finalizada, restaura o ultimo rascunho salvo em `Portal_Acoes` quando existir;
 - inclui convidados/externos previstos em `Atividades_Convites`, com campos seguros.
 
 ### `atividadesV2_portalSalvarChamada(payload, contexto)`
 
-Salva a chamada na aba `Atividades_Presencas_Registros`.
+Processa rascunho, finalizacao ou reabertura da chamada.
 
 Regras:
 
@@ -55,17 +56,22 @@ Regras:
 - revalida membros aplicaveis pela data da atividade;
 - impede presenca/falta para membro nao aplicavel;
 - valida status de presenca;
-- em `SALVAR`, nao transforma sem marcacao em falta;
+- em `SALVAR`, grava apenas snapshot persistente em `Portal_Acoes`;
+- em `SALVAR`, nao escreve em `Atividades_Presencas_Registros`;
+- em `SALVAR`, nao transforma sem marcacao em falta, nao atualiza frequencia e nao gera falta justificavel;
 - em `FINALIZAR`, transforma membros aplicaveis sem marcacao em `FALTA`;
+- em `FINALIZAR`, grava a chamada oficial em `Atividades_Presencas_Registros`;
 - em `REABRIR`, altera apenas o status operacional da chamada para permitir ajustes;
 - faz upsert canonico por `ID_REGISTRO_PRESENCA` e tambem por `ID_ATIVIDADE + TIPO_PARTICIPANTE + ID_PESSOA/RGA/ID_REFERENCIA`;
 - preserva `ID_REGISTRO_PRESENCA` legado quando encontra um registro antigo por RGA e o novo payload chega com `ID_PESSOA`;
 - inativa duplicatas ativas detectadas pela mesma chave canonica;
-- escreve em lote;
+- escreve presencas oficiais em lote somente na operacao `FINALIZAR`;
 - registra log seguro em `Atividades_Log`;
 - registra status/auditoria em `Portal_Acoes`;
-- invalida caches de calendario, detalhes, bundle, frequencia e justificativas;
-- promove justificativas previas quando uma falta correspondente passa a existir.
+- invalida caches de frequencia e justificativas somente apos `FINALIZAR`;
+- promove justificativas previas somente na operacao `FINALIZAR`, quando uma falta correspondente passa a existir.
+
+O retorno inclui `tempoTotalMs` e, em DEV, `performance.totalMs` e `performance.etapas[]` para diagnosticar onde a chamada gastou tempo.
 
 ### `atividadesV2_runTestePortalChamadaDev()`
 
@@ -87,13 +93,23 @@ GEAPA_CORE.portal.listarMembrosParaChamada(dataAtividade, contexto)
 
 O Core aplica a regra de aplicabilidade por data usando `MEMBERS_ATUAIS` e, quando disponivel, `MEMBER_EVENTOS_VINCULO`.
 
-## Aba de Escrita
+## Abas de Escrita
 
-Destino:
+Rascunho persistente:
+
+```text
+Portal_Acoes
+```
+
+O rascunho usa `TIPO_ACAO = CHAMADA_RASCUNHO_SALVO` e grava o snapshot em `PAYLOAD_JSON`. A aba `Portal_Acoes` nao possui coluna `DETALHES_JSON`; esse nome fica reservado para `Atividades_Log`.
+
+Chamada oficial:
 
 ```text
 Atividades_Presencas_Registros
 ```
+
+`Atividades_Presencas_Registros` so e alterada na operacao `FINALIZAR`.
 
 Chaves de upsert:
 
@@ -154,7 +170,29 @@ Payload:
 }
 ```
 
-No rascunho, membros sem marcacao podem ser omitidos. Se forem enviados com status vazio, ficam com `PRESENCA_REGISTRADA = NAO`.
+No rascunho, membros sem marcacao podem ser omitidos. Se forem enviados com status vazio, permanecem apenas no snapshot de `Portal_Acoes`; nao viram `PRESENCA_REGISTRADA`, nao aparecem em `Minha frequencia` e nao geram falta justificavel.
+
+Snapshot salvo em `Portal_Acoes.PAYLOAD_JSON`:
+
+```json
+{
+  "idAtividade": "ATV-2026-1-0005",
+  "statusChamada": "SALVA",
+  "registros": [
+    {
+      "tipoParticipante": "MEMBRO",
+      "idPessoa": "PES-001",
+      "rga": "202311801000",
+      "nome": "Nome do membro",
+      "marcacao": "PRESENCIAL",
+      "statusPresenca": "PRESENTE_PRESENCIAL",
+      "codigoPresenca": "P"
+    }
+  ],
+  "salvoEm": "2026-06-22T00:00:00.000Z",
+  "salvoPor": "usuario@dominio.com"
+}
+```
 
 ### Finalizacao
 
@@ -177,7 +215,7 @@ Payload:
 }
 ```
 
-Na finalizacao, o backend reconsulta os membros aplicaveis no Core. Para cada membro aplicavel que nao veio no payload, gera `FALTA/F`. Para membros nao aplicaveis, gera `NAO_SE_APLICA/N/A`.
+Na finalizacao, o backend reconsulta os membros aplicaveis no Core. Se o Portal nao enviar registros no payload de finalizacao, o backend usa o ultimo rascunho salvo. Para cada membro aplicavel que nao veio no payload nem no rascunho, gera `FALTA/F`. Para membros nao aplicaveis, gera `NAO_SE_APLICA/N/A`.
 
 ### Reabertura
 
@@ -190,7 +228,7 @@ Payload:
 }
 ```
 
-A reabertura registra `CHAMADA_REABERTA` em `Portal_Acoes`, grava log tecnico e permite novo salvamento/finalizacao conforme permissao e janela operacional.
+A reabertura registra `CHAMADA_REABERTA` em `Portal_Acoes`, grava log tecnico e permite novo salvamento/finalizacao conforme permissao e janela operacional. Ao abrir a chamada reaberta, os registros oficiais atuais sao usados como base; um novo `SALVAR` apos a reabertura passa a gravar novo snapshot em `Portal_Acoes`.
 
 ## Janela Operacional
 
@@ -207,6 +245,27 @@ ATIVIDADES_PRELOAD_LIMITE
 Padrao atual, caso a configuracao nao esteja disponivel: 60 minutos antes e 60 minutos depois.
 
 Alterar a antecedencia de 60 para 30 minutos em `portal_config` nao exige deploy; a mudanca passa a valer apos expirar o cache curto.
+
+## Performance e Cache
+
+O backend usa caches curtos para reduzir o tempo de carregamento da chamada:
+
+- atividade por `ID_ATIVIDADE`;
+- membros aplicaveis por data da atividade;
+- status da chamada por `ID_ATIVIDADE`;
+- presencas oficiais existentes por `ID_ATIVIDADE`;
+- rascunho de chamada por `ID_ATIVIDADE`.
+
+Ao salvar rascunho, o backend invalida apenas caches da propria chamada/rascunho. Ao finalizar, invalida caches da chamada e caches dos membros afetados. Nenhuma operacao recalcula views `PORTAL_*` no clique. No rascunho, tambem nao tenta promover justificativas previas. As views devem continuar sendo atualizadas por rotinas oficiais de materializacao ou job posterior.
+
+O Portal deve usar o bloco `performance` para medir:
+
+- abertura da planilha;
+- leitura de atividades/status/presencas/convites;
+- consulta ao Core para membros;
+- escrita de rascunho ou presencas oficiais;
+- invalidacao de cache;
+- tempo total.
 
 ## Segurança
 
@@ -233,7 +292,7 @@ atividadesV2_runTestePortalChamadaDev()
 atividadesV2_portalGetChamada('ATV-2026-1-0005', { perfil: 'DIRETORIA' })
 ```
 
-4. Para salvar chamada em DEV:
+4. Para salvar rascunho de chamada em DEV:
 
 ```js
 atividadesV2_portalSalvarChamada({
@@ -252,6 +311,8 @@ atividadesV2_portalSalvarChamada({
 }, { perfil: 'DIRETORIA' })
 ```
 
+Confirme que `Portal_Acoes` recebeu `CHAMADA_RASCUNHO_SALVO` e que `Atividades_Presencas_Registros` nao mudou.
+
 5. Para finalizar chamada em DEV, informe `operacao: 'FINALIZAR'`. Confirme na aba `Atividades_Presencas_Registros` que membros sem marcacao viraram `FALTA` somente apos esta operacao.
 
 6. Para reabrir:
@@ -267,9 +328,11 @@ atividadesV2_portalSalvarChamada({
 
 - uma atividade + um membro gera no maximo um registro ativo;
 - registro antigo por RGA e payload novo com `ID_PESSOA` atualizam a mesma linha;
-- `Portal_Acoes` registra `CHAMADA_SALVA`, `CHAMADA_FINALIZADA` ou `CHAMADA_REABERTA`;
+- `Portal_Acoes` registra `CHAMADA_RASCUNHO_SALVO`, `CHAMADA_FINALIZADA` ou `CHAMADA_REABERTA`;
 - `Atividades_Log` registra a acao sem payload sensivel;
-- caches de frequencia/justificativas sao invalidados;
+- rascunho nao aparece em `Minha frequencia`;
+- rascunho nao gera falta justificavel;
+- caches de frequencia/justificativas sao invalidados somente apos finalizacao;
 - views `PORTAL_*` continuam sendo atualizadas apenas por rotinas de materializacao.
 
 ## Fora de Escopo Nesta Etapa

@@ -29,32 +29,37 @@ function atividadesV2_portalGetChamada_(idAtividade, contexto) {
     var ss = atividadesV2_getDatabaseSpreadsheetDev_();
     portalPerfMark_(perf, 'abrir_planilha_v2_dev');
 
-    var activity = atividadesV2_getChamadaActivity_(ss, wantedId);
+    var activity = atividadesV2_getChamadaActivity_(ss, wantedId, perf);
     if (!activity) return atividadesV2_chamadaError_('ATIVIDADE_NAO_ENCONTRADA', 'Atividade nao encontrada na base v2 DEV.');
 
     var activityValidation = atividadesV2_validateActivityAllowsChamada_(activity);
     if (!activityValidation.ok) return activityValidation;
 
-    var statusChamada = atividadesV2_getChamadaStatus_(ss, wantedId);
+    var statusChamada = atividadesV2_getChamadaStatus_(ss, wantedId, perf);
     var janela = atividadesV2_getChamadaWindowMeta_(activity, statusChamada, ctx);
     if (!janela.podeVisualizarChamada) {
-      return atividadesV2_chamadaError_(
+      var perfJanela = portalPerfEnd_(perf);
+      return portalPerfAttachDiagnostics_(atividadesV2_chamadaError_(
         'CHAMADA_FORA_DA_JANELA',
         atividadesV2_chamadaWindowPublicMessage_(janela.motivoChamadaIndisponivel),
         null,
         ''
-      );
+      ), perfJanela);
     }
 
-    var membersResult = atividadesV2_listarMembrosChamadaViaCore_(activity.DATA_ATIVIDADE, ctx);
+    var membersResult = atividadesV2_listarMembrosChamadaViaCore_(activity.DATA_ATIVIDADE, ctx, perf);
     if (!membersResult.ok) return membersResult;
     portalPerfMark_(perf, 'listar_membros_core', { total: membersResult.data.length });
 
-    var presencas = atividadesV2_readChamadaExistingRecords_(ss, wantedId);
+    var draft = statusChamada.finalizada ? null : atividadesV2_getChamadaDraft_(ss, wantedId, perf);
+    var usarRascunho = atividadesV2_shouldUseChamadaDraft_(statusChamada, draft);
+    var presencas = usarRascunho
+      ? atividadesV2_chamadaDraftRecordsToRows_(draft.snapshot && draft.snapshot.registros || [])
+      : atividadesV2_readChamadaExistingRecords_(ss, wantedId, { useCache: true, perf: perf });
     var presencasByRef = atividadesV2_indexChamadaRecordsByReference_(presencas);
-    portalPerfMark_(perf, 'ler_presencas_existentes', { total: presencas.length });
+    portalPerfMark_(perf, usarRascunho ? 'usar_rascunho_chamada' : 'ler_presencas_existentes', { total: presencas.length });
 
-    var convites = atividadesV2_readChamadaConvites_(ss, wantedId);
+    var convites = atividadesV2_readChamadaConvites_(ss, wantedId, { perf: perf });
     portalPerfMark_(perf, 'ler_convites', { total: convites.length });
 
     var participantes = atividadesV2_buildChamadaParticipantes_(
@@ -78,6 +83,9 @@ function atividadesV2_portalGetChamada_(idAtividade, contexto) {
         statusChamadaAtualizadoEm: statusChamada.atualizadoEm,
         statusChamadaAtualizadoPor: statusChamada.atualizadoPor,
         resumoSalvo: statusChamada.resumo || {},
+        rascunhoRestaurado: usarRascunho,
+        rascunhoSalvoEm: usarRascunho ? draft.salvoEm : '',
+        rascunhoSalvoPor: usarRascunho ? draft.salvoPor : '',
         dataHoraInicio: janela.dataHoraInicio,
         dataHoraFim: janela.dataHoraFim,
         chamadaDisponivelEm: janela.chamadaDisponivelEm,
@@ -91,16 +99,17 @@ function atividadesV2_portalGetChamada_(idAtividade, contexto) {
         modo: 'DEV',
         ultimaAtualizacao: new Date().toISOString()
       },
-      tempoTotalMs: perfResult.totalMs
+      tempoTotalMs: perfResult.totalMs,
+      performance: portalPerfBuildDiagnostics_(perfResult)
     };
   } catch (err) {
     var perfError = portalPerfEnd_(perf);
-    return atividadesV2_chamadaError_(
+    return portalPerfAttachDiagnostics_(atividadesV2_chamadaError_(
       'ERRO_BUSCAR_CHAMADA',
       'Nao foi possivel buscar a chamada da atividade.',
       err,
       perfError ? perfError.totalMs : ''
-    );
+    ), perfError);
   }
 }
 
@@ -122,23 +131,24 @@ function atividadesV2_portalSalvarChamada_(payload, contexto) {
     var ss = atividadesV2_getDatabaseSpreadsheetDev_();
     portalPerfMark_(perf, 'abrir_planilha_v2_dev');
 
-    var activity = atividadesV2_getChamadaActivity_(ss, wantedId);
+    var activity = atividadesV2_getChamadaActivity_(ss, wantedId, perf);
     if (!activity) return atividadesV2_chamadaError_('ATIVIDADE_NAO_ENCONTRADA', 'Atividade nao encontrada na base v2 DEV.');
 
     var activityValidation = atividadesV2_validateActivityAllowsChamada_(activity);
     if (!activityValidation.ok) return activityValidation;
 
-    var statusAtual = atividadesV2_getChamadaStatus_(ss, wantedId);
+    var statusAtual = atividadesV2_getChamadaStatus_(ss, wantedId, perf);
     if (statusAtual.finalizada && operacao !== ATIVIDADES_V2_CHAMADA_OPERACOES.REABRIR) {
       return atividadesV2_chamadaError_('CHAMADA_FINALIZADA', 'Chamada finalizada. Reabra a chamada antes de alterar registros.');
     }
 
     var janela = atividadesV2_getChamadaWindowMeta_(activity, statusAtual, ctx);
     if (operacao !== ATIVIDADES_V2_CHAMADA_OPERACOES.REABRIR && !janela.podeRegistrarChamadaAgora) {
-      return atividadesV2_chamadaError_(
+      var perfJanelaSalvar = portalPerfEnd_(perf);
+      return portalPerfAttachDiagnostics_(atividadesV2_chamadaError_(
         'CHAMADA_FORA_DA_JANELA',
         atividadesV2_chamadaWindowPublicMessage_(janela.motivoChamadaIndisponivel)
-      );
+      ), perfJanelaSalvar);
     }
 
     if (operacao === ATIVIDADES_V2_CHAMADA_OPERACOES.REABRIR) {
@@ -169,16 +179,17 @@ function atividadesV2_portalSalvarChamada_(payload, contexto) {
           chamadaFinalizada: false,
           modo: 'DEV'
         },
-        tempoTotalMs: perfReabrir.totalMs
+        tempoTotalMs: perfReabrir.totalMs,
+        performance: portalPerfBuildDiagnostics_(perfReabrir)
       };
     }
 
-    var membersResult = atividadesV2_listarMembrosChamadaViaCore_(activity.DATA_ATIVIDADE, ctx);
+    var membersResult = atividadesV2_listarMembrosChamadaViaCore_(activity.DATA_ATIVIDADE, ctx, perf);
     if (!membersResult.ok) return membersResult;
     var applicableMembers = atividadesV2_indexApplicableMembersByRga_(membersResult.data);
     portalPerfMark_(perf, 'revalidar_membros_core', { total: membersResult.data.length });
 
-    var convitesOperacao = atividadesV2_readChamadaConvites_(ss, wantedId);
+    var convitesOperacao = atividadesV2_readChamadaConvites_(ss, wantedId, { perf: perf });
     var registros = atividadesV2_normalizeChamadaSavePayload_(data, activity, applicableMembers, {
       operacao: operacao,
       members: membersResult.data,
@@ -186,7 +197,75 @@ function atividadesV2_portalSalvarChamada_(payload, contexto) {
     });
     portalPerfMark_(perf, 'validar_payload', { total: registros.length });
 
+    if (operacao === ATIVIDADES_V2_CHAMADA_OPERACOES.SALVAR) {
+      var resumoRascunho = atividadesV2_countChamadaRows_(registros);
+      var draftStatus = atividadesV2_salvarRascunhoChamada_(ss, activity, ctx, registros, resumoRascunho);
+      portalPerfMark_(perf, 'salvar_rascunho_portal_acoes', { total: registros.length });
+      atividadesV2_appendV2Log_(ss, {
+        FLUXO: 'PORTAL_CHAMADA_DEV',
+        ACAO: 'Salvar rascunho de chamada pelo Portal em DEV',
+        NIVEL: 'INFO',
+        STATUS: 'OK',
+        ID_ATIVIDADE: wantedId,
+        USUARIO: ctx.email || ctx.rga || ctx.perfil,
+        MENSAGEM: 'Rascunho de chamada salvo em Portal_Acoes sem gravar presencas oficiais.',
+        DETALHES_JSON: atividadesV2_safeLogData_({
+          idAtividade: wantedId,
+          totalRegistrosRascunho: registros.length
+        })
+      });
+      atividadesV2_invalidateChamadaDraftCaches_(wantedId);
+      portalPerfMark_(perf, 'invalidar_cache_rascunho_chamada', { idAtividade: wantedId });
+      var perfRascunho = portalPerfEnd_(perf);
+      return {
+        ok: true,
+        message: 'Rascunho de chamada salvo com sucesso na base DEV.',
+        data: {
+          idAtividade: wantedId,
+          totalRegistros: registros.length,
+          totalPresentes: resumoRascunho.totalPresentes,
+          totalFaltas: 0,
+          totalNaoSeAplica: resumoRascunho.totalNaoSeAplica,
+          statusChamada: draftStatus.statusChamada,
+          statusChamadaRotulo: draftStatus.rotulo,
+          chamadaFinalizada: false,
+          rascunhoSalvo: true,
+          rascunhoSalvoEm: draftStatus.atualizadoEm,
+          modo: 'DEV'
+        },
+        escrita: {
+          rascunhoPortalAcoes: true,
+          presencasOficiais: 0,
+          inserts: 0,
+          updates: 0,
+          duplicatesInactivated: 0
+        },
+        tempoTotalMs: perfRascunho.totalMs,
+        performance: portalPerfBuildDiagnostics_(perfRascunho)
+      };
+    }
+
     if (operacao === ATIVIDADES_V2_CHAMADA_OPERACOES.FINALIZAR) {
+      var payloadVazioFinalizacao = (!data.registros || !data.registros.length) && (!data.externos || !data.externos.length);
+      var draftFinalizacao = payloadVazioFinalizacao ? atividadesV2_getChamadaDraft_(ss, wantedId, perf) : null;
+      if (payloadVazioFinalizacao && atividadesV2_shouldUseChamadaDraft_(statusAtual, draftFinalizacao)) {
+        data = atividadesV2_applyDraftToFinalizePayload_(data, draftFinalizacao);
+        registros = atividadesV2_normalizeChamadaSavePayload_(data, activity, applicableMembers, {
+          operacao: operacao,
+          members: membersResult.data,
+          convites: convitesOperacao
+        });
+        portalPerfMark_(perf, 'usar_rascunho_para_finalizar', { total: registros.length });
+      } else if (payloadVazioFinalizacao && atividades_normalizeTextUpper_(statusAtual.statusChamada) === 'REABERTA') {
+        var oficiaisReabertura = atividadesV2_readChamadaExistingRecords_(ss, wantedId, { useCache: true, perf: perf });
+        data = atividadesV2_applyOfficialRowsToFinalizePayload_(data, oficiaisReabertura);
+        registros = atividadesV2_normalizeChamadaSavePayload_(data, activity, applicableMembers, {
+          operacao: operacao,
+          members: membersResult.data,
+          convites: convitesOperacao
+        });
+        portalPerfMark_(perf, 'usar_presencas_oficiais_para_finalizar', { total: registros.length });
+      }
       atividadesV2_validateChamadaCompletaParaFinalizar_(membersResult.data, convitesOperacao, registros);
       portalPerfMark_(perf, 'finalizar_chamada_completa', { total: registros.length });
     }
@@ -225,7 +304,8 @@ function atividadesV2_portalSalvarChamada_(payload, contexto) {
       operacao === ATIVIDADES_V2_CHAMADA_OPERACOES.FINALIZAR ? 'FINALIZADA' : 'SALVA',
       resumo
     );
-    var promocaoPrevias = typeof atividadesV2_promoverJustificativasPreviasNaPlanilha_ === 'function'
+    var promocaoPrevias = operacao === ATIVIDADES_V2_CHAMADA_OPERACOES.FINALIZAR &&
+      typeof atividadesV2_promoverJustificativasPreviasNaPlanilha_ === 'function'
       ? atividadesV2_promoverJustificativasPreviasNaPlanilha_(ss, {
         ok: true,
         dryRun: false,
@@ -244,10 +324,16 @@ function atividadesV2_portalSalvarChamada_(payload, contexto) {
         email: ''
       });
     }
+    if (promocaoPrevias) {
+      portalPerfMark_(perf, 'promover_justificativas_previas', {
+        totalPromovidas: promocaoPrevias.totalPromovidas || 0
+      });
+    }
     atividadesV2_invalidateChamadaPortalCaches_(ctx, {
       idAtividade: wantedId,
       registros: registros
     });
+    portalPerfMark_(perf, 'invalidar_caches_chamada', { membrosAfetados: registros.length });
     var perfResult = portalPerfEnd_(perf);
     return {
       ok: true,
@@ -273,17 +359,18 @@ function atividadesV2_portalSalvarChamada_(payload, contexto) {
         updates: writeResult.updates,
         duplicatesInactivated: writeResult.duplicatesInactivated
       },
-      tempoTotalMs: perfResult.totalMs
+      tempoTotalMs: perfResult.totalMs,
+      performance: portalPerfBuildDiagnostics_(perfResult)
     };
   } catch (err) {
     var perfError = portalPerfEnd_(perf);
     var errorCode = err && err.errorCode ? err.errorCode : 'ERRO_SALVAR_CHAMADA';
-    return atividadesV2_chamadaError_(
+    return portalPerfAttachDiagnostics_(atividadesV2_chamadaError_(
       errorCode,
       atividadesV2_chamadaPublicErrorMessage_(errorCode),
       err,
       perfError ? perfError.totalMs : ''
-    );
+    ), perfError);
   } finally {
     lock.releaseLock();
   }
@@ -343,11 +430,22 @@ function atividadesV2_validateChamadaActivityId_(idAtividade) {
   return wantedId;
 }
 
-function atividadesV2_getChamadaActivity_(ss, idAtividade) {
+function atividadesV2_getChamadaActivity_(ss, idAtividade, perf) {
+  var cacheKey = portalCacheBuildKey_('chamada:atividade', idAtividade);
+  var cached = portalCacheGetJson_(cacheKey);
+  if (cached) {
+    if (perf) portalPerfMark_(perf, 'cache_hit_atividade', { idAtividade: idAtividade });
+    return cached;
+  }
+
   var sheet = atividadesV2_getTargetSheet_(ss, ATIVIDADES_V2_SHEETS.ATIVIDADES);
   var records = atividadesV2_readSheetObjects_(sheet);
+  if (perf) portalPerfMark_(perf, 'ler_aba_atividades', { linhas: records.length });
   for (var i = 0; i < records.length; i++) {
-    if (String(records[i].ID_ATIVIDADE || '').trim() === idAtividade) return records[i];
+    if (String(records[i].ID_ATIVIDADE || '').trim() === idAtividade) {
+      portalCachePutJson_(cacheKey, records[i], ATIVIDADES_V2_PORTAL_CHAMADA_CACHE_TTL_SECONDS);
+      return records[i];
+    }
   }
   return null;
 }
@@ -372,10 +470,22 @@ function atividadesV2_validateActivityAllowsChamada_(activity) {
   return { ok: true };
 }
 
-function atividadesV2_listarMembrosChamadaViaCore_(dataAtividade, contexto) {
+function atividadesV2_listarMembrosChamadaViaCore_(dataAtividade, contexto, perf) {
   var isoDate = atividades_formatPortalDateIso_(dataAtividade);
   if (!isoDate) {
     return atividadesV2_chamadaError_('ATIVIDADE_NAO_PERMITE_CHAMADA', 'Atividade sem data valida para chamada.');
+  }
+
+  var cacheKey = portalCacheBuildKey_('chamada:membros', isoDate);
+  var cached = portalCacheGetJson_(cacheKey);
+  if (cached && Array.isArray(cached.data)) {
+    if (perf) portalPerfMark_(perf, 'cache_hit_membros_core', { dataAtividade: isoDate, total: cached.data.length });
+    return {
+      ok: true,
+      data: cached.data,
+      meta: cached.meta || {},
+      cacheHit: true
+    };
   }
 
   var result = null;
@@ -415,19 +525,40 @@ function atividadesV2_listarMembrosChamadaViaCore_(dataAtividade, contexto) {
     return atividadesV2_chamadaError_(result.errorCode || 'ERRO_BUSCAR_CHAMADA', result.message || 'Nao foi possivel listar membros para chamada.');
   }
 
-  return {
+  var response = {
     ok: true,
     data: result.data || [],
     meta: result.meta || {}
   };
+  portalCachePutJson_(cacheKey, {
+    data: response.data,
+    meta: response.meta
+  }, ATIVIDADES_V2_PORTAL_CHAMADA_CACHE_TTL_SECONDS);
+  return response;
 }
 
-function atividadesV2_readChamadaExistingRecords_(ss, idAtividade) {
+function atividadesV2_readChamadaExistingRecords_(ss, idAtividade, options) {
+  options = options || {};
+  var cacheKey = portalCacheBuildKey_('chamada:presencas', idAtividade);
+  if (options.useCache) {
+    var cached = portalCacheGetJson_(cacheKey);
+    if (cached && Array.isArray(cached.records)) {
+      if (options.perf) portalPerfMark_(options.perf, 'cache_hit_presencas', { total: cached.records.length });
+      return cached.records;
+    }
+  }
+
   var sheet = atividadesV2_getTargetSheet_(ss, ATIVIDADES_V2_SHEETS.PRESENCAS_REGISTROS);
-  return atividadesV2_readSheetObjects_(sheet).filter(function(record) {
+  var records = atividadesV2_readSheetObjects_(sheet);
+  if (options.perf) portalPerfMark_(options.perf, 'ler_aba_presencas', { linhas: records.length });
+  var filtered = records.filter(function(record) {
     return String(record.ID_ATIVIDADE || '').trim() === idAtividade &&
       atividades_normalizeTextUpper_(record.ATIVO || 'SIM') !== 'NAO';
   });
+  if (options.useCache) {
+    portalCachePutJson_(cacheKey, { records: filtered }, ATIVIDADES_V2_PORTAL_PRIVATE_CACHE_TTL_SECONDS);
+  }
+  return filtered;
 }
 
 function atividadesV2_indexChamadaRecordsByReference_(records) {
@@ -440,13 +571,197 @@ function atividadesV2_indexChamadaRecordsByReference_(records) {
   return index;
 }
 
-function atividadesV2_readChamadaConvites_(ss, idAtividade) {
+function atividadesV2_readChamadaConvites_(ss, idAtividade, options) {
+  options = options || {};
   var sheet = ss.getSheetByName(ATIVIDADES_V2_SHEETS.CONVITES);
   if (!sheet) return [];
-  return atividadesV2_readSheetObjects_(sheet).filter(function(record) {
+  var records = atividadesV2_readSheetObjects_(sheet);
+  if (options.perf) portalPerfMark_(options.perf, 'ler_aba_convites', { linhas: records.length });
+  return records.filter(function(record) {
     return String(record.ID_ATIVIDADE || '').trim() === idAtividade &&
       atividades_normalizeTextUpper_(record.ATIVO || 'SIM') !== 'NAO';
   });
+}
+
+function atividadesV2_getChamadaDraft_(ss, idAtividade, perf) {
+  var cacheKey = portalCacheBuildKey_('chamada:rascunho', idAtividade);
+  var cached = portalCacheGetJson_(cacheKey);
+  if (cached) {
+    if (perf) portalPerfMark_(perf, 'cache_hit_rascunho_chamada', { idAtividade: idAtividade });
+    return cached;
+  }
+
+  var sheet = ss && ss.getSheetByName(ATIVIDADES_V2_SHEETS.PORTAL_ACOES);
+  if (!sheet || sheet.getLastRow() < 2) return null;
+
+  atividadesV2_applyHeadersIfMissing_(sheet, ATIVIDADES_V2_SCHEMA.PORTAL_ACOES);
+  var records = atividadesV2_readSheetObjects_(sheet);
+  if (perf) portalPerfMark_(perf, 'ler_portal_acoes_rascunho', { linhas: records.length });
+
+  var latest = null;
+  records.forEach(function(record) {
+    var id = String(record.ID_ATIVIDADE || '').trim();
+    if (id !== idAtividade) return;
+    var tipo = atividades_normalizeTextUpper_(record.TIPO_ACAO);
+    if (tipo !== 'CHAMADA_RASCUNHO_SALVO' && tipo !== 'CHAMADA_SALVA') return;
+    if (atividades_normalizeTextUpper_(record.ATIVO || 'SIM') === 'NAO') return;
+
+    var payload = atividadesV2_parseJsonOrEmpty_(record.PAYLOAD_JSON);
+    if (!payload || !Array.isArray(payload.registros)) return;
+    var dataHora = String(record.DATA_HORA || payload.salvoEm || record.CRIADO_EM || '').trim();
+    if (latest && String(latest.dataHora || '') > dataHora) return;
+    latest = {
+      dataHora: dataHora,
+      salvoEm: String(payload.salvoEm || dataHora || '').trim(),
+      salvoPor: String(payload.salvoPor || record.USUARIO_EMAIL || record.USUARIO_NOME || '').trim(),
+      snapshot: payload
+    };
+  });
+
+  if (latest) {
+    portalCachePutJson_(cacheKey, latest, ATIVIDADES_V2_PORTAL_PRIVATE_CACHE_TTL_SECONDS);
+  }
+  return latest;
+}
+
+function atividadesV2_shouldUseChamadaDraft_(statusChamada, draft) {
+  if (!draft || !draft.snapshot) return false;
+  var status = atividades_normalizeTextUpper_(statusChamada && statusChamada.statusChamada);
+  if (status === 'FINALIZADA') return false;
+  if (status === 'REABERTA') {
+    return String(draft.dataHora || '') >= String(statusChamada.atualizadoEm || '');
+  }
+  return true;
+}
+
+function atividadesV2_chamadaDraftRecordsToRows_(records) {
+  return (records || []).map(function(record) {
+    return {
+      TIPO_PARTICIPANTE: record.tipoParticipante || record.TIPO_PARTICIPANTE || 'MEMBRO',
+      ID_PESSOA: record.idPessoa || record.ID_PESSOA || '',
+      ID_REFERENCIA: record.idReferencia || record.ID_REFERENCIA || record.idPessoa || record.ID_PESSOA || record.rga || record.RGA || '',
+      RGA: record.rga || record.RGA || '',
+      NOME_PARTICIPANTE: record.nome || record.NOME_PARTICIPANTE || '',
+      EMAIL_PARTICIPANTE: record.email || record.EMAIL_PARTICIPANTE || '',
+      STATUS_PRESENCA: record.statusPresenca || record.STATUS_PRESENCA || '',
+      CODIGO_PRESENCA: record.codigoPresenca || record.CODIGO_PRESENCA || '',
+      OBSERVACOES: record.observacoes || record.OBSERVACOES || '',
+      ATIVO: 'SIM'
+    };
+  });
+}
+
+function atividadesV2_applyDraftToFinalizePayload_(payload, draft) {
+  var out = {};
+  Object.keys(payload || {}).forEach(function(key) {
+    out[key] = payload[key];
+  });
+  out.registros = [];
+  out.externos = [];
+  ((draft && draft.snapshot && draft.snapshot.registros) || []).forEach(function(record) {
+    var tipo = atividades_normalizeTextUpper_(record.tipoParticipante || record.TIPO_PARTICIPANTE || 'MEMBRO');
+    if (tipo === 'MEMBRO') out.registros.push(record);
+    else out.externos.push(record);
+  });
+  return out;
+}
+
+function atividadesV2_applyOfficialRowsToFinalizePayload_(payload, rows) {
+  var out = {};
+  Object.keys(payload || {}).forEach(function(key) {
+    out[key] = payload[key];
+  });
+  out.registros = [];
+  out.externos = [];
+  (rows || []).forEach(function(row) {
+    var record = {
+      tipoParticipante: row.TIPO_PARTICIPANTE || 'MEMBRO',
+      idPessoa: row.ID_PESSOA || '',
+      rga: row.RGA || '',
+      nome: row.NOME_PARTICIPANTE || '',
+      email: row.EMAIL_PARTICIPANTE || '',
+      statusPresenca: row.STATUS_PRESENCA || '',
+      codigoPresenca: row.CODIGO_PRESENCA || '',
+      observacoes: row.OBSERVACOES || ''
+    };
+    if (atividades_normalizeTextUpper_(record.tipoParticipante) === 'MEMBRO') out.registros.push(record);
+    else out.externos.push(record);
+  });
+  return out;
+}
+
+function atividadesV2_salvarRascunhoChamada_(ss, activity, contexto, registros, resumo) {
+  var sheet = atividadesV2_getTargetSheet_(ss, ATIVIDADES_V2_SHEETS.PORTAL_ACOES);
+  atividadesV2_applyHeadersIfMissing_(sheet, ATIVIDADES_V2_SCHEMA.PORTAL_ACOES);
+
+  var now = new Date().toISOString();
+  var idAtividade = String(activity.ID_ATIVIDADE || '').trim();
+  var status = atividadesV2_buildChamadaStatusPayload_(
+    'SALVA',
+    now,
+    contexto.email || contexto.rga || contexto.perfil || '',
+    resumo || {}
+  );
+  var snapshot = {
+    idAtividade: idAtividade,
+    statusChamada: status.statusChamada,
+    registros: atividadesV2_buildChamadaDraftSnapshotRecords_(registros),
+    resumo: resumo || {},
+    salvoEm: now,
+    salvoPor: contexto.email || contexto.rga || contexto.perfil || ''
+  };
+  var row = {
+    ID_ACAO_PORTAL: atividadesV2_buildPortalChamadaActionId_(idAtividade, 'CHAMADA_RASCUNHO_SALVO'),
+    DATA_HORA: now,
+    USUARIO_EMAIL: contexto.email || '',
+    USUARIO_NOME: '',
+    PERFIL_USUARIO: contexto.perfil || '',
+    TIPO_ACAO: 'CHAMADA_RASCUNHO_SALVO',
+    ID_ATIVIDADE: idAtividade,
+    ID_ENTIDADE: idAtividade,
+    TIPO_ENTIDADE: 'CHAMADA_ATIVIDADE',
+    PAYLOAD_JSON: atividadesV2_safeLogData_(snapshot),
+    STATUS_PROCESSAMENTO: 'CONCLUIDO',
+    RESULTADO_JSON: atividadesV2_safeLogData_({ ok: true, efeitoOficial: false }),
+    ERRO_CODIGO: '',
+    ERRO_MENSAGEM: '',
+    PROCESSADO_EM: now,
+    PROCESSADO_POR: contexto.email || contexto.rga || contexto.perfil || '',
+    OBSERVACOES: 'Rascunho de chamada salvo sem efeito em frequencia.',
+    ATIVO: 'SIM'
+  };
+  var headers = atividadesV2_getSheetHeaders_(sheet).filter(function(header) { return !!header; });
+  sheet.getRange(sheet.getLastRow() + 1, 1, 1, headers.length).setValues([
+    headers.map(function(header) {
+      return Object.prototype.hasOwnProperty.call(row, header) ? row[header] : '';
+    })
+  ]);
+
+  return status;
+}
+
+function atividadesV2_buildChamadaDraftSnapshotRecords_(registros) {
+  return (registros || []).map(function(record) {
+    return {
+      tipoParticipante: record.TIPO_PARTICIPANTE || '',
+      idPessoa: record.ID_PESSOA || '',
+      rga: record.RGA || '',
+      nome: record.NOME_PARTICIPANTE || '',
+      email: record.EMAIL_PARTICIPANTE || '',
+      marcacao: atividadesV2_chamadaMarcacaoFromStatus_(record.STATUS_PRESENCA),
+      statusPresenca: record.STATUS_PRESENCA || '',
+      codigoPresenca: record.CODIGO_PRESENCA || '',
+      observacoes: record.OBSERVACOES || ''
+    };
+  });
+}
+
+function atividadesV2_chamadaMarcacaoFromStatus_(status) {
+  var normalized = atividades_normalizeTextUpper_(status);
+  if (normalized === 'PRESENTE_PRESENCIAL') return 'PRESENCIAL';
+  if (normalized === 'PRESENTE_REMOTO') return 'REMOTO';
+  if (normalized === 'NAO_SE_APLICA') return 'NAO_SE_APLICA';
+  return '';
 }
 
 function atividadesV2_buildChamadaParticipantes_(members, convites, existingByRef, activity) {
@@ -528,12 +843,32 @@ function atividadesV2_buildChamadaActivityPayload_(activity) {
   };
 }
 
-function atividadesV2_getChamadaStatus_(ss, idAtividade) {
-  var map = atividadesV2_getChamadaStatusMap_(ss, [idAtividade]);
-  return map[idAtividade] || atividadesV2_buildChamadaStatusPayload_('RASCUNHO', '', '', {});
+function atividadesV2_getChamadaStatus_(ss, idAtividade, perf) {
+  var cacheKey = portalCacheBuildKey_('chamada:status', idAtividade);
+  var cached = portalCacheGetJson_(cacheKey);
+  if (cached) {
+    if (perf) portalPerfMark_(perf, 'cache_hit_status_chamada', { idAtividade: idAtividade });
+    return cached;
+  }
+
+  var map = atividadesV2_getChamadaStatusMap_(ss, [idAtividade], perf);
+  var status = map[idAtividade] || atividadesV2_buildChamadaStatusPayload_('RASCUNHO', '', '', {});
+  portalCachePutJson_(cacheKey, status, ATIVIDADES_V2_PORTAL_PRIVATE_CACHE_TTL_SECONDS);
+  return status;
 }
 
-function atividadesV2_getChamadaStatusMap_(ss, idsAtividades) {
+function atividadesV2_getChamadaStatusMap_(ss, idsAtividades, perf) {
+  if ((idsAtividades || []).length === 1) {
+    var singleId = String(idsAtividades[0] || '').trim();
+    var cached = singleId ? portalCacheGetJson_(portalCacheBuildKey_('chamada:status', singleId)) : null;
+    if (cached) {
+      var cachedMap = {};
+      cachedMap[singleId] = cached;
+      if (perf) portalPerfMark_(perf, 'cache_hit_status_chamada', { idAtividade: singleId });
+      return cachedMap;
+    }
+  }
+
   var ids = {};
   (idsAtividades || []).forEach(function guardarId(idAtividade) {
     var id = String(idAtividade || '').trim();
@@ -545,6 +880,7 @@ function atividadesV2_getChamadaStatusMap_(ss, idsAtividades) {
 
   atividadesV2_applyHeadersIfMissing_(sheet, ATIVIDADES_V2_SCHEMA.PORTAL_ACOES);
   var records = atividadesV2_readSheetObjects_(sheet);
+  if (perf) portalPerfMark_(perf, 'ler_portal_acoes_status', { linhas: records.length });
   var latest = {};
 
   records.forEach(function avaliarAcao(record) {
@@ -552,7 +888,7 @@ function atividadesV2_getChamadaStatusMap_(ss, idsAtividades) {
     if (!idAtividade || (Object.keys(ids).length && !ids[idAtividade])) return;
 
     var tipo = atividades_normalizeTextUpper_(record.TIPO_ACAO);
-    if (['CHAMADA_SALVA', 'CHAMADA_FINALIZADA', 'CHAMADA_REABERTA'].indexOf(tipo) === -1) return;
+    if (['CHAMADA_RASCUNHO_SALVO', 'CHAMADA_SALVA', 'CHAMADA_FINALIZADA', 'CHAMADA_REABERTA'].indexOf(tipo) === -1) return;
     if (atividades_normalizeTextUpper_(record.ATIVO || 'SIM') === 'NAO') return;
 
     var payload = atividadesV2_parseJsonOrEmpty_(record.PAYLOAD_JSON);
@@ -576,6 +912,11 @@ function atividadesV2_getChamadaStatusMap_(ss, idsAtividades) {
       item.dataHora,
       item.atualizadoPor,
       item.resumo
+    );
+    portalCachePutJson_(
+      portalCacheBuildKey_('chamada:status', idAtividade),
+      out[idAtividade],
+      ATIVIDADES_V2_PORTAL_PRIVATE_CACHE_TTL_SECONDS
     );
   });
   return out;
@@ -629,6 +970,7 @@ function atividadesV2_registrarStatusChamada_(ss, activity, contexto, statusCham
     })
   ]);
 
+  atividadesV2_invalidateChamadaCacheByActivity_(String(activity.ID_ATIVIDADE || '').trim(), { keepActivity: true });
   return status;
 }
 
@@ -649,6 +991,7 @@ function atividadesV2_buildChamadaStatusPayload_(statusChamada, atualizadoEm, at
 function atividadesV2_statusFromPortalAction_(tipoAcao) {
   if (tipoAcao === 'CHAMADA_FINALIZADA') return 'FINALIZADA';
   if (tipoAcao === 'CHAMADA_REABERTA') return 'REABERTA';
+  if (tipoAcao === 'CHAMADA_RASCUNHO_SALVO') return 'SALVA';
   return 'SALVA';
 }
 
@@ -1075,8 +1418,9 @@ function atividadesV2_chamadaPresenceCanonicalKeys_(record) {
 }
 
 function atividadesV2_invalidateChamadaPortalCaches_(contexto, result) {
-  if (typeof atividadesV2_limparCachePortalDev_ === 'function') atividadesV2_limparCachePortalDev_();
-
+  result = result || {};
+  var idAtividade = String(result.idAtividade || '').trim();
+  atividadesV2_invalidateChamadaCacheByActivity_(idAtividade, { keepActivity: true });
   var ctx = atividadesV2_normalizeChamadaContext_(contexto || {});
   var tokens = {};
   var baseToken = portalCacheContextToken_(ctx);
@@ -1096,13 +1440,34 @@ function atividadesV2_invalidateChamadaPortalCaches_(contexto, result) {
     portalCacheRemove_(portalCacheBuildKey_('frequencia', token));
     portalCacheRemove_(portalCacheBuildKey_('frequencia_detalhada_v2', token));
     portalCacheRemove_(portalCacheBuildKey_('minhas_justificativas', token));
-    portalCacheRemove_(portalCacheBuildKey_('calendario', token));
-    portalCacheRemove_(portalCacheBuildKey_('detalhes', token));
     portalCacheRemove_(portalCacheBuildKey_('bundle', token));
-    if (result.idAtividade) {
-      portalCacheRemove_(portalCacheBuildKey_('atividade:detalhes', String(result.idAtividade || '').trim() + ':' + token));
+    if (idAtividade) {
+      portalCacheRemove_(portalCacheBuildKey_('atividade:detalhes', idAtividade + ':' + token));
     }
   });
+}
+
+function atividadesV2_invalidateChamadaDraftCaches_(idAtividade) {
+  var id = String(idAtividade || '').trim();
+  if (!id) return;
+  portalCacheRemove_(portalCacheBuildKey_('chamada:rascunho', id));
+  portalCacheRemove_(portalCacheBuildKey_('chamada:status', id));
+  portalCacheRemove_(portalCacheBuildKey_('chamada:presencas', id));
+}
+
+function atividadesV2_invalidateChamadaCacheByActivity_(idAtividade, options) {
+  var id = String(idAtividade || '').trim();
+  if (!id) return;
+  options = options || {};
+  if (!options.keepActivity) {
+    portalCacheRemove_(portalCacheBuildKey_('chamada:atividade', id));
+  }
+  portalCacheRemove_(portalCacheBuildKey_('chamada:status', id));
+  portalCacheRemove_(portalCacheBuildKey_('chamada:presencas', id));
+  portalCacheRemove_(portalCacheBuildKey_('chamada:rascunho', id));
+  portalCacheRemove_(portalCacheBuildKey_('bundle', ''));
+  portalCacheRemove_(portalCacheBuildKey_('detalhes', ''));
+  portalCacheRemove_(portalCacheBuildKey_('calendario', ''));
 }
 
 function atividadesV2_normalizeChamadaStatus_(status) {

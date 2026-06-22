@@ -42,31 +42,34 @@ function atividadesV2_portalGetMinhaFrequencia_(contexto) {
     var ctx = atividades_normalizePortalContext_(contexto || {});
     if (!atividadesV2_contextHasOwnIdentity_(ctx)) {
       var noIdentityPerf = portalPerfEnd_(perf);
-      return {
+      return portalPerfAttachDiagnostics_({
         ok: false,
         errorCode: 'USUARIO_NAO_IDENTIFICADO',
         message: 'Nao foi possivel identificar o usuario logado para carregar a frequencia propria.',
         origem: 'atividades-v2:Atividades_Presencas_Registros',
         contrato: 'MINHA_FREQUENCIA_DETALHADA_V2',
         tempoTotalMs: noIdentityPerf ? noIdentityPerf.totalMs : ''
-      };
+      }, noIdentityPerf);
     }
     var cacheKey = portalCacheBuildKey_('frequencia_detalhada_v2', portalCacheContextToken_(ctx));
     var cached = portalCacheGetJson_(cacheKey);
-    if (cached && atividadesV2_isMinhaFrequenciaDetailedResponse_(cached)) return cached;
+    if (cached && atividadesV2_isMinhaFrequenciaDetailedResponse_(cached)) {
+      portalPerfMark_(perf, 'cache_hit_frequencia_detalhada_v2');
+      return portalPerfAttachDiagnostics_(cached, portalPerfEnd_(perf));
+    }
     if (cached) portalCacheRemove_(cacheKey);
 
     var ss = atividadesV2_getDatabaseSpreadsheetDev_();
     portalPerfMark_(perf, 'abrir_planilha_v2_dev');
     var data = atividadesV2_buildMinhaFrequenciaPortalData_(ss, ctx, perf);
     var perfResult = portalPerfEnd_(perf);
-    var response = {
+    var response = portalPerfAttachDiagnostics_({
       ok: true,
       data: data,
       origem: 'atividades-v2:Atividades_Presencas_Registros',
       contrato: 'MINHA_FREQUENCIA_DETALHADA_V2',
       tempoTotalMs: perfResult ? perfResult.totalMs : ''
-    };
+    }, perfResult);
     portalCachePutJson_(cacheKey, response, ATIVIDADES_V2_PORTAL_PRIVATE_CACHE_TTL_SECONDS);
     return response;
   } catch (err) {
@@ -413,16 +416,19 @@ function atividadesV2_portalGetMinhasJustificativas_(contexto) {
     var ctx = atividades_normalizePortalContext_(contexto || {});
     var cacheKey = portalCacheBuildKey_('minhas_justificativas', portalCacheContextToken_(ctx));
     var cached = portalCacheGetJson_(cacheKey);
-    if (cached) return cached;
+    if (cached) {
+      portalPerfMark_(perf, 'cache_hit_minhas_justificativas');
+      return portalPerfAttachDiagnostics_(cached, portalPerfEnd_(perf));
+    }
 
     var data = atividadesV2_getMinhasJustificativasPortalData_(ctx);
     var perfResult = portalPerfEnd_(perf);
-    var response = {
+    var response = portalPerfAttachDiagnostics_({
       ok: true,
       data: data,
       origem: 'atividades-v2:justificativas-base',
       tempoTotalMs: perfResult ? perfResult.totalMs : ''
-    };
+    }, perfResult);
     portalCachePutJson_(cacheKey, response, ATIVIDADES_V2_PORTAL_PRIVATE_CACHE_TTL_SECONDS);
     return response;
   } catch (err) {
@@ -1471,12 +1477,12 @@ function atividades_buscarDetalheParaPortal_(idAtividade, contexto) {
     if (cached) {
       portalPerfMark_(perf, 'cache_hit_detalhe', { idAtividade: wantedId });
       var cachedPerf = portalPerfEnd_(perf);
-      return {
+      return portalPerfAttachDiagnostics_({
         ok: true,
         data: cached,
         cacheHit: true,
         tempoTotalMs: cachedPerf.totalMs
-      };
+      }, cachedPerf);
     }
 
     var bundleCacheKey = portalCacheBuildKey_('detalhes', portalCacheContextToken_(ctx));
@@ -1517,12 +1523,12 @@ function atividades_buscarDetalheParaPortal_(idAtividade, contexto) {
     var data = atividades_buildPortalDetail_(target, ctx);
     portalCachePutJson_(cacheKey, data, ATIVIDADES_V2_PORTAL_CACHE_TTL_SECONDS);
     var perfResult = portalPerfEnd_(perf);
-    return {
+    return portalPerfAttachDiagnostics_({
       ok: true,
       data: data,
       cacheHit: false,
       tempoTotalMs: perfResult.totalMs
-    };
+    }, perfResult);
   } catch (err) {
     var errorPerf = portalPerfEnd_(perf);
     return {
@@ -1645,21 +1651,21 @@ function atividadesV2_portalGetAtividadesBundle_(contexto) {
       portalCachePutJson_(cacheKey, data, ATIVIDADES_V2_PORTAL_CACHE_TTL_SECONDS);
     }
     var perfResult = portalPerfEnd_(perf);
-    return {
+    return portalPerfAttachDiagnostics_({
       ok: true,
       data: data,
       cacheHit: false,
       tempoTotalMs: perfResult.totalMs
-    };
+    }, perfResult);
   } catch (err) {
     var errorPerf = portalPerfEnd_(perf);
-    return {
+    return portalPerfAttachDiagnostics_({
       ok: false,
       errorCode: 'ERRO_BUNDLE_PORTAL_ATIVIDADES',
       message: 'Nao foi possivel consultar o pacote de atividades para o portal.',
       details: err && err.message ? err.message : String(err),
       tempoTotalMs: errorPerf ? errorPerf.totalMs : ''
-    };
+    }, errorPerf);
   }
 }
 
