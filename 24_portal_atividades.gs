@@ -1375,27 +1375,27 @@ function atividadesV2_portalGetCalendario_(contexto) {
   var perf = portalPerfStart_('atividadesV2_portalGetCalendario');
   try {
     var ctx = atividades_normalizePortalContext_(contexto);
+    portalPerfMark_(perf, 'contexto_normalizado', { perfil: ctx.perfil });
     var portalConfig = atividadesV2_getPortalConfigCached_();
+    portalPerfMark_(perf, 'ler_portal_config_cache');
     var cacheKey = portalCacheBuildKey_('calendario', portalCacheContextToken_(ctx));
-    var podeUsarCache = !atividades_isPrivilegedPortalProfile_(ctx);
-    var cached = podeUsarCache ? portalCacheGetJson_(cacheKey) : null;
+    var cached = portalCacheGetJson_(cacheKey);
     if (cached) {
       portalPerfMark_(perf, 'cache_hit_calendario', {
         total: cached.length || 0,
         payloadBytes: portalApproxPayloadBytes_(cached)
       });
       var cachedPerf = portalPerfEnd_(perf);
-      return {
+      return portalPerfAttachDiagnostics_({
         ok: true,
         data: cached,
         meta: atividadesV2_buildPortalCalendarioMeta_(portalConfig),
         cacheHit: true,
-        origem: 'cache',
+        origem: 'geapa-atividades-cache',
         tempoTotalMs: cachedPerf.totalMs
-      };
+      }, cachedPerf);
     }
 
-    portalPerfMark_(perf, 'contexto_normalizado');
     var ss = atividadesV2_getDatabaseSpreadsheetDev_();
     portalPerfMark_(perf, 'abrir_planilha_v2_dev');
     var records = atividades_readPortalActivityRecordsV2Dev_(ss, perf);
@@ -1404,14 +1404,27 @@ function atividadesV2_portalGetCalendario_(contexto) {
         return atividades_canShowActivityInPortal_(record, ctx);
       })
       .sort(atividades_sortPortalActivities_);
+    portalPerfMark_(perf, 'filtrar_ordenar_calendario', {
+      lidas: records.length,
+      visiveis: visiveis.length
+    });
     var statusMap = atividades_isPrivilegedPortalProfile_(ctx)
       ? atividadesV2_getChamadaStatusMap_(ss, visiveis.map(function(record) {
         return record.ID_ATIVIDADE;
-      }))
+      }), perf)
       : {};
-    var justificativaContext = typeof atividadesV2_getPreviousJustificationCalendarContext_ === 'function'
+    portalPerfMark_(perf, 'ler_status_chamada', {
+      total: Object.keys(statusMap || {}).length
+    });
+    var shouldLoadPreviousJustifications = ctx.perfil === 'MEMBRO' &&
+      !!String(ctx.idPessoa || ctx.rga || ctx.email || '').trim();
+    var justificativaContext = shouldLoadPreviousJustifications && typeof atividadesV2_getPreviousJustificationCalendarContext_ === 'function'
       ? atividadesV2_getPreviousJustificationCalendarContext_(ss, ctx)
       : null;
+    portalPerfMark_(perf, 'ler_justificativas_previas', {
+      aplicada: shouldLoadPreviousJustifications,
+      total: justificativaContext && justificativaContext.byActivity ? Object.keys(justificativaContext.byActivity).length : 0
+    });
     var data = visiveis.map(function(record) {
         var idAtividade = String(record.ID_ATIVIDADE || '').trim();
         return atividades_buildPortalListItem_(record, ctx, statusMap[idAtividade], portalConfig, justificativaContext);
@@ -1422,29 +1435,27 @@ function atividadesV2_portalGetCalendario_(contexto) {
       total: data.length,
       payloadBytes: payloadBytes
     });
-    var cacheOk = podeUsarCache
-      ? portalCachePutJson_(cacheKey, data, ATIVIDADES_V2_PORTAL_CALENDARIO_CACHE_TTL_SECONDS)
-      : false;
+    var cacheOk = portalCachePutJson_(cacheKey, data, ATIVIDADES_V2_PORTAL_CALENDARIO_CACHE_TTL_SECONDS);
     portalPerfMark_(perf, 'gravar_cache_calendario', { ok: cacheOk, ttl: ATIVIDADES_V2_PORTAL_CALENDARIO_CACHE_TTL_SECONDS });
     var perfResult = portalPerfEnd_(perf);
 
-    return {
+    return portalPerfAttachDiagnostics_({
       ok: true,
       data: data,
       meta: atividadesV2_buildPortalCalendarioMeta_(portalConfig),
       cacheHit: false,
-      origem: 'planilha',
+      origem: 'geapa-atividades',
       tempoTotalMs: perfResult.totalMs
-    };
+    }, perfResult);
   } catch (err) {
     var errorPerf = portalPerfEnd_(perf);
-    return {
+    return portalPerfAttachDiagnostics_({
       ok: false,
       errorCode: 'ERRO_LEITURA_PORTAL',
       message: 'Nao foi possivel consultar as atividades para o portal.',
       details: err && err.message ? err.message : String(err),
       tempoTotalMs: errorPerf ? errorPerf.totalMs : ''
-    };
+    }, errorPerf);
   }
 }
 
@@ -1615,46 +1626,72 @@ function atividadesV2_portalGetAtividadesDetalhes_(contexto) {
 function atividadesV2_portalGetAtividadesBundle_(contexto) {
   var perf = portalPerfStart_('atividadesV2_portalGetAtividadesBundle');
   try {
-    var ctx = atividades_normalizePortalContext_(contexto);
-    var cacheKey = portalCacheBuildKey_('bundle', portalCacheContextToken_(ctx));
-    var podeUsarCache = !atividades_isPrivilegedPortalProfile_(ctx);
-    var cached = podeUsarCache ? portalCacheGetJson_(cacheKey) : null;
+    var rawContext = contexto || {};
+    var ctx = atividades_normalizePortalContext_(rawContext);
+    var incluirDetalhes = rawContext.incluirDetalhes === true || rawContext.includeDetails === true;
+    var cacheScope = incluirDetalhes ? 'bundle:com_detalhes' : 'bundle:leve';
+    var cacheKey = portalCacheBuildKey_(cacheScope, portalCacheContextToken_(ctx));
+    var cached = portalCacheGetJson_(cacheKey);
     if (cached) {
-      portalPerfMark_(perf, 'cache_hit_bundle');
+      portalPerfMark_(perf, 'cache_hit_bundle', {
+        modo: incluirDetalhes ? 'com_detalhes' : 'leve',
+        total: cached.calendario ? cached.calendario.length : 0,
+        payloadBytes: portalApproxPayloadBytes_(cached)
+      });
       var cachedPerf = portalPerfEnd_(perf);
-      return {
+      return portalPerfAttachDiagnostics_({
         ok: true,
         data: cached,
         cacheHit: true,
+        origem: 'geapa-atividades-cache',
         tempoTotalMs: cachedPerf.totalMs
-      };
+      }, cachedPerf);
     }
 
     var listResult = atividadesV2_portalGetCalendario_(ctx);
     if (!listResult.ok) return listResult;
-    portalPerfMark_(perf, 'carregar_calendario', { total: listResult.data.length });
-
-    var detailResult = atividadesV2_portalGetAtividadesDetalhes_(ctx);
-    if (!detailResult.ok) return detailResult;
-    portalPerfMark_(perf, 'carregar_detalhes', {
-      total: Object.keys(detailResult.data.detalhesPorId || {}).length,
-      cacheHit: !!detailResult.cacheHit
+    portalPerfMark_(perf, 'carregar_calendario', {
+      total: listResult.data.length,
+      cacheHit: !!listResult.cacheHit,
+      tempoMs: listResult.tempoTotalMs || ''
     });
+
+    var detalhesPorId = {};
+    var ultimaAtualizacao = '';
+    if (incluirDetalhes) {
+      var detailResult = atividadesV2_portalGetAtividadesDetalhes_(ctx);
+      if (!detailResult.ok) return detailResult;
+      detalhesPorId = detailResult.data.detalhesPorId || {};
+      ultimaAtualizacao = detailResult.data.ultimaAtualizacao || '';
+      portalPerfMark_(perf, 'carregar_detalhes', {
+        total: Object.keys(detalhesPorId).length,
+        cacheHit: !!detailResult.cacheHit,
+        tempoMs: detailResult.tempoTotalMs || ''
+      });
+    } else {
+      portalPerfMark_(perf, 'ignorar_detalhes_bundle_leve');
+    }
 
     var data = {
       calendario: listResult.data,
-      detalhesPorId: detailResult.data.detalhesPorId || {},
-      ultimaAtualizacao: detailResult.data.ultimaAtualizacao || '',
-      meta: listResult.meta || {}
+      detalhesPorId: detalhesPorId,
+      ultimaAtualizacao: ultimaAtualizacao,
+      meta: listResult.meta || {},
+      modo: incluirDetalhes ? 'COM_DETALHES' : 'LEVE'
     };
-    if (podeUsarCache) {
-      portalCachePutJson_(cacheKey, data, ATIVIDADES_V2_PORTAL_CACHE_TTL_SECONDS);
-    }
+    var payloadBytes = portalApproxPayloadBytes_(data);
+    portalPerfMark_(perf, 'serializar_payload_bundle', {
+      totalCalendario: data.calendario.length,
+      totalDetalhes: Object.keys(data.detalhesPorId || {}).length,
+      payloadBytes: payloadBytes
+    });
+    portalCachePutJson_(cacheKey, data, ATIVIDADES_V2_PORTAL_CACHE_TTL_SECONDS);
     var perfResult = portalPerfEnd_(perf);
     return portalPerfAttachDiagnostics_({
       ok: true,
       data: data,
       cacheHit: false,
+      origem: 'geapa-atividades',
       tempoTotalMs: perfResult.totalMs
     }, perfResult);
   } catch (err) {

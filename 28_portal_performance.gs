@@ -354,6 +354,8 @@ function atividadesV2_limparCachePortalDev_() {
     portalCacheBuildKey_('calendario', ''),
     portalCacheBuildKey_('detalhes', ''),
     portalCacheBuildKey_('bundle', ''),
+    portalCacheBuildKey_('bundle:leve', ''),
+    portalCacheBuildKey_('bundle:com_detalhes', ''),
     portalCacheBuildKey_('frequencia', ''),
     portalCacheBuildKey_('frequencia_detalhada_v2', ''),
     portalCacheBuildKey_('eixos_tematicos', 'ativos'),

@@ -70,6 +70,7 @@ Regras:
 - registra status/auditoria em `Portal_Acoes`;
 - invalida caches de frequencia e justificativas somente apos `FINALIZAR`;
 - promove justificativas previas somente na operacao `FINALIZAR`, quando uma falta correspondente passa a existir.
+- apos `FINALIZAR`, avalia o ciclo operacional da atividade; se a data/hora ja passou e a chamada finalizada for criterio seguro, atualiza `Atividades.STATUS_OPERACIONAL` para `REALIZADA`.
 
 O retorno inclui `tempoTotalMs` e, em DEV, `performance.totalMs` e `performance.etapas[]` para diagnosticar onde a chamada gastou tempo.
 
@@ -217,6 +218,8 @@ Payload:
 
 Na finalizacao, o backend reconsulta os membros aplicaveis no Core. Se o Portal nao enviar registros no payload de finalizacao, o backend usa o ultimo rascunho salvo. Para cada membro aplicavel que nao veio no payload nem no rascunho, gera `FALTA/F`. Para membros nao aplicaveis, gera `NAO_SE_APLICA/N/A`.
 
+Depois de gravar as presencas oficiais e registrar `CHAMADA_FINALIZADA`, o backend avalia apenas a atividade finalizada. Se `STATUS_OPERACIONAL` estiver elegivel e a data/hora ja tiver passado, a atividade passa de `PLANEJADA`/`AGENDADA`/`PUBLICADA`/`EM_ANDAMENTO` para `REALIZADA`. Status protegidos como `CANCELADA`, `ARQUIVADA`, `INATIVA`, `EXCLUIDA` e `SUSPENSA` nunca sao sobrescritos automaticamente.
+
 ### Reabertura
 
 Payload:
@@ -229,6 +232,19 @@ Payload:
 ```
 
 A reabertura registra `CHAMADA_REABERTA` em `Portal_Acoes`, grava log tecnico e permite novo salvamento/finalizacao conforme permissao e janela operacional. Ao abrir a chamada reaberta, os registros oficiais atuais sao usados como base; um novo `SALVAR` apos a reabertura passa a gravar novo snapshot em `Portal_Acoes`.
+
+## Reconciliacao de chamadas
+
+Quando uma atividade ja possui registros oficiais completos em `Atividades_Presencas_Registros`, mas `Portal_Acoes` nao possui `CHAMADA_FINALIZADA` vigente, use:
+
+```js
+atividadesV2_diagnosticarReconciliacaoChamadasDev()
+atividadesV2_reconciliarChamadasDev({ dryRun: true })
+atividadesV2_reconciliarChamadasDev({ dryRun: false })
+atividadesV2_aplicarReconciliacaoChamadasDev()
+```
+
+A reconciliacao nao finaliza chamada incompleta. Ela exige atividade passada, status nao protegido, ausencia de `CHAMADA_REABERTA` vigente, codigos validos, ausencia de duplicidade ativa e cobertura de todos os membros aplicaveis retornados pelo Core. Para operacao manual sem editar parametros, use `atividadesV2_aplicarReconciliacaoChamadasDev()`. Casos inseguros ficam apenas como alertas.
 
 ## Janela Operacional
 

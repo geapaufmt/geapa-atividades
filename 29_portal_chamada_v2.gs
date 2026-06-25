@@ -316,6 +316,12 @@ function atividadesV2_portalSalvarChamada_(payload, contexto) {
         erros: []
       }, { idAtividade: wantedId })
       : null;
+    var cicloOperacional = operacao === ATIVIDADES_V2_CHAMADA_OPERACOES.FINALIZAR &&
+      typeof atividadesV2_avaliarCicloAtividadeAposChamadaDev_ === 'function'
+      ? atividadesV2_avaliarCicloAtividadeAposChamadaDev_(ss, wantedId, {
+        atualizarViews: false
+      })
+      : null;
     if (promocaoPrevias && promocaoPrevias.totalPromovidas > 0 && typeof atividadesV2_invalidateJustificativasPortalCaches_ === 'function') {
       atividadesV2_invalidateJustificativasPortalCaches_(ctx, {
         idAtividade: wantedId,
@@ -327,6 +333,12 @@ function atividadesV2_portalSalvarChamada_(payload, contexto) {
     if (promocaoPrevias) {
       portalPerfMark_(perf, 'promover_justificativas_previas', {
         totalPromovidas: promocaoPrevias.totalPromovidas || 0
+      });
+    }
+    if (cicloOperacional) {
+      portalPerfMark_(perf, 'avaliar_ciclo_operacional', {
+        totalMudariam: cicloOperacional.totalMudariam || 0,
+        totalAplicadas: cicloOperacional.totalAplicadas || 0
       });
     }
     atividadesV2_invalidateChamadaPortalCaches_(ctx, {
@@ -352,6 +364,12 @@ function atividadesV2_portalSalvarChamada_(payload, contexto) {
         statusChamadaAtualizadoEm: statusFinal.atualizadoEm,
         statusChamadaAtualizadoPor: statusFinal.atualizadoPor,
         justificativasPreviasPromovidas: promocaoPrevias ? promocaoPrevias.totalPromovidas : 0,
+        cicloOperacional: cicloOperacional ? {
+          totalMudariam: cicloOperacional.totalMudariam || 0,
+          totalAplicadas: cicloOperacional.totalAplicadas || 0,
+          alteracoes: cicloOperacional.alteracoes || [],
+          alertas: cicloOperacional.alertas || []
+        } : null,
         modo: 'DEV'
       },
       escrita: {
@@ -857,10 +875,21 @@ function atividadesV2_getChamadaStatus_(ss, idAtividade, perf) {
   return status;
 }
 
-function atividadesV2_getChamadaStatusMap_(ss, idsAtividades, perf) {
+function atividadesV2_getChamadaStatusMap_(ss, idsAtividades, perf, options) {
+  options = options || {};
+  var idsToken = atividadesV2_buildChamadaStatusIdsToken_(idsAtividades || []);
+  var bulkCacheKey = idsToken ? portalCacheBuildKey_('chamada:status:list', idsToken) : '';
+  var bulkCached = !options.skipCache && bulkCacheKey ? portalCacheGetJson_(bulkCacheKey) : null;
+  if (bulkCached) {
+    if (perf) portalPerfMark_(perf, 'cache_hit_status_chamada_lista', {
+      total: Object.keys(bulkCached || {}).length
+    });
+    return bulkCached;
+  }
+
   if ((idsAtividades || []).length === 1) {
     var singleId = String(idsAtividades[0] || '').trim();
-    var cached = singleId ? portalCacheGetJson_(portalCacheBuildKey_('chamada:status', singleId)) : null;
+    var cached = !options.skipCache && singleId ? portalCacheGetJson_(portalCacheBuildKey_('chamada:status', singleId)) : null;
     if (cached) {
       var cachedMap = {};
       cachedMap[singleId] = cached;
@@ -874,33 +903,32 @@ function atividadesV2_getChamadaStatusMap_(ss, idsAtividades, perf) {
     var id = String(idAtividade || '').trim();
     if (id) ids[id] = true;
   });
+  var hasFilter = Object.keys(ids).length > 0;
 
   var sheet = ss && ss.getSheetByName(ATIVIDADES_V2_SHEETS.PORTAL_ACOES);
   if (!sheet || sheet.getLastRow() < 2) return {};
 
-  atividadesV2_applyHeadersIfMissing_(sheet, ATIVIDADES_V2_SCHEMA.PORTAL_ACOES);
-  var records = atividadesV2_readSheetObjects_(sheet);
+  var records = atividadesV2_readPortalAcoesChamadaStatusRows_(sheet);
   if (perf) portalPerfMark_(perf, 'ler_portal_acoes_status', { linhas: records.length });
   var latest = {};
 
   records.forEach(function avaliarAcao(record) {
     var idAtividade = String(record.ID_ATIVIDADE || '').trim();
-    if (!idAtividade || (Object.keys(ids).length && !ids[idAtividade])) return;
+    if (!idAtividade || (hasFilter && !ids[idAtividade])) return;
 
     var tipo = atividades_normalizeTextUpper_(record.TIPO_ACAO);
     if (['CHAMADA_RASCUNHO_SALVO', 'CHAMADA_SALVA', 'CHAMADA_FINALIZADA', 'CHAMADA_REABERTA'].indexOf(tipo) === -1) return;
     if (atividades_normalizeTextUpper_(record.ATIVO || 'SIM') === 'NAO') return;
 
-    var payload = atividadesV2_parseJsonOrEmpty_(record.PAYLOAD_JSON);
     var dataHora = record.DATA_HORA || record.CRIADO_EM || '';
     var current = latest[idAtividade];
     if (current && String(current.dataHora || '') > String(dataHora || '')) return;
 
     latest[idAtividade] = {
       dataHora: dataHora,
-      statusChamada: payload.statusChamada || atividadesV2_statusFromPortalAction_(tipo),
+      statusChamada: atividadesV2_statusFromPortalAction_(tipo),
       atualizadoPor: record.USUARIO_EMAIL || record.USUARIO_NOME || '',
-      resumo: payload.resumo || {}
+      resumo: {}
     };
   });
 
@@ -919,10 +947,63 @@ function atividadesV2_getChamadaStatusMap_(ss, idsAtividades, perf) {
       ATIVIDADES_V2_PORTAL_PRIVATE_CACHE_TTL_SECONDS
     );
   });
+  if (bulkCacheKey) {
+    portalCachePutJson_(bulkCacheKey, out, ATIVIDADES_V2_PORTAL_PRIVATE_CACHE_TTL_SECONDS);
+  }
   return out;
 }
 
-function atividadesV2_registrarStatusChamada_(ss, activity, contexto, statusChamada, resumo) {
+function atividadesV2_buildChamadaStatusIdsToken_(idsAtividades) {
+  var ids = {};
+  (idsAtividades || []).forEach(function(idAtividade) {
+    var id = String(idAtividade || '').trim();
+    if (id) ids[id] = true;
+  });
+  var list = Object.keys(ids).sort();
+  return list.length ? portalCacheHash_(list.join('|')) : '';
+}
+
+function atividadesV2_readPortalAcoesChamadaStatusRows_(sheet) {
+  var lastRow = sheet.getLastRow();
+  if (lastRow < 2) return [];
+  var headers = atividadesV2_getSheetHeaders_(sheet);
+  var wanted = [
+    'ID_ATIVIDADE',
+    'TIPO_ACAO',
+    'DATA_HORA',
+    'CRIADO_EM',
+    'USUARIO_EMAIL',
+    'USUARIO_NOME',
+    'ATIVO'
+  ];
+  var indexes = {};
+  wanted.forEach(function(header) {
+    indexes[header] = headers.indexOf(header);
+  });
+  if (indexes.ID_ATIVIDADE < 0 || indexes.TIPO_ACAO < 0) return [];
+
+  var totalRows = lastRow - 1;
+  var columns = {};
+  wanted.forEach(function(header) {
+    var index = indexes[header];
+    columns[header] = index < 0
+      ? []
+      : sheet.getRange(2, index + 1, totalRows, 1).getValues();
+  });
+
+  var records = [];
+  for (var rowIndex = 0; rowIndex < totalRows; rowIndex++) {
+    var record = {};
+    wanted.forEach(function(header) {
+      record[header] = columns[header][rowIndex] ? columns[header][rowIndex][0] : '';
+    });
+    records.push(record);
+  }
+  return records;
+}
+
+function atividadesV2_registrarStatusChamada_(ss, activity, contexto, statusChamada, resumo, options) {
+  options = options || {};
   var sheet = atividadesV2_getTargetSheet_(ss, ATIVIDADES_V2_SHEETS.PORTAL_ACOES);
   atividadesV2_applyHeadersIfMissing_(sheet, ATIVIDADES_V2_SCHEMA.PORTAL_ACOES);
 
@@ -937,12 +1018,12 @@ function atividadesV2_registrarStatusChamada_(ss, activity, contexto, statusCham
     : status.statusChamada === 'REABERTA'
       ? 'CHAMADA_REABERTA'
       : 'CHAMADA_SALVA';
-  var payload = {
+  var payload = Object.assign({
     statusChamada: status.statusChamada,
     rotulo: status.rotulo,
     finalizada: status.finalizada,
     resumo: resumo || {}
-  };
+  }, options.extraPayload || {});
   var row = {
     ID_ACAO_PORTAL: atividadesV2_buildPortalChamadaActionId_(activity.ID_ATIVIDADE, tipoAcao),
     DATA_HORA: status.atualizadoEm,
@@ -960,7 +1041,7 @@ function atividadesV2_registrarStatusChamada_(ss, activity, contexto, statusCham
     ERRO_MENSAGEM: '',
     PROCESSADO_EM: status.atualizadoEm,
     PROCESSADO_POR: contexto.email || contexto.rga || contexto.perfil || '',
-    OBSERVACOES: 'Status de chamada registrado pelo Portal GEAPA DEV.',
+    OBSERVACOES: options.observacoes || 'Status de chamada registrado pelo Portal GEAPA DEV.',
     ATIVO: 'SIM'
   };
   var headers = atividadesV2_getSheetHeaders_(sheet).filter(function(header) { return !!header; });
@@ -1441,6 +1522,10 @@ function atividadesV2_invalidateChamadaPortalCaches_(contexto, result) {
     portalCacheRemove_(portalCacheBuildKey_('frequencia_detalhada_v2', token));
     portalCacheRemove_(portalCacheBuildKey_('minhas_justificativas', token));
     portalCacheRemove_(portalCacheBuildKey_('bundle', token));
+    portalCacheRemove_(portalCacheBuildKey_('bundle:leve', token));
+    portalCacheRemove_(portalCacheBuildKey_('bundle:com_detalhes', token));
+    portalCacheRemove_(portalCacheBuildKey_('calendario', token));
+    portalCacheRemove_(portalCacheBuildKey_('detalhes', token));
     if (idAtividade) {
       portalCacheRemove_(portalCacheBuildKey_('atividade:detalhes', idAtividade + ':' + token));
     }
@@ -1466,6 +1551,8 @@ function atividadesV2_invalidateChamadaCacheByActivity_(idAtividade, options) {
   portalCacheRemove_(portalCacheBuildKey_('chamada:presencas', id));
   portalCacheRemove_(portalCacheBuildKey_('chamada:rascunho', id));
   portalCacheRemove_(portalCacheBuildKey_('bundle', ''));
+  portalCacheRemove_(portalCacheBuildKey_('bundle:leve', ''));
+  portalCacheRemove_(portalCacheBuildKey_('bundle:com_detalhes', ''));
   portalCacheRemove_(portalCacheBuildKey_('detalhes', ''));
   portalCacheRemove_(portalCacheBuildKey_('calendario', ''));
 }

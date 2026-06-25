@@ -108,6 +108,46 @@ function atividadesV2_runTestePortalChamadaDev() {
   return atividadesV2_runTestePortalChamadaDev_();
 }
 
+function atividadesV2_diagnosticarCicloAtividadesDev() {
+  return atividades_runWithOperationalGuard_('CONFERENCIA_V2', null, function() {
+    return atividadesV2_diagnosticarCicloAtividadesDev_();
+  }, { entrypoint: 'atividadesV2_diagnosticarCicloAtividadesDev' });
+}
+
+function atividadesV2_atualizarCicloAtividadesDev(options) {
+  return atividades_runWithOperationalGuard_('ATUALIZACAO_PORTAL_V2', null, function() {
+    return atividadesV2_atualizarCicloAtividadesDev_(options || {});
+  }, { entrypoint: 'atividadesV2_atualizarCicloAtividadesDev' });
+}
+
+function atividadesV2_runTesteCicloAtividadesDev() {
+  return atividades_runWithOperationalGuard_('CONFERENCIA_V2', null, function() {
+    return atividadesV2_runTesteCicloAtividadesDev_();
+  }, { entrypoint: 'atividadesV2_runTesteCicloAtividadesDev' });
+}
+
+function atividadesV2_diagnosticarReconciliacaoChamadasDev() {
+  return atividades_runWithOperationalGuard_('CONFERENCIA_V2', null, function() {
+    return atividadesV2_diagnosticarReconciliacaoChamadasDev_();
+  }, { entrypoint: 'atividadesV2_diagnosticarReconciliacaoChamadasDev' });
+}
+
+function atividadesV2_diagnosticarReconcilicaoChamadasDev() {
+  return atividadesV2_diagnosticarReconciliacaoChamadasDev();
+}
+
+function atividadesV2_reconciliarChamadasDev(options) {
+  return atividades_runWithOperationalGuard_('ATUALIZACAO_PORTAL_V2', null, function() {
+    return atividadesV2_reconciliarChamadasDev_(options || {});
+  }, { entrypoint: 'atividadesV2_reconciliarChamadasDev' });
+}
+
+function atividadesV2_aplicarReconciliacaoChamadasDev() {
+  return atividades_runWithOperationalGuard_('ATUALIZACAO_PORTAL_V2', null, function() {
+    return atividadesV2_reconciliarChamadasDev_({ dryRun: false });
+  }, { entrypoint: 'atividadesV2_aplicarReconciliacaoChamadasDev' });
+}
+
 function atividadesV2_diagnostico() {
   return atividades_runWithOperationalGuard_('CONFERENCIA_V2', null, function() {
     return atividadesV2_diagnostico_();

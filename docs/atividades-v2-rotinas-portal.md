@@ -106,6 +106,29 @@ atividadesV2_garantirPastaAtividadeDev('ATV-2026-1-0005', { dryRun: true })
 atividadesV2_portalRegistrarMaterialApresentacao(payload, contexto)
 ```
 
+Ciclo operacional das atividades:
+
+```js
+atividadesV2_diagnosticarCicloAtividadesDev()
+atividadesV2_atualizarCicloAtividadesDev({ dryRun: true })
+atividadesV2_atualizarCicloAtividadesDev({ dryRun: false })
+atividadesV2_runTesteCicloAtividadesDev()
+atividadesV2_diagnosticarReconciliacaoChamadasDev()
+atividadesV2_reconciliarChamadasDev({ dryRun: true })
+atividadesV2_reconciliarChamadasDev({ dryRun: false })
+atividadesV2_aplicarReconciliacaoChamadasDev()
+```
+
+Essas rotinas usam `Atividades.STATUS_OPERACIONAL` como status operacional, sem alterar `STATUS_PUBLICACAO_PORTAL`. Os status protegidos nunca sao sobrescritos automaticamente: `CANCELADA`, `ARQUIVADA`, `INATIVA`, `EXCLUIDA` e `SUSPENSA`, incluindo variacoes no masculino.
+
+Uma atividade so e sugerida como `REALIZADA` quando a data/hora ja passou, o status atual e elegivel (`PLANEJADA`, `AGENDADA`, `PUBLICADA` ou `EM_ANDAMENTO`) e existe criterio operacional seguro: chamada finalizada ou presenca oficial registrada. Atividades sem chamada/presenca oficial nao viram `REALIZADA` por padrao; para esse caso e necessario executar explicitamente com `allowAutoRealizarSemChamada: true`.
+
+Ao finalizar chamada pelo Portal, o backend avalia somente a atividade finalizada. Se a regra segura for atendida, atualiza `STATUS_OPERACIONAL` para `REALIZADA`, preenche `DATA_REALIZACAO`, registra log em `Atividades_Log` e invalida caches relacionados. A materializacao completa das views pode ser rodada depois por `atividadesV2_atualizarViewsPortal({ dryRun: false })` ou pela rotina manual de ciclo fora do lock da chamada.
+
+`atividadesV2_diagnosticarReconciliacaoChamadasDev()` procura atividades que ja possuem registros oficiais ativos em `Atividades_Presencas_Registros`, mas nao possuem `CHAMADA_FINALIZADA` vigente em `Portal_Acoes`. A rotina so marca um caso como seguro quando a atividade existe, nao tem status protegido, permite chamada, ja passou, nao esta reaberta, nao tem duplicidade ativa, os codigos/status de presenca sao validos (`P`, `R`, `F`, `J`, `A`, `N/A`) e todos os membros aplicaveis na data aparecem nos registros oficiais.
+
+`atividadesV2_aplicarReconciliacaoChamadasDev()` e o atalho manual sem parametros para aplicar a reconciliacao real. Internamente equivale a `atividadesV2_reconciliarChamadasDev({ dryRun: false })`: aplica apenas os casos seguros, registra `CHAMADA_FINALIZADA` em `Portal_Acoes`, grava log em `Atividades_Log`, avalia o ciclo operacional para `REALIZADA`, invalida caches e atualiza views oficiais pela agregadora. Casos com presenca parcial, duplicidade, chamada reaberta, atividade futura ou Core indisponivel permanecem apenas como alertas.
+
 Atualizacao de views:
 
 ```js

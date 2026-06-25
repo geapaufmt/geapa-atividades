@@ -40,8 +40,10 @@ Chaves logicas:
 
 - `portal:v2:atividades:calendario`
 - `portal:v2:atividades:detalhes`
-- `portal:v2:atividades:bundle`
+- `portal:v2:atividades:bundle:leve`
+- `portal:v2:atividades:bundle:com_detalhes`
 - `portal:v2:atividades:atividade:detalhes:{ID_ATIVIDADE}`
+- `portal:v2:atividades:chamada:status:list:{HASH_IDS}`
 
 Regras:
 
@@ -49,7 +51,32 @@ Regras:
 - Cache nao deve conter dados alem do necessario para a tela.
 - Em caso de falha do cache, a leitura deve continuar pela view.
 - A primeira renderizacao da aba Atividades deve buscar somente calendario; detalhes devem ser carregados em preload separado.
+- `atividadesV2_portalGetAtividadesBundle()` e leve por padrao: retorna `calendario`, `detalhesPorId: {}` e `modo: "LEVE"`.
+- O bundle so carrega detalhes completos quando o chamador informa explicitamente `incluirDetalhes: true` ou `includeDetails: true`.
+- A lista de Atividades usa cache tambem para perfis privilegiados, com chave por perfil/identidade/contexto e TTL curto.
+- Status resumido de chamada para a lista e lido de forma seletiva em `Portal_Acoes`, sem carregar snapshots completos de rascunho ou payloads pesados.
 - Rotinas de materializacao removem apenas caches agregados conhecidos; caches por contexto expiram pelo TTL.
+
+### Pacote 3.1 - Lista de Atividades
+
+O caminho rapido da aba Atividades deve permanecer leve:
+
+- fonte principal: `PORTAL_ATIVIDADES_CALENDARIO`;
+- endpoint recomendado para primeira renderizacao: `atividadesV2_portalGetCalendario()`;
+- campos mantidos: identificacao da atividade, ciclo/ano/semestre, data/hora, titulo publico, tipo/subtipo, local/formato, status publico, indicadores de presenca/chamada, resumo de apresentacoes e metadados leves de justificativa previa;
+- campos fora da lista inicial: detalhes completos de apresentacao, envolvidos completos, historico, logs, payloads de chamada, presencas por participante e justificativas completas.
+
+Quando a rota ainda usar `atividadesV2_portalGetAtividadesBundle()`, o backend nao deve carregar `PORTAL_ATIVIDADES_DETALHES` por padrao. O Portal deve abrir detalhes sob demanda com `atividades_buscarDetalheParaPortal()` ou preload controlado.
+
+O bloco `performance.etapas` da lista/bundle deve permitir identificar separadamente:
+
+- leitura de `portal_config`;
+- abertura da planilha v2;
+- leitura de `PORTAL_ATIVIDADES_CALENDARIO`;
+- leitura seletiva de status de chamada;
+- leitura de justificativas previas quando aplicavel;
+- montagem/serializacao do payload;
+- cache hit/miss.
 
 ### Pacote 3.1 - Chamada Operacional
 
