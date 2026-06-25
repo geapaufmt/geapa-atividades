@@ -471,22 +471,68 @@ function atividadesV2_buildPortalCalendarRow_(record, syncDate, apresentacoes) {
 function atividadesV2_getSemestrePortalFields_(record) {
   var idAtividade = String(record && record.ID_ATIVIDADE || '').trim();
   var ciclo = String(record && record.CICLO || '').trim();
-  var ano = String(record && record.ANO || '').trim();
-  var semestre = String(record && record.SEMESTRE || '').trim();
-  var idMatch = idAtividade.match(/^ATV-(\d{4})-([12])-\d{4}$/i);
-  var cicloMatch = ciclo.match(/(\d{4})[\/_-]?([12])?$/);
+  var identity = atividadesV2_normalizarIdentidadeSemestrePortal_(record);
 
-  if (!ano && idMatch) ano = idMatch[1];
-  if (!semestre && idMatch) semestre = idMatch[2];
-  if (!ano && cicloMatch) ano = cicloMatch[1];
-  if (!semestre && cicloMatch && cicloMatch[2]) semestre = cicloMatch[2];
+  if (!identity.ANO || !identity.SEMESTRE) {
+    var idMatch = idAtividade.match(/^ATV-(\d{4})-([12])-\d{4}$/i);
+    if (idMatch) {
+      identity.ANO = identity.ANO || idMatch[1];
+      identity.SEMESTRE = identity.SEMESTRE || idMatch[2];
+    }
+  }
 
   return {
     CICLO: ciclo,
-    ANO: ano,
-    SEMESTRE: semestre,
-    ROTULO_SEMESTRE: ano && semestre ? ano + '/' + semestre : ''
+    ANO: identity.ANO,
+    SEMESTRE: identity.SEMESTRE,
+    ROTULO_SEMESTRE: atividadesV2_normalizarRotuloSemestre_(Object.assign({}, record || {}, identity))
   };
+}
+
+function atividadesV2_normalizarRotuloSemestre_(record) {
+  var identity = atividadesV2_normalizarIdentidadeSemestrePortal_(record);
+  if (identity.ANO && identity.SEMESTRE) return identity.ANO + '/' + identity.SEMESTRE;
+  return '';
+}
+
+function atividadesV2_normalizarIdentidadeSemestrePortal_(record) {
+  var ano = atividadesV2_normalizarAnoSemestrePortal_(record && (record.ANO || record.ano));
+  var semestre = atividadesV2_normalizarNumeroSemestrePortal_(record && (record.SEMESTRE || record.semestre));
+
+  if (ano && semestre) return { ANO: ano, SEMESTRE: semestre };
+
+  var ciclo = String(record && (record.CICLO || record.ciclo) || '').trim();
+  var cicloMatch = ciclo.match(/(?:^|[^\d])(\d{4})\s*[\/_-]\s*([12])(?:$|[^\d])/);
+  if (cicloMatch) {
+    ano = ano || cicloMatch[1];
+    semestre = semestre || cicloMatch[2];
+  }
+
+  var rotulo = String(record && (record.ROTULO_SEMESTRE || record.rotuloSemestre) || '').trim();
+  if ((!ano || !semestre) && atividadesV2_isRotuloSemestreValido_(rotulo)) {
+    var rotuloParts = rotulo.split('/');
+    ano = ano || rotuloParts[0];
+    semestre = semestre || rotuloParts[1];
+  }
+
+  return {
+    ANO: ano,
+    SEMESTRE: semestre
+  };
+}
+
+function atividadesV2_normalizarAnoSemestrePortal_(value) {
+  var text = String(value || '').trim();
+  return /^\d{4}$/.test(text) ? text : '';
+}
+
+function atividadesV2_normalizarNumeroSemestrePortal_(value) {
+  var text = String(value || '').trim();
+  return /^[12]$/.test(text) ? text : '';
+}
+
+function atividadesV2_isRotuloSemestreValido_(value) {
+  return /^\d{4}\/[12]$/.test(String(value || '').trim());
 }
 
 function atividadesV2_getTituloConteudoPublico_(atividade, apresentacao) {

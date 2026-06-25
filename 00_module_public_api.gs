@@ -166,6 +166,12 @@ function atividadesV2_conferirContratoPortalAtivo(options) {
   }, { entrypoint: 'atividadesV2_conferirContratoPortalAtivo' });
 }
 
+function atividadesV2_diagnosticarCicloSemestrePortalDev() {
+  return atividades_runWithOperationalGuard_('CONFERENCIA_V2', null, function() {
+    return atividadesV2_diagnosticarCicloSemestrePortalDev_();
+  }, { entrypoint: 'atividadesV2_diagnosticarCicloSemestrePortalDev' });
+}
+
 function atividadesV2_runTesteContratoPortalAtivo() {
   return atividades_runWithOperationalGuard_('CONFERENCIA_V2', null, function() {
     return atividadesV2_conferirContratoPortalAtivo_({ dryRun: true });

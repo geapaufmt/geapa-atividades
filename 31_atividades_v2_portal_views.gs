@@ -262,6 +262,59 @@ function atividadesV2_conferirContratoPortalAtivo_(options) {
   };
 }
 
+function atividadesV2_diagnosticarCicloSemestrePortalDev_() {
+  var ss = atividadesV2_getDatabaseSpreadsheetDev_();
+  var targets = [
+    ATIVIDADES_V2_SHEETS.PORTAL_ATIVIDADES_CALENDARIO,
+    ATIVIDADES_V2_SHEETS.PORTAL_ATIVIDADES_DETALHES
+  ];
+  var result = {
+    ok: true,
+    modo: 'DEV',
+    totalAnalisadas: 0,
+    totalInvalidas: 0,
+    invalidas: [],
+    avisos: [],
+    erros: []
+  };
+
+  targets.forEach(function(sheetName) {
+    var sheet = ss.getSheetByName(sheetName);
+    if (!sheet) {
+      result.avisos.push('Aba nao encontrada: ' + sheetName);
+      return;
+    }
+    atividadesV2_readSheetObjects_(sheet).forEach(function(record) {
+      result.totalAnalisadas++;
+      var atual = String(record.ROTULO_SEMESTRE || '').trim();
+      var corrigido = atividadesV2_normalizarRotuloSemestre_(record);
+      var atualValido = !atual || atividadesV2_isRotuloSemestreValido_(atual);
+      var precisaCorrigir = !!corrigido && atual !== corrigido;
+      if (atualValido && !precisaCorrigir) return;
+      result.invalidas.push({
+        aba: sheetName,
+        linha: record._rowNumber || '',
+        idAtividade: String(record.ID_ATIVIDADE || '').trim(),
+        titulo: atividades_sanitizePortalText_(record.TITULO_PUBLICO || record.TITULO_ATIVIDADE || record.TITULO || '', 180),
+        rotuloSemestreAtual: atual,
+        ano: String(record.ANO || '').trim(),
+        semestre: String(record.SEMESTRE || '').trim(),
+        ciclo: String(record.CICLO || '').trim(),
+        dataAtividade: atividades_formatPortalDateIso_(record.DATA_ATIVIDADE),
+        rotuloSemestreCorrigido: corrigido
+      });
+    });
+  });
+
+  result.totalInvalidas = result.invalidas.length;
+  Logger.log('GEAPA-ATIVIDADES-V2-PORTAL ciclo/semestre diagnostico: ' + atividadesV2_safeLogData_({
+    totalAnalisadas: result.totalAnalisadas,
+    totalInvalidas: result.totalInvalidas,
+    primeiraInvalida: result.invalidas[0] || null
+  }));
+  return result;
+}
+
 function atividadesV2_findPortalSemesterIssues_(calendario, detalhes, atividadesById) {
   var issues = [];
   [{ sheetName: ATIVIDADES_V2_SHEETS.PORTAL_ATIVIDADES_CALENDARIO, rows: calendario || [] },
@@ -271,6 +324,17 @@ function atividadesV2_findPortalSemesterIssues_(calendario, detalhes, atividades
         var id = String(row.ID_ATIVIDADE || '').trim();
         var origem = atividadesById[id] || {};
         var expected = atividadesV2_getSemestrePortalFields_(origem.ID_ATIVIDADE ? origem : row);
+        var currentRotulo = String(row.ROTULO_SEMESTRE || '').trim();
+        if (currentRotulo && !atividadesV2_isRotuloSemestreValido_(currentRotulo)) {
+          issues.push({
+            sheetName: group.sheetName,
+            idAtividade: id,
+            field: 'ROTULO_SEMESTRE',
+            esperado: expected.ROTULO_SEMESTRE || '',
+            encontrado: currentRotulo,
+            motivo: 'ROTULO_SEMESTRE fora do padrao AAAA/S.'
+          });
+        }
         ['CICLO', 'ANO', 'SEMESTRE', 'ROTULO_SEMESTRE'].forEach(function(field) {
           if (!String(expected[field] || '').trim()) return;
           if (String(row[field] || '').trim() !== String(expected[field] || '').trim()) {
@@ -626,10 +690,11 @@ function atividadesV2_sanitizePortalViewPreview_(rows) {
 }
 
 function atividadesV2_sanitizePortalViewPreviewRecord_(record) {
+  var semestreFields = atividadesV2_getSemestrePortalFields_(record);
   return {
     ID_ATIVIDADE: record.ID_ATIVIDADE || '',
-    CICLO: record.CICLO || '',
-    ROTULO_SEMESTRE: record.ROTULO_SEMESTRE || '',
+    CICLO: semestreFields.CICLO || record.CICLO || '',
+    ROTULO_SEMESTRE: semestreFields.ROTULO_SEMESTRE,
     DATA_ATIVIDADE: record.DATA_ATIVIDADE || '',
     TITULO_PUBLICO: atividades_sanitizePortalText_(record.TITULO_PUBLICO || record.TITULO_ATIVIDADE || '', 120),
     TIPO_PUBLICO: record.TIPO_PUBLICO || '',
@@ -935,12 +1000,13 @@ function atividadesV2_buildRepairPreview_(row, schema, headers) {
 }
 
 function atividadesV2_publicRepairPreviewRecord_(record) {
+  var semestreFields = atividadesV2_getSemestrePortalFields_(record);
   return {
     ID_ATIVIDADE: record.ID_ATIVIDADE || '',
     STATUS_PUBLICO: record.STATUS_PUBLICO || '',
     VISIBILIDADE_PORTAL: record.VISIBILIDADE_PORTAL || '',
     ID_PESSOA: record.ID_PESSOA || record.ID_PESSOA_PRINCIPAL || '',
-    ROTULO_SEMESTRE: record.ROTULO_SEMESTRE || '',
+    ROTULO_SEMESTRE: semestreFields.ROTULO_SEMESTRE,
     QTD_APRESENTACOES: record.QTD_APRESENTACOES || ''
   };
 }
@@ -1236,13 +1302,14 @@ function atividadesV2_buildPendenciaRow_(tipo, gravidade, record, prazo, acao, n
   var idAtividade = String(record.ID_ATIVIDADE || '').trim();
   var prazoDate = atividades_parseDateOrNull_(prazo);
   var dias = prazoDate ? Math.max(Math.floor((now.getTime() - prazoDate.getTime()) / 86400000), 0) : '';
+  var semestreFields = atividadesV2_getSemestrePortalFields_(record);
   return {
     ID_PENDENCIA: atividadesV2_buildDeterministicId_('PEND', [tipo, idAtividade || record.ID_APRESENTACAO || record._rowNumber]),
     TIPO_PENDENCIA: tipo,
     GRAVIDADE: gravidade,
     ID_ATIVIDADE: idAtividade,
     ID_APRESENTACAO: String(record.ID_APRESENTACAO || '').trim(),
-    ROTULO_SEMESTRE: String(record.ROTULO_SEMESTRE || '').trim(),
+    ROTULO_SEMESTRE: semestreFields.ROTULO_SEMESTRE,
     TITULO_ATIVIDADE: atividades_sanitizePortalText_(record.TITULO || record.TITULO_ATIVIDADE || record.TITULO_APRESENTACAO || 'Titulo ainda nao informado', 240),
     TITULO_APRESENTACAO: atividades_sanitizePortalText_(record.TITULO_APRESENTACAO || record.TITULO || record.TITULO_PUBLICO || 'Titulo ainda nao informado', 240),
     NOME_APRESENTADOR: atividades_sanitizePortalText_(record.NOME_APRESENTADOR || record.NOME_PESSOA_PRINCIPAL_PUBLICO || record.NOME_MEMBRO || 'Apresentador ainda nao definido', 180),

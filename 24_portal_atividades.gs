@@ -904,6 +904,7 @@ function atividadesV2_portalMapJustificativa_(record) {
 }
 
 function atividadesV2_portalMapPendenciaDiretoria_(record) {
+  var semestreFields = atividadesV2_getSemestrePortalFields_(record);
   return {
     idPendencia: String(record.ID_PENDENCIA || '').trim(),
     tipo: String(record.TIPO_PENDENCIA || '').trim(),
@@ -914,7 +915,7 @@ function atividadesV2_portalMapPendenciaDiretoria_(record) {
     tipoPendencia: String(record.TIPO_PENDENCIA || '').trim(),
     gravidade: String(record.GRAVIDADE || '').trim(),
     dataAtividade: atividades_formatPortalDateIso_(record.DATA_ATIVIDADE),
-    rotuloSemestre: String(record.ROTULO_SEMESTRE || '').trim(),
+    rotuloSemestre: semestreFields.ROTULO_SEMESTRE,
     titulo: atividades_sanitizePortalText_(record.TITULO_APRESENTACAO || record.TITULO_ATIVIDADE || 'Titulo ainda nao informado', 240),
     tituloAtividade: atividades_sanitizePortalText_(record.TITULO_ATIVIDADE || 'Titulo ainda nao informado', 240),
     tituloApresentacao: atividades_sanitizePortalText_(record.TITULO_APRESENTACAO || record.TITULO_ATIVIDADE || 'Titulo ainda nao informado', 240),
@@ -1151,16 +1152,17 @@ function atividades_buildPortalPermissions_(record, contexto) {
 function atividades_buildPortalListItem_(record, contexto, statusChamada, portalConfig, justificativaContext) {
   var permissions = atividades_buildPortalPermissions_(record, contexto);
   var status = statusChamada || {};
+  var semestreFields = atividadesV2_getSemestrePortalFields_(record);
   var chamadaMeta = atividadesV2_getChamadaWindowMeta_(record, status, contexto, null, portalConfig);
   var justificativaPreviaMeta = typeof atividadesV2_buildPreviousJustificationActionMeta_ === 'function'
     ? atividadesV2_buildPreviousJustificationActionMeta_(record, contexto, justificativaContext)
     : { podeJustificarAusenciaFutura: false };
   return {
     idAtividade: String(record.ID_ATIVIDADE || '').trim(),
-    ciclo: String(record.CICLO || '').trim(),
-    ano: String(record.ANO || '').trim(),
-    semestre: String(record.SEMESTRE || '').trim(),
-    rotuloSemestre: String(record.ROTULO_SEMESTRE || '').trim(),
+    ciclo: semestreFields.CICLO,
+    ano: semestreFields.ANO,
+    semestre: semestreFields.SEMESTRE,
+    rotuloSemestre: semestreFields.ROTULO_SEMESTRE,
     dataAtividade: atividades_formatPortalDateIso_(record.DATA_ATIVIDADE),
     diaSemana: atividades_sanitizePortalText_(record.DIA_SEMANA, 40) ||
       atividades_formatPortalWeekdayPtBr_(record.DATA_ATIVIDADE),
@@ -1217,12 +1219,13 @@ function atividades_buildPortalListItem_(record, contexto, statusChamada, portal
 function atividades_buildPortalDetail_(record, contexto) {
   var apresentacoesPublicas = atividadesV2_parsePublicJsonArray_(record.APRESENTACOES_PUBLICAS_JSON);
   var envolvidosPublicos = atividadesV2_parsePublicJsonArray_(record.ENVOLVIDOS_PUBLICOS_JSON);
+  var semestreFields = atividadesV2_getSemestrePortalFields_(record);
   return {
     idAtividade: String(record.ID_ATIVIDADE || '').trim(),
-    ciclo: String(record.CICLO || '').trim(),
-    ano: String(record.ANO || '').trim(),
-    semestre: String(record.SEMESTRE || '').trim(),
-    rotuloSemestre: String(record.ROTULO_SEMESTRE || '').trim(),
+    ciclo: semestreFields.CICLO,
+    ano: semestreFields.ANO,
+    semestre: semestreFields.SEMESTRE,
+    rotuloSemestre: semestreFields.ROTULO_SEMESTRE,
     tituloPublico: atividades_getPortalTituloPublico_(record),
     tituloConteudoPublico: atividades_sanitizePortalText_(record.TITULO_CONTEUDO_PUBLICO, 240),
     descricaoPublica: atividades_sanitizePortalText_(record.DESCRICAO_PUBLICA || record.DESCRICAO, 1000),
