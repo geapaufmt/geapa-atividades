@@ -70,6 +70,65 @@ O registro operacional de material para uso pelo Portal e feito por `atividadesV
 
 As acoes de titulo/eixo, revisao e material pelo Portal estao detalhadas em [`atividades-v2-portal-apresentacoes-acoes.md`](atividades-v2-portal-apresentacoes-acoes.md).
 
+## Criacao segura de atividades pelo Portal
+
+O Pacote 4A permite criar uma nova atividade na aba operacional `Atividades` da base v2 DEV, sempre com status inicial seguro:
+
+- `STATUS_OPERACIONAL = PLANEJADA`
+- `STATUS_PUBLICACAO_PORTAL = RASCUNHO`
+- `VISIBILIDADE_PORTAL = DIRETORIA`
+- `ATIVO = SIM`
+
+Funcao publica:
+
+```js
+atividadesV2_portalCriarAtividade(payload, contexto)
+atividadesV2_runTesteCriarAtividadePortalDev()
+```
+
+Somente perfis `DIRETORIA`, `SECRETARIO` e `ADMIN_TECNICO` podem criar. O backend tambem aceita os aliases normalizados pelo contrato do portal, como `SECRETARIA -> SECRETARIO` e `PRESIDENCIA/PRESIDENTE -> DIRETORIA`.
+
+O payload deve vir no formato:
+
+```js
+{
+  dryRun: true,
+  atividade: {
+    tituloPublico: 'Titulo da atividade',
+    dataAtividade: '2026-06-25',
+    horarioInicio: '18h45',
+    horarioFim: '20h45',
+    tipoAtividade: 'REUNIAO',
+    subtipoAtividade: 'REUNIAO_ORDINARIA',
+    formato: 'PRESENCIAL',
+    local: 'Sala GEAPA',
+    contaPresenca: 'SIM',
+    contaFalta: 'SIM',
+    geraCertificado: 'NAO',
+    cargaHoraria: '2',
+    exigeListaPresenca: 'SIM',
+    permiteJustificativa: 'SIM'
+  }
+}
+```
+
+Por seguranca, `dryRun` e o comportamento padrao. Para gravar oficialmente, o Portal deve enviar `dryRun: false` depois de mostrar a confirmacao ao usuario. No `dryRun`, a funcao valida campos, calcula `ID_ATIVIDADE` previsto, monta a linha e nao escreve em nenhuma aba.
+
+Na criacao real, a funcao:
+
+- usa `LockService`;
+- gera `ID_ATIVIDADE` no backend no padrao `ATV-AAAA-S-NNNN`;
+- preenche `CICLO = GEAPA_<ANO>`, `ANO`, `SEMESTRE` e `NUMERO_SEQUENCIAL_NO_CICLO`;
+- escreve somente na aba operacional `Atividades`;
+- registra `Atividades_Log` com `FLUXO = PORTAL_ATIVIDADES_GESTAO_DEV`;
+- registra `Portal_Acoes` com `TIPO_ACAO = ATIVIDADE_CRIADA`;
+- invalida cache do Portal;
+- atualiza oficialmente `PORTAL_ATIVIDADES_CALENDARIO`, `PORTAL_ATIVIDADES_DETALHES` e `PORTAL_STATUS_ATIVIDADES`.
+
+Este pacote nao cria apresentacao automaticamente, nao cria anexos/Drive, nao publica para membros comuns, nao altera chamada, frequencia ou justificativas e nao escreve diretamente em views `PORTAL_*` fora das rotinas oficiais de materializacao.
+
+Observacao de modelagem: `permiteJustificativa` e validado no contrato do formulario, mas a aba `Atividades` ainda nao possui coluna operacional propria para esse campo. No Pacote 4A, o valor fica registrado no resumo/observacoes da criacao; a regra disciplinar de justificativas continua sendo tratada pelos fluxos especificos de frequencia/justificativas.
+
 ## Funcoes publicas
 
 Conferencia:
@@ -79,6 +138,7 @@ atividadesV2_diagnostico()
 atividadesV2_conferirConsistencia({ includeSamples: true })
 atividadesV2_runTesteDiagnostico()
 atividadesV2_runTesteAtualizacaoPortalDev()
+atividadesV2_runTesteCriarAtividadePortalDev()
 ```
 
 Sincronizacao V1 -> bases brutas v2 DEV:

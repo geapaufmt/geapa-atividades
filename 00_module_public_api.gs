@@ -108,6 +108,18 @@ function atividadesV2_runTestePortalChamadaDev() {
   return atividadesV2_runTestePortalChamadaDev_();
 }
 
+function atividadesV2_portalCriarAtividade(payload, contexto) {
+  return atividades_runWithOperationalGuard_('ATUALIZACAO_PORTAL_V2', null, function() {
+    return atividadesV2_portalCriarAtividade_(payload || {}, contexto || {});
+  }, { entrypoint: 'atividadesV2_portalCriarAtividade' });
+}
+
+function atividadesV2_runTesteCriarAtividadePortalDev() {
+  return atividades_runWithOperationalGuard_('CONFERENCIA_V2', null, function() {
+    return atividadesV2_runTesteCriarAtividadePortalDev_();
+  }, { entrypoint: 'atividadesV2_runTesteCriarAtividadePortalDev' });
+}
+
 function atividadesV2_diagnosticarCicloAtividadesDev() {
   return atividades_runWithOperationalGuard_('CONFERENCIA_V2', null, function() {
     return atividadesV2_diagnosticarCicloAtividadesDev_();
