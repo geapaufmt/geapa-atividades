@@ -120,6 +120,30 @@ function atividadesV2_runTesteCriarAtividadePortalDev() {
   }, { entrypoint: 'atividadesV2_runTesteCriarAtividadePortalDev' });
 }
 
+function atividades_validarSchemaAtividadesConfig() {
+  return atividades_runWithOperationalGuard_('SETUP_V1', ['SYNC'], function() {
+    return atividades_validarSchemaAtividadesConfig_();
+  }, { entrypoint: 'atividades_validarSchemaAtividadesConfig' });
+}
+
+function atividades_migrarSchemaAtividadesConfigDryRun() {
+  return atividades_runWithOperationalGuard_('SETUP_V1', ['SYNC'], function() {
+    return atividades_migrarSchemaAtividadesConfigDryRun_();
+  }, { entrypoint: 'atividades_migrarSchemaAtividadesConfigDryRun' });
+}
+
+function atividades_migrarSchemaAtividadesConfig() {
+  return atividades_runWithOperationalGuard_('SETUP_V1', ['SYNC'], function() {
+    return atividades_migrarSchemaAtividadesConfig_();
+  }, { entrypoint: 'atividades_migrarSchemaAtividadesConfig' });
+}
+
+function atividades_normalizarModelosAtividadesConfig(options) {
+  return atividades_runWithOperationalGuard_('SETUP_V1', ['SYNC'], function() {
+    return atividades_normalizarModelosAtividadesConfig_(options || {});
+  }, { entrypoint: 'atividades_normalizarModelosAtividadesConfig' });
+}
+
 function atividadesV2_diagnosticarCicloAtividadesDev() {
   return atividades_runWithOperationalGuard_('CONFERENCIA_V2', null, function() {
     return atividadesV2_diagnosticarCicloAtividadesDev_();

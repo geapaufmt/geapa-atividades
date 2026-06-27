@@ -26,7 +26,7 @@ Materiais de apresentacao usam a nomenclatura `MATERIAL`, nao `ARQUIVO`, nos cam
 
 `Justificativas_Faltas` registra o pedido administrativo do membro. A justificativa nao muda a presenca sozinha; o efeito dela deve aparecer nos campos de status/decisao da justificativa e nos campos equivalentes do registro de presenca.
 
-`Atividades_Config` guarda regras padrao por tipo/subtipo de atividade, como obrigatoriedade, contagem de presenca/falta, certificado, prazos e visibilidade.
+`Atividades_Config` guarda regras padrao por tipo/subtipo e funciona como catalogo de modelos homologados. Alem de obrigatoriedade, presenca/falta, certificado, prazos e visibilidade, o catalogo prepara permissoes de criacao, pendencias, materiais, publicacao, envolvidos, excecoes, edicao e sincronizacao futura. A migracao segura desse schema esta documentada em `docs/atividades-v2-config-modelos.md`.
 
 ### Bases tecnicas
 
