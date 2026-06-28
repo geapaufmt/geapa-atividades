@@ -19,6 +19,7 @@ var ATIVIDADES_MODELO_ACTIVITY_SCHEMA_HEADERS_ = Object.freeze([
 
 var ATIVIDADES_MODELO_CACHE_TTL_SECONDS_ = 300;
 var ATIVIDADES_MODELO_CONFIRMATION_TTL_SECONDS_ = 600;
+var ATIVIDADES_MODELO_CICLOS_EXECUTION_CACHE_ = null;
 
 function atividades_listarModelosCriacaoPortal_(contexto) {
   var ctx = atividades_normalizePortalContext_(contexto || {});
@@ -105,7 +106,7 @@ function atividades_listarMembrosApresentadoresElegiveis_(idConfig, referencia, 
       );
     }
 
-    var cycle = atividades_modelosCriacaoResolveCycle_(referencia);
+    var cycle = atividades_modelosCriacaoResolverCicloReferencia_(referencia);
     var cacheKey = atividades_modelosCriacaoPresenterCacheKey_(cycle);
     var cached = portalCacheGetJson_(cacheKey);
     if (cached) return cached;
@@ -115,7 +116,10 @@ function atividades_listarMembrosApresentadoresElegiveis_(idConfig, referencia, 
       ok: true,
       data: {
         idConfig: String(model.ID_CONFIG || '').trim(),
+        idCiclo: cycle.idCiclo,
         ciclo: cycle.ciclo,
+        nomeCiclo: cycle.nomeCiclo,
+        rotuloCiclo: cycle.rotuloCiclo,
         ano: cycle.ano,
         semestre: cycle.semestre,
         rotuloSemestre: cycle.rotuloSemestre,
@@ -190,8 +194,7 @@ function atividades_criarAtividadePorModelo_(payload, contexto) {
   var views = null;
   try {
     views = atividadesV2_refreshViewsAfterActivityCreate_();
-    atividadesV2_invalidateCachesAfterActivityCreate_(creation.idAtividade);
-    atividades_modelosCriacaoInvalidatePresenterCache_(creation.row.DATA_ATIVIDADE);
+    atividadesV2_invalidateCachesAfterActivityCreate_(creation.idAtividade, creation.row);
   } catch (postErr) {
     warnings.push('Atividade criada, mas houve falha ao atualizar views/cache. Execute a atualizacao manual das views.');
     Logger.log('GEAPA-ATIVIDADES-V2-MODELOS pos-processamento: ' + atividadesV2_safeLogData_({
@@ -367,7 +370,7 @@ function atividades_modelosCriacaoValidate_(payload, contexto, options) {
       ok: true,
       message: 'Criacao por modelo validada. Confirme para gravar o rascunho.',
       mensagens: ['Modelo homologado aplicado pelo backend.'],
-      avisos: normalized.avisos,
+      avisos: normalized.avisos.concat(creation.avisos || []),
       modeloAplicado: safeModel,
       camposHerdados: inherited,
       camposDaOcorrencia: normalized.data,
@@ -590,6 +593,7 @@ function atividades_modelosCriacaoDetectSensitiveDivergences_(payload, inherited
 
 function atividades_modelosCriacaoBuildPreview_(occurrence, inherited, model, contexto, ss) {
   var identity = atividadesV2_buildNextActivityIdentityForCreate_(occurrence.dataAtividade, ss);
+  var cycle = atividades_modelosCriacaoResolverCicloReferencia_(occurrence.dataAtividade);
   var now = new Date();
   var actor = atividadesV2_portalActorToken_(contexto);
   var hasAxis = !!String(occurrence.eixoTematicoPrincipal || occurrence.eixoTematicoSecundario || '').trim();
@@ -597,7 +601,7 @@ function atividades_modelosCriacaoBuildPreview_(occurrence, inherited, model, co
     atividades_modelosCriacaoIsYes_(model.GERA_PENDENCIA_TITULO_EIXO);
   var row = {
     ID_ATIVIDADE: identity.idAtividade,
-    CICLO: 'GEAPA_' + identity.ano,
+    CICLO: cycle.idCiclo || cycle.ciclo || ('GEAPA_' + identity.ano),
     ANO: identity.ano,
     SEMESTRE: identity.semestre,
     NUMERO_SEQUENCIAL_NO_CICLO: identity.sequencial,
@@ -664,8 +668,10 @@ function atividades_modelosCriacaoBuildPreview_(occurrence, inherited, model, co
   };
   return {
     idAtividade: identity.idAtividade,
+    idCiclo: cycle.idCiclo || cycle.ciclo,
     row: row,
     rotuloSemestre: identity.ano + '/' + identity.semestre,
+    avisos: (cycle.avisos || []).slice(),
     payloadNormalizado: occurrence
   };
 }
@@ -793,6 +799,8 @@ function atividades_modelosCriacaoBuildResponseData_(creation, safeModel) {
     statusOperacional: creation.row.STATUS_OPERACIONAL,
     statusPublicacaoPortal: creation.row.STATUS_PUBLICACAO_PORTAL,
     visibilidadePortal: creation.row.VISIBILIDADE_PORTAL,
+    idCiclo: creation.idCiclo || creation.row.CICLO,
+    ciclo: creation.idCiclo || creation.row.CICLO,
     rotuloSemestre: creation.rotuloSemestre,
     modeloAplicado: safeModel,
     idApresentacao: creation.apresentacao ? creation.apresentacao.idApresentacao : '',
@@ -818,7 +826,7 @@ function atividades_modelosCriacaoApplyPresenterPolicy_(ss, model, occurrence) {
     return { ok: false, errorCode: 'MEMBRO_APRESENTADOR_OBRIGATORIO', message: 'Selecione o membro apresentador.' };
   }
 
-  var cycle = atividades_modelosCriacaoResolveCycle_(occurrence.dataAtividade);
+  var cycle = atividades_modelosCriacaoResolverCicloReferencia_(occurrence.dataAtividade);
   var result = atividades_modelosCriacaoBuildPresenterMembers_(ss, cycle);
   var member = null;
   for (var i = 0; i < result.members.length; i++) {
@@ -841,7 +849,7 @@ function atividades_modelosCriacaoApplyPresenterPolicy_(ss, model, occurrence) {
       campo: 'ID_PESSOA_PRINCIPAL',
       motivo: member.situacaoApresentacaoNoCiclo,
       valorSolicitado: idPessoa,
-      ciclo: cycle.rotuloSemestre
+      ciclo: cycle.idCiclo || cycle.ciclo
     };
   }
 
@@ -1104,11 +1112,224 @@ function atividades_modelosCriacaoIsMemberPresentation_(model) {
   return atividades_normalizeTextUpper_(model && model.SUBTIPO_ATIVIDADE) === 'APRESENTACAO_MEMBRO';
 }
 
+function atividades_modelosCriacaoResolverCicloReferencia_(reference) {
+  var raw = reference && typeof reference === 'object' && !(reference instanceof Date) ? reference : {};
+  var value = reference instanceof Date
+    ? reference
+    : (typeof reference === 'object'
+      ? raw.dataAtividade || raw.DATA_ATIVIDADE || raw.idCiclo || raw.ID_CICLO || raw.ciclo || raw.CICLO || raw.rotuloSemestre || ''
+      : reference);
+  var text = String(value || '').trim();
+  var explicitId = String(raw.idCiclo || raw.ID_CICLO || raw.ciclo || raw.CICLO || '').trim();
+  if (!explicitId && /^GEAPA[_-]/i.test(text)) explicitId = text;
+
+  var catalog = atividades_modelosCriacaoLerCiclosVigentes_();
+  var warnings = (catalog.warnings || []).slice();
+  if (explicitId) {
+    var normalizedExplicit = atividades_modelosCriacaoNormalizeCiclo_(explicitId);
+    var found = catalog.cycles.filter(function(cycle) {
+      return atividades_modelosCriacaoNormalizeCiclo_(cycle.idCiclo) === normalizedExplicit ||
+        atividades_modelosCriacaoNormalizeCiclo_(cycle.nomeCiclo) === normalizedExplicit;
+    })[0];
+    if (found) return atividades_modelosCriacaoDecorateCycle_(found, null, raw, warnings);
+    atividades_modelosCriacaoAddWarning_(warnings, 'Ciclo informado nao foi encontrado em Vigencias v2; mantido ID_CICLO explicito como fallback.');
+    return atividades_modelosCriacaoDecorateCycle_({
+      idCiclo: explicitId,
+      nomeCiclo: explicitId,
+      tipoCiclo: '',
+      dataInicioTs: null,
+      dataFimTs: null
+    }, null, raw, warnings);
+  }
+
+  var date = atividades_modelosCriacaoExtractReferenceDate_(value);
+  if (!date && !text) date = new Date();
+  if (date) {
+    var byDate = atividades_modelosCriacaoResolverCicloPorData_(date, catalog);
+    (byDate.warnings || []).forEach(function(warning) {
+      atividades_modelosCriacaoAddWarning_(warnings, warning);
+    });
+    if (byDate.cycle) return atividades_modelosCriacaoDecorateCycle_(byDate.cycle, date, raw, warnings);
+  }
+
+  var legacy = atividades_modelosCriacaoLegacyCycleParts_(value, raw, date);
+  atividades_modelosCriacaoAddWarning_(warnings, 'Ciclo nao resolvido por ID_CICLO ou data; aplicado fallback legado de ano/semestre.');
+  return atividades_modelosCriacaoDecorateCycle_({
+    idCiclo: 'GEAPA_' + legacy.year,
+    nomeCiclo: 'GEAPA_' + legacy.year,
+    tipoCiclo: '',
+    dataInicioTs: null,
+    dataFimTs: null
+  }, date, { ano: legacy.year, semestre: legacy.semester }, warnings);
+}
+
+// Alias temporario para chamadas internas anteriores a adocao oficial de CICLOS.
 function atividades_modelosCriacaoResolveCycle_(reference) {
-  var raw = reference || {};
-  var value = typeof raw === 'object'
-    ? raw.dataAtividade || raw.DATA_ATIVIDADE || raw.rotuloSemestre || raw.ciclo || ''
-    : raw;
+  return atividades_modelosCriacaoResolverCicloReferencia_(reference);
+}
+
+function atividades_modelosCriacaoLerCiclosVigentes_() {
+  if (ATIVIDADES_MODELO_CICLOS_EXECUTION_CACHE_) return ATIVIDADES_MODELO_CICLOS_EXECUTION_CACHE_;
+  var cacheKey = portalCacheBuildKey_('vigencias_ciclos', 'VIGENCIAS_V2_CICLOS');
+  var cached = portalCacheGetJson_(cacheKey);
+  if (cached && Array.isArray(cached.cycles)) {
+    ATIVIDADES_MODELO_CICLOS_EXECUTION_CACHE_ = cached;
+    return cached;
+  }
+
+  var warnings = [];
+  var registry = atividades_modelosCriacaoGetRegistryCycleEntry_('VIGENCIAS_V2_CICLOS');
+  var legacyKey = false;
+  if (!registry) {
+    registry = atividades_modelosCriacaoGetRegistryCycleEntry_('VIGENCIAS_V2_PERIODOS');
+    legacyKey = !!registry;
+  }
+  if (!registry || !String(registry.id || '').trim()) {
+    throw new Error('Key VIGENCIAS_V2_CICLOS nao encontrada no Registry para leitura dos ciclos.');
+  }
+  if (registry.ativo === false || atividades_normalizeTextUpper_(registry.ativo) === 'NAO') {
+    throw new Error('A key VIGENCIAS_V2_CICLOS esta inativa no Registry.');
+  }
+  if (legacyKey) atividades_modelosCriacaoAddWarning_(warnings, 'Usado alias legado do Registry para localizar a base de ciclos.');
+
+  var spreadsheet = SpreadsheetApp.openById(String(registry.id).trim());
+  var configuredSheetName = String(registry.sheet || '').trim();
+  var sheet = spreadsheet.getSheetByName('CICLOS');
+  var legacySheet = false;
+  if (!sheet && configuredSheetName) {
+    sheet = spreadsheet.getSheetByName(configuredSheetName);
+    legacySheet = !!sheet && atividades_normalizeTextUpper_(sheet.getName()) !== 'CICLOS';
+  }
+  if (!sheet) {
+    sheet = spreadsheet.getSheetByName('PERIODOS');
+    legacySheet = !!sheet;
+  }
+  if (!sheet) throw new Error('Aba CICLOS nao encontrada na base de Vigencias v2.');
+
+  if (configuredSheetName && atividades_normalizeTextUpper_(configuredSheetName) !== 'CICLOS') {
+    atividades_modelosCriacaoAddWarning_(warnings, 'Registry ainda aponta para uma aba legada; a leitura priorizou CICLOS quando disponivel.');
+  }
+  if (legacySheet) {
+    atividades_modelosCriacaoAddWarning_(warnings, 'Foi usada leitura compativel da aba legada de ciclos.');
+    Logger.log('GEAPA-ATIVIDADES-V2-MODELOS [WARN] fallback legado de ciclos: ' + sheet.getName());
+  }
+
+  var invalidDates = 0;
+  var cycles = atividadesV2_readSheetObjects_(sheet).map(function(row) {
+    var cycle = atividades_modelosCriacaoNormalizeCycleRecord_(row);
+    if (!cycle.idCiclo) return null;
+    if (cycle.dataInicioTs === null || cycle.dataFimTs === null) invalidDates++;
+    return cycle;
+  }).filter(function(cycle) { return !!cycle; });
+  if (invalidDates) {
+    atividades_modelosCriacaoAddWarning_(warnings, invalidDates + ' ciclo(s) sem intervalo completo nao podem ser resolvidos automaticamente por data.');
+  }
+
+  var result = { cycles: cycles, warnings: warnings };
+  portalCachePutJson_(cacheKey, result, ATIVIDADES_MODELO_CACHE_TTL_SECONDS_);
+  ATIVIDADES_MODELO_CICLOS_EXECUTION_CACHE_ = result;
+  return result;
+}
+
+function atividades_modelosCriacaoGetRegistryCycleEntry_(key) {
+  var api = typeof GEAPA_CORE !== 'undefined' && GEAPA_CORE ? GEAPA_CORE : null;
+  if (api && typeof api.coreGetRegistryMetaByKey === 'function') {
+    try {
+      return api.coreGetRegistryMetaByKey(key);
+    } catch (coreError) {
+      // O modulo DEV pode precisar da entrada DEV quando o ambiente atual do Core e outro.
+    }
+  }
+  if (typeof atividadesV2_readRegistryEntryDevDirect_ === 'function') {
+    try {
+      return atividadesV2_readRegistryEntryDevDirect_(String(key || '').trim().toUpperCase());
+    } catch (registryError) {
+      return null;
+    }
+  }
+  return null;
+}
+
+function atividades_modelosCriacaoNormalizeCycleRecord_(row) {
+  row = row || {};
+  return {
+    idCiclo: String(atividadesV2_firstNonEmpty_(row.ID_CICLO, row.ID_PERIODO) || '').trim(),
+    nomeCiclo: String(atividadesV2_firstNonEmpty_(row.NOME_CICLO, row.NOME_PERIODO, row.ID_CICLO, row.ID_PERIODO) || '').trim(),
+    tipoCiclo: String(atividadesV2_firstNonEmpty_(row.TIPO_CICLO, row.TIPO_PERIODO) || '').trim(),
+    dataInicioTs: atividades_modelosCriacaoDateOnlyTimestamp_(row.DATA_INICIO),
+    dataFimTs: atividades_modelosCriacaoDateOnlyTimestamp_(row.DATA_FIM),
+    status: String(row.STATUS || '').trim()
+  };
+}
+
+function atividades_modelosCriacaoResolverCicloPorData_(dataAtividade, catalog) {
+  var timestamp = atividades_modelosCriacaoDateOnlyTimestamp_(dataAtividade);
+  if (timestamp === null) return { cycle: null, warnings: ['Data invalida para resolver ID_CICLO.'] };
+  var source = catalog || atividades_modelosCriacaoLerCiclosVigentes_();
+  var matches = (source.cycles || []).filter(function(cycle) {
+    return cycle.dataInicioTs !== null && cycle.dataFimTs !== null &&
+      cycle.dataInicioTs <= timestamp && timestamp <= cycle.dataFimTs;
+  });
+  if (matches.length > 1) {
+    throw new Error('CONFIGURACAO_CICLOS_AMBIGUA: a data pertence a mais de um ID_CICLO: ' + matches.map(function(cycle) {
+      return cycle.idCiclo;
+    }).join(', ') + '.');
+  }
+  if (!matches.length) {
+    return {
+      cycle: null,
+      warnings: ['Nenhum ID_CICLO de Vigencias v2 contempla a data informada.']
+    };
+  }
+  return { cycle: matches[0], warnings: [] };
+}
+
+function atividades_modelosCriacaoActivityMatchesCiclo_(row, cycle) {
+  var targetId = atividades_modelosCriacaoNormalizeCiclo_(cycle && (cycle.idCiclo || cycle.ciclo));
+  var rowId = atividades_modelosCriacaoNormalizeCiclo_(row && (row.ID_CICLO || row.CICLO));
+  if (rowId) return rowId === targetId;
+
+  var date = atividades_modelosCriacaoExtractReferenceDate_(row && row.DATA_ATIVIDADE);
+  if (date) {
+    var byDate = atividades_modelosCriacaoResolverCicloPorData_(date);
+    if (byDate.cycle) {
+      return atividades_modelosCriacaoNormalizeCiclo_(byDate.cycle.idCiclo) === targetId;
+    }
+    (byDate.warnings || []).forEach(function(warning) {
+      atividades_modelosCriacaoAddWarning_(cycle.avisos, warning);
+    });
+  }
+
+  atividades_modelosCriacaoAddWarning_(cycle.avisos, 'Atividade sem CICLO resolvivel; comparacao usou fallback legado de ano/semestre.');
+  return String(row && row.ANO || '').trim() === String(cycle && cycle.ano || '').trim() &&
+    String(row && row.SEMESTRE || '').trim() === String(cycle && cycle.semestre || '').trim();
+}
+
+function atividades_modelosCriacaoNormalizeCiclo_(value) {
+  return String(value || '').trim().toUpperCase();
+}
+
+function atividades_modelosCriacaoDecorateCycle_(cycle, referenceDate, raw, warnings) {
+  var date = referenceDate || null;
+  var legacy = atividades_modelosCriacaoLegacyCycleParts_('', raw || {}, date);
+  var idCiclo = String(cycle.idCiclo || '').trim();
+  return {
+    idCiclo: idCiclo,
+    ciclo: idCiclo,
+    nomeCiclo: String(cycle.nomeCiclo || idCiclo).trim(),
+    tipoCiclo: String(cycle.tipoCiclo || '').trim(),
+    rotuloCiclo: idCiclo || String(cycle.nomeCiclo || '').trim(),
+    dataInicioTs: cycle.dataInicioTs,
+    dataFimTs: cycle.dataFimTs,
+    ano: String(legacy.year),
+    semestre: String(legacy.semester),
+    rotuloSemestre: legacy.year + '/' + legacy.semester,
+    avisos: warnings || []
+  };
+}
+
+function atividades_modelosCriacaoLegacyCycleParts_(value, raw, date) {
+  raw = raw || {};
   var text = String(value || '').trim();
   var year = Number(raw.ano || raw.ANO || 0);
   var semester = Number(raw.semestre || raw.SEMESTRE || 0);
@@ -1117,21 +1338,31 @@ function atividades_modelosCriacaoResolveCycle_(reference) {
     year = Number(semesterMatch[1]);
     semester = Number(semesterMatch[2]);
   }
-  var date = atividades_parseDateOrNull_(value);
   if (date) {
     year = date.getFullYear();
     semester = date.getMonth() <= 5 ? 1 : 2;
   }
   if (!year) year = new Date().getFullYear();
-  if (semester !== 1 && semester !== 2) {
-    semester = year === new Date().getFullYear() ? (new Date().getMonth() <= 5 ? 1 : 2) : 1;
-  }
-  return {
-    ano: String(year),
-    semestre: String(semester),
-    ciclo: 'GEAPA_' + year,
-    rotuloSemestre: year + '/' + semester
-  };
+  if (semester !== 1 && semester !== 2) semester = new Date().getMonth() <= 5 ? 1 : 2;
+  return { year: year, semester: semester };
+}
+
+function atividades_modelosCriacaoExtractReferenceDate_(value) {
+  if (value instanceof Date) return isNaN(value.getTime()) ? null : new Date(value.getTime());
+  var text = String(value || '').trim();
+  if (!text || (!/^\d{4}-\d{1,2}-\d{1,2}/.test(text) && !/^\d{1,2}[\/-]\d{1,2}[\/-]\d{4}/.test(text))) return null;
+  return atividades_parseDateOrNull_(value);
+}
+
+function atividades_modelosCriacaoDateOnlyTimestamp_(value) {
+  var date = atividades_parseDateOrNull_(value);
+  if (!date) return null;
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
+}
+
+function atividades_modelosCriacaoAddWarning_(warnings, warning) {
+  if (!warnings || !warning || warnings.indexOf(warning) >= 0) return;
+  warnings.push(warning);
 }
 
 function atividades_modelosCriacaoBuildPresenterMembers_(ss, cycle) {
@@ -1149,17 +1380,33 @@ function atividades_modelosCriacaoBuildPresenterMembers_(ss, cycle) {
       nomeExibicao: member.nomeExibicao,
       rga: member.rga,
       email: member.email,
+      idCiclo: cycle.idCiclo || cycle.ciclo,
       situacaoApresentacaoNoCiclo: scheduled.length ? 'JA_POSSUI_APRESENTACAO_MARCADA' : 'SEM_APRESENTACAO_MARCADA',
+      situacaoApresentacaoNoCicloRotulo: scheduled.length
+        ? 'Ja agendado no ciclo ' + (cycle.idCiclo || cycle.ciclo)
+        : 'Elegivel no ciclo ' + (cycle.idCiclo || cycle.ciclo),
       elegivelApresentacao: scheduled.length === 0
     });
   });
   members.sort(function(a, b) {
     if (a.elegivelApresentacao !== b.elegivelApresentacao) return a.elegivelApresentacao ? -1 : 1;
+    var aRga = String(a.rga || '').trim();
+    var bRga = String(b.rga || '').trim();
+    if (!!aRga !== !!bRga) return aRga ? -1 : 1;
+    if (aRga && bRga) {
+      var rgaCompare = aRga.localeCompare(bRga, 'pt-BR');
+      if (rgaCompare) return rgaCompare;
+    }
     return String(a.nomeExibicao || '').localeCompare(String(b.nomeExibicao || ''), 'pt-BR');
+  });
+  var warnings = [];
+  if (source.warning) atividades_modelosCriacaoAddWarning_(warnings, source.warning);
+  (cycle.avisos || []).forEach(function(warning) {
+    atividades_modelosCriacaoAddWarning_(warnings, warning);
   });
   return {
     members: members,
-    warnings: source.warning ? [source.warning] : []
+    warnings: warnings
   };
 }
 
@@ -1234,7 +1481,7 @@ function atividades_modelosCriacaoIndexScheduledPresentations_(ss, cycle) {
     var subtype = atividades_normalizeTextUpper_(row.SUBTIPO_ATIVIDADE);
     var idAtividade = String(row.ID_ATIVIDADE || '').trim();
     if (subtype !== 'APRESENTACAO_MEMBRO' && !presentationActivityIds[idAtividade]) return;
-    if (!atividades_modelosCriacaoActivityMatchesCycle_(row, cycle)) return;
+    if (!atividades_modelosCriacaoActivityMatchesCiclo_(row, cycle)) return;
     var idPessoa = String(row.ID_PESSOA_PRINCIPAL || '').trim();
     if (!idPessoa) return;
     if (!byPerson[idPessoa]) byPerson[idPessoa] = [];
@@ -1243,23 +1490,44 @@ function atividades_modelosCriacaoIndexScheduledPresentations_(ss, cycle) {
   return byPerson;
 }
 
+// Alias temporario para compatibilidade com testes e chamadas internas antigas.
 function atividades_modelosCriacaoActivityMatchesCycle_(row, cycle) {
-  var year = String(row.ANO || '').trim();
-  var semester = String(row.SEMESTRE || '').trim();
-  if (!year || !semester) {
-    var resolved = atividades_modelosCriacaoResolveCycle_(row.DATA_ATIVIDADE);
-    year = resolved.ano;
-    semester = resolved.semestre;
-  }
-  return year === String(cycle.ano) && semester === String(cycle.semestre);
+  return atividades_modelosCriacaoActivityMatchesCiclo_(row, cycle);
 }
 
 function atividades_modelosCriacaoPresenterCacheKey_(cycle) {
-  return portalCacheBuildKey_('membros_apresentadores', cycle.ano + '-' + cycle.semestre);
+  var idCiclo = atividades_modelosCriacaoNormalizeCiclo_(cycle && (cycle.idCiclo || cycle.ciclo));
+  if (!idCiclo) throw new Error('ID_CICLO obrigatorio para cache de membros apresentadores.');
+  return portalCacheBuildKey_('membros_apresentadores', idCiclo);
 }
 
 function atividades_modelosCriacaoInvalidatePresenterCache_(reference) {
-  portalCacheRemove_(atividades_modelosCriacaoPresenterCacheKey_(atividades_modelosCriacaoResolveCycle_(reference)));
+  var cycle = atividades_modelosCriacaoResolverCicloReferencia_(reference);
+  portalCacheRemove_(atividades_modelosCriacaoPresenterCacheKey_(cycle));
+}
+
+/**
+ * Invalida os ciclos afetados por criacao, cancelamento, reativacao ou edicao.
+ * Rotinas futuras de alteracao devem informar os snapshots anterior e atual.
+ */
+function atividades_modelosCriacaoInvalidatePresenterCachesForChange_(before, after) {
+  var snapshots = [before || null, after || null].filter(function(row) { return !!row; });
+  var touchesPresentation = snapshots.some(function(row) {
+    return atividades_normalizeTextUpper_(row.SUBTIPO_ATIVIDADE) === 'APRESENTACAO_MEMBRO';
+  });
+  if (!touchesPresentation) return 0;
+
+  var removed = {};
+  snapshots.forEach(function(row) {
+    var reference = row.CICLO || row.ID_CICLO || row.DATA_ATIVIDADE || '';
+    if (!reference) return;
+    var cycle = atividades_modelosCriacaoResolverCicloReferencia_(reference);
+    var cacheKey = atividades_modelosCriacaoPresenterCacheKey_(cycle);
+    if (removed[cacheKey]) return;
+    portalCacheRemove_(cacheKey);
+    removed[cacheKey] = true;
+  });
+  return Object.keys(removed).length;
 }
 
 function atividades_modelosCriacaoIsYes_(value) {
@@ -1324,7 +1592,7 @@ function atividades_runTesteCriacaoPorModeloDev_() {
     if (subtype === 'APRESENTACAO_MEMBRO') {
       presenter = atividades_modelosCriacaoBuildPresenterMembers_(
         ss,
-        atividades_modelosCriacaoResolveCycle_(testDate)
+        atividades_modelosCriacaoResolverCicloReferencia_(testDate)
       ).members.filter(function(member) {
         return member.elegivelApresentacao === true;
       })[0] || null;
@@ -1369,12 +1637,24 @@ function atividades_runTesteCriacaoPorModeloDev_() {
     };
   });
 
+  var testCycle = atividades_modelosCriacaoResolverCicloReferencia_(testDate);
+  var semestersMatchCycle = atividades_modelosCriacaoActivityMatchesCiclo_({ CICLO: testCycle.idCiclo, ANO: 2026, SEMESTRE: 1 }, testCycle) &&
+    atividades_modelosCriacaoActivityMatchesCiclo_({ CICLO: testCycle.idCiclo, ANO: 2026, SEMESTRE: 2 }, testCycle);
+  var cycleTest = {
+    ok: semestersMatchCycle,
+    idCiclo: testCycle.idCiclo,
+    semestresMesmoCicloReconhecidos: semestersMatchCycle,
+    cachePorIdCiclo: atividades_modelosCriacaoPresenterCacheKey_(testCycle).indexOf(testCycle.idCiclo) >= 0
+  };
+  cycleTest.ok = cycleTest.ok && cycleTest.cachePorIdCiclo;
+
   return {
-    ok: tests.every(function(test) { return test.ok; }),
+    ok: tests.every(function(test) { return test.ok; }) && cycleTest.ok,
     dryRun: true,
     escrita: false,
     ambiente: 'DEV',
     testes: tests,
+    testeCiclo: cycleTest,
     total: tests.length,
     aprovados: tests.filter(function(test) { return test.ok; }).length
   };

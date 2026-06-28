@@ -70,7 +70,7 @@ function atividadesV2_portalCriarAtividade_(payload, contexto) {
   var avisos = [];
   try {
     views = atividadesV2_refreshViewsAfterActivityCreate_();
-    atividadesV2_invalidateCachesAfterActivityCreate_(creation.idAtividade);
+    atividadesV2_invalidateCachesAfterActivityCreate_(creation.idAtividade, creation.row);
   } catch (postErr) {
     avisos.push('Atividade criada, mas houve falha ao atualizar views/cache: ' + atividadesV2_errorMessage_(postErr).slice(0, 300));
     Logger.log('GEAPA-ATIVIDADES-V2-PORTAL criar atividade: pos-processamento com erro: ' + atividadesV2_safeLogData_({
@@ -379,10 +379,13 @@ function atividadesV2_refreshViewsAfterActivityCreate_() {
   return result;
 }
 
-function atividadesV2_invalidateCachesAfterActivityCreate_(idAtividade) {
+function atividadesV2_invalidateCachesAfterActivityCreate_(idAtividade, atividade) {
   if (typeof atividadesV2_limparCachePortalDev_ === 'function') atividadesV2_limparCachePortalDev_();
   if (idAtividade && typeof atividadesV2_invalidateChamadaCacheByActivity_ === 'function') {
     atividadesV2_invalidateChamadaCacheByActivity_(idAtividade, { keepActivity: false });
+  }
+  if (atividade && typeof atividades_modelosCriacaoInvalidatePresenterCachesForChange_ === 'function') {
+    atividades_modelosCriacaoInvalidatePresenterCachesForChange_(null, atividade);
   }
 }
 

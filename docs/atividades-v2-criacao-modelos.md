@@ -34,7 +34,11 @@ O status inicial e sempre `PLANEJADA`. A publicacao inicial e `RASCUNHO`, ou `OC
 
 O agendamento exige somente modelo, data, horarios, formato, local e membro apresentador. Titulo publico, descricao, eixos tematicos e material nao sao aceitos como requisitos nesta etapa. O backend gera `Apresentacao de membro - {nome}` como titulo tecnico/publico inicial, define `Secretaria GEAPA` como responsavel interno, cria a extensao em `Atividades_Apresentacoes` com titulo/eixo e material pendentes e registra o apresentador em `Atividades_Envolvidos`.
 
-A listagem de apresentadores vem de Pessoas v2/GEAPA_CORE, considera apenas membros efetivos ativos e, quando o campo estiver disponivel, com Portal ativo. O backend cruza o ciclo da data informada com `Atividades` e `Atividades_Apresentacoes`. Quem ja possui apresentacao ativa no ciclo e retornado apenas para conferencia, com `elegivelApresentacao=false`; tentar seleciona-lo retorna `EXCECAO_NECESSARIA`, sem aplicar a excecao.
+A listagem de apresentadores vem de Pessoas v2/GEAPA_CORE, considera apenas membros efetivos ativos e, quando o campo estiver disponivel, com Portal ativo. O backend resolve a data pela key `VIGENCIAS_V2_CICLOS`, usando a aba oficial `CICLOS`, e cruza o `ID_CICLO` com `Atividades` e `Atividades_Apresentacoes`. Quem ja possui apresentacao ativa em qualquer semestre do mesmo ciclo e retornado apenas para conferencia, com `elegivelApresentacao=false`; tentar seleciona-lo retorna `EXCECAO_NECESSARIA`, sem aplicar a excecao.
+
+`Atividades.CICLO` e a referencia primaria. Para registros antigos sem esse campo, a data da atividade e comparada de forma inclusiva com `CICLOS.DATA_INICIO` e `CICLOS.DATA_FIM`. `ANO + SEMESTRE` e usado somente como ultimo fallback legado. Sobreposicao de intervalos gera `CONFIGURACAO_CICLOS_AMBIGUA`.
+
+Enquanto o Registry ainda apontar a key oficial para uma aba legada, a leitura procura primeiro `CICLOS` na mesma planilha e registra aviso tecnico. Os aliases de key, aba e cabecalhos antigos existem apenas para leitura compativel. A lista e ordenada por elegibilidade e depois por RGA, deixando membros sem RGA ao final de cada grupo. O cache usa `ID_CICLO`, por exemplo `membros_apresentadores:GEAPA_2026`. O helper `atividades_modelosCriacaoInvalidatePresenterCachesForChange_` aceita snapshots anterior/atual e deve ser chamado por toda escrita que altere ciclo, subtipo, apresentador, ativacao ou status de uma apresentacao.
 
 O Portal envia `ID_PESSOA` como chave. Nome, RGA e e-mail sao reobtidos no backend e gravados como dados auxiliares. O navegador nao decide elegibilidade nem pode substituir os dados canonicos da pessoa.
 
@@ -63,6 +67,8 @@ A migracao adiciona somente ao final, sem reordenar ou remover colunas:
 7. Valide uma ocorrencia e confira `atividadePreview`, `camposHerdados` e `confirmacaoToken`.
 8. Confirme a criacao real e confira `Atividades`, `Atividades_Apresentacoes`, `Atividades_Log`, `Portal_Acoes` e as views materializadas.
 9. Tente enviar um `CONTA_FALTA`, tipo ou visibilidade diferente do modelo e confirme o retorno `EXCECAO_NECESSARIA` sem escrita.
+
+No retorno do teste, `testeCiclo.semestresMesmoCicloReconhecidos` e `testeCiclo.cachePorIdCiclo` devem ser `true`.
 
 ## Fora de escopo
 
