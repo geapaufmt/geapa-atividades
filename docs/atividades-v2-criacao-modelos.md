@@ -8,6 +8,7 @@ Funcoes publicas:
 
 - `atividades_listarModelosCriacaoPortal(contexto)`;
 - `atividades_obterModeloCriacaoPortal(idConfig, contexto)`;
+- `atividades_listarMembrosApresentadoresElegiveis(idConfig, referencia, contexto)`;
 - `atividades_validarCriacaoAtividadePorModelo(payload, contexto)`;
 - `atividades_criarAtividadePorModelo(payload, contexto)`;
 - `atividades_migrarSchemaAtividadesParaModeloConfigDryRun()`;
@@ -29,6 +30,14 @@ O contrato anterior `atividadesV2_portalCriarAtividade` permanece disponivel par
 
 O status inicial e sempre `PLANEJADA`. A publicacao inicial e `RASCUNHO`, ou `OCULTA` quando o modelo for mais restritivo. A visibilidade inicial e `DIRETORIA`, ou `OCULTA`.
 
+## APRESENTACAO_MEMBRO
+
+O agendamento exige somente modelo, data, horarios, formato, local e membro apresentador. Titulo publico, descricao, eixos tematicos e material nao sao aceitos como requisitos nesta etapa. O backend gera `Apresentacao de membro - {nome}` como titulo tecnico/publico inicial, define `Secretaria GEAPA` como responsavel interno, cria a extensao em `Atividades_Apresentacoes` com titulo/eixo e material pendentes e registra o apresentador em `Atividades_Envolvidos`.
+
+A listagem de apresentadores vem de Pessoas v2/GEAPA_CORE, considera apenas membros efetivos ativos e, quando o campo estiver disponivel, com Portal ativo. O backend cruza o ciclo da data informada com `Atividades` e `Atividades_Apresentacoes`. Quem ja possui apresentacao ativa no ciclo e retornado apenas para conferencia, com `elegivelApresentacao=false`; tentar seleciona-lo retorna `EXCECAO_NECESSARIA`, sem aplicar a excecao.
+
+O Portal envia `ID_PESSOA` como chave. Nome, RGA e e-mail sao reobtidos no backend e gravados como dados auxiliares. O navegador nao decide elegibilidade nem pode substituir os dados canonicos da pessoa.
+
 ## Schema de Atividades
 
 A migracao adiciona somente ao final, sem reordenar ou remover colunas:
@@ -47,11 +56,13 @@ A migracao adiciona somente ao final, sem reordenar ou remover colunas:
 
 1. Execute `atividades_migrarSchemaAtividadesParaModeloConfigDryRun()`.
 2. Execute `atividades_migrarSchemaAtividadesParaModeloConfig()`.
-3. Execute `atividades_runTesteCriacaoPorModeloDev()`.
-4. Liste os modelos pelo Portal com perfil autorizado.
-5. Valide uma ocorrencia e confira `atividadePreview`, `camposHerdados` e `confirmacaoToken`.
-6. Confirme a criacao real e confira `Atividades`, `Atividades_Log`, `Portal_Acoes` e as views materializadas.
-7. Tente enviar um `CONTA_FALTA`, tipo ou visibilidade diferente do modelo e confirme o retorno `EXCECAO_NECESSARIA` sem escrita.
+3. Execute `atividades_ajustarModeloApresentacaoMembroConfigDryRun()` e confira as alteracoes propostas.
+4. Execute `atividades_ajustarModeloApresentacaoMembroConfig()`.
+5. Execute `atividades_runTesteCriacaoPorModeloDev()`.
+6. Liste os modelos e membros apresentadores pelo Portal com perfil autorizado.
+7. Valide uma ocorrencia e confira `atividadePreview`, `camposHerdados` e `confirmacaoToken`.
+8. Confirme a criacao real e confira `Atividades`, `Atividades_Apresentacoes`, `Atividades_Log`, `Portal_Acoes` e as views materializadas.
+9. Tente enviar um `CONTA_FALTA`, tipo ou visibilidade diferente do modelo e confirme o retorno `EXCECAO_NECESSARIA` sem escrita.
 
 ## Fora de escopo
 

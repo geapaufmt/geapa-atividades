@@ -713,6 +713,12 @@ function atividades_configModelosDefaultsForSubtype_(subtype) {
     return {
       NOME_MODELO_PORTAL: 'Apresenta\u00e7\u00e3o de membro',
       GRUPO_MODELO: 'Acad\u00eamicas',
+      EXIGE_TITULO_PUBLICO: 'NAO',
+      EXIGE_EIXO_TEMATICO: 'NAO',
+      PERMITE_EIXO_SECUNDARIO: 'SIM',
+      USA_FLUXO_APRESENTACAO: 'SIM',
+      EXIGE_PESSOA_PRINCIPAL: 'SIM',
+      PAPEL_PADRAO_PESSOA_PRINCIPAL: 'APRESENTADOR',
       GERA_PENDENCIA_TITULO_EIXO: 'SIM',
       GERA_PENDENCIA_MATERIAL: 'SIM',
       GERA_PENDENCIA_ATA: 'NAO',
@@ -768,6 +774,91 @@ function atividades_configModelosDefaultsForSubtype_(subtype) {
     };
   }
   return {};
+}
+
+function atividades_ajustarModeloApresentacaoMembroConfig_(options) {
+  options = options || {};
+  var dryRun = options.dryRun !== false;
+  var lock = null;
+  if (!dryRun) {
+    lock = LockService.getScriptLock();
+    if (!lock.tryLock(30000)) throw new Error('Nao foi possivel obter lock para ajustar APRESENTACAO_MEMBRO.');
+  }
+
+  try {
+    var ss = atividadesV2_getDatabaseSpreadsheetDev_();
+    var sheet = atividades_configModelosRequireSheet_(ss);
+    if (!dryRun) atividadesV2_applyHeadersIfMissing_(sheet, ATIVIDADES_V2_SCHEMA.CONFIG);
+    var rows = atividadesV2_readSheetObjects_(sheet);
+    var targetValues = atividades_configModeloApresentacaoMembroValues_();
+    var targets = rows.filter(function(row) {
+      return atividades_configModelosNormalizeToken_(row.SUBTIPO_ATIVIDADE) === 'APRESENTACAO_MEMBRO';
+    });
+    var changes = [];
+    targets.forEach(function(row) {
+      Object.keys(targetValues).forEach(function(header) {
+        if (String(row[header] === null || typeof row[header] === 'undefined' ? '' : row[header]) === String(targetValues[header])) return;
+        changes.push({
+          rowNumber: row._rowNumber,
+          idConfig: String(row.ID_CONFIG || ''),
+          coluna: header,
+          valorAnterior: row[header] === null || typeof row[header] === 'undefined' ? '' : row[header],
+          valorNovo: targetValues[header]
+        });
+      });
+    });
+
+    var result = {
+      ok: targets.length > 0,
+      dryRun: dryRun,
+      ambiente: 'DEV',
+      modelosEncontrados: targets.length,
+      totalAlteracoes: changes.length,
+      alteracoes: changes,
+      avisos: [],
+      erros: []
+    };
+    if (!targets.length) {
+      result.erros.push('Nenhum modelo com SUBTIPO_ATIVIDADE=APRESENTACAO_MEMBRO foi encontrado.');
+      return result;
+    }
+    if (dryRun) return result;
+
+    targets.forEach(function(row) {
+      atividadesV2_updateRowByHeaders_(sheet, row._rowNumber, targetValues);
+    });
+    atividadesV2_appendV2Log_(ss, {
+      FLUXO: 'SETUP_V1',
+      ACAO: 'AJUSTAR_MODELO_APRESENTACAO_MEMBRO',
+      NIVEL: 'INFO',
+      STATUS: 'CONCLUIDO',
+      MENSAGEM: 'Modelo APRESENTACAO_MEMBRO ajustado para agendamento sem titulo/eixo/material.',
+      DETALHES_JSON: JSON.stringify({ modelos: targets.length, alteracoes: changes.length })
+    });
+    if (typeof atividades_modelosCriacaoInvalidateCaches_ === 'function') atividades_modelosCriacaoInvalidateCaches_();
+    return result;
+  } finally {
+    if (lock) lock.releaseLock();
+  }
+}
+
+function atividades_configModeloApresentacaoMembroValues_() {
+  return {
+    EXIGE_TITULO_PUBLICO: 'NAO',
+    EXIGE_EIXO_TEMATICO: 'NAO',
+    PERMITE_EIXO_SECUNDARIO: 'SIM',
+    GERA_PENDENCIA_TITULO_EIXO: 'SIM',
+    GERA_PENDENCIA_MATERIAL: 'SIM',
+    USA_FLUXO_APRESENTACAO: 'SIM',
+    EXIGE_PESSOA_PRINCIPAL: 'SIM',
+    PAPEL_PADRAO_PESSOA_PRINCIPAL: 'APRESENTADOR',
+    TIPO_PESSOA_PRINCIPAL_PADRAO: 'MEMBRO',
+    PERMITE_MEMBRO_COMO_PRINCIPAL: 'SIM',
+    PERMITE_PROFESSOR_COMO_PRINCIPAL: 'NAO',
+    PERMITE_PESSOA_EXTERNA_PRINCIPAL: 'NAO',
+    EXIGE_EMAIL_PESSOA_PRINCIPAL: 'NAO',
+    EXIGE_INSTITUICAO_PESSOA_PRINCIPAL: 'NAO'
+  };
 }
 
 function atividades_configModelosApplyNormalizationUpdates_(sheet, updates) {

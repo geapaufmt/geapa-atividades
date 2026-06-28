@@ -156,6 +156,22 @@ function atividades_runTesteCriacaoPorModeloDev() {
   }, { entrypoint: 'atividades_runTesteCriacaoPorModeloDev' });
 }
 
+function atividades_ajustarModeloApresentacaoMembroConfigDryRun() {
+  return atividades_runWithOperationalGuard_('CONFERENCIA_V2', null, function() {
+    return atividades_ajustarModeloApresentacaoMembroConfig_({ dryRun: true });
+  }, { entrypoint: 'atividades_ajustarModeloApresentacaoMembroConfigDryRun' });
+}
+
+function atividades_ajustarModeloApresentacaoMembroConfig() {
+  return atividades_runWithOperationalGuard_('SETUP_V1', ['SYNC'], function() {
+    return atividades_ajustarModeloApresentacaoMembroConfig_({ dryRun: false });
+  }, { entrypoint: 'atividades_ajustarModeloApresentacaoMembroConfig' });
+}
+
+function atividades_listarMembrosApresentadoresElegiveis(idConfig, referencia, contexto) {
+  return atividades_listarMembrosApresentadoresElegiveis_(idConfig, referencia, contexto || {});
+}
+
 function atividades_validarSchemaAtividadesConfig() {
   return atividades_runWithOperationalGuard_('SETUP_V1', ['SYNC'], function() {
     return atividades_validarSchemaAtividadesConfig_();

@@ -12,6 +12,8 @@ A planilha e aberta exclusivamente pela key DEV `ATIVIDADES_V2_DB`. Nenhuma roti
 - `atividades_migrarSchemaAtividadesConfigDryRun()`: mostra as colunas, notas, validacoes e valores iniciais que seriam considerados, sem alterar `Atividades_Config`.
 - `atividades_migrarSchemaAtividadesConfig()`: adiciona somente cabecalhos ausentes ao final, aplica notas vazias e validacoes basicas.
 - `atividades_normalizarModelosAtividadesConfig()`: preenche somente celulas vazias dos modelos com `ATIVO=SIM`.
+- `atividades_ajustarModeloApresentacaoMembroConfigDryRun()`: mostra os ajustes normativos especificos de `APRESENTACAO_MEMBRO`, sem escrita.
+- `atividades_ajustarModeloApresentacaoMembroConfig()`: aplica os ajustes especificos em DEV, com lock e log seguro.
 
 As funcoes usam o fluxo operacional `ATIVIDADES / SETUP_V1`. As funcoes que escrevem usam `LockService`, registram resumo seguro em `Atividades_Log` e mantem o status operacional pelo GEAPA_CORE.
 
@@ -23,6 +25,8 @@ As funcoes usam o fluxo operacional `ATIVIDADES / SETUP_V1`. As funcoes que escr
 4. Execute novamente `atividades_validarSchemaAtividadesConfig()`. O retorno deve ter `ok: true`.
 5. Execute `atividades_normalizarModelosAtividadesConfig()` para preencher apenas valores vazios.
 6. Confira manualmente os modelos ativos na aba `Atividades_Config`.
+
+Para `APRESENTACAO_MEMBRO`, rode tambem o dry-run e a aplicacao especificos. Eles desativam a exigencia de titulo/eixo no agendamento, preservam as pendencias posteriores de titulo/eixo e material, fixam pessoa principal como membro/apresentador e nao alteram outros subtipos.
 
 Rodar a migracao mais de uma vez e seguro: cabecalhos existentes sao reconhecidos pelo nome e nao sao duplicados. Cabecalhos fora da ordem esperada sao aceitos e nao sao movidos.
 
@@ -47,6 +51,8 @@ atividades_normalizarModelosAtividadesConfig({
 ```
 
 Esse modo deve ser usado apenas depois de conferencia e backup, pois pode substituir valores homologados existentes. A operacao normal recomendada e sempre sem argumentos.
+
+A rotina especifica de `APRESENTACAO_MEMBRO` e uma correcao normativa intencional e, por isso, substitui somente as colunas conhecidas desse subtipo. Ela nao remove colunas, nao reordena a aba e nao altera modelos de outros subtipos.
 
 ## Validacoes
 
