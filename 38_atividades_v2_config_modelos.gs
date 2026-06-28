@@ -317,6 +317,7 @@ function atividades_migrarSchemaAtividadesConfig_() {
       erros: []
     };
     if (!before.missingNew.length) result.avisos.push('Nenhuma coluna foi adicionada; o schema ja estava atualizado.');
+    if (typeof atividades_modelosCriacaoInvalidateCaches_ === 'function') atividades_modelosCriacaoInvalidateCaches_();
 
     atividadesV2_logSetup_('INFO', 'Migracao do schema Atividades_Config finalizada.', {
       colunasAdicionadas: result.colunasAdicionadas.length,
@@ -387,6 +388,7 @@ function atividades_normalizarModelosAtividadesConfig_(options) {
       erros: []
     };
     if (!simulation.totalCelulas) result.avisos.push('Nenhuma celula precisava de normalizacao.');
+    if (typeof atividades_modelosCriacaoInvalidateCaches_ === 'function') atividades_modelosCriacaoInvalidateCaches_();
 
     atividadesV2_logSetup_(force ? 'WARN' : 'INFO', 'Normalizacao dos modelos Atividades_Config finalizada.', {
       force: force,

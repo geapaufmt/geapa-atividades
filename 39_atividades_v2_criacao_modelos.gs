@@ -1,0 +1,950 @@
+/**
+ * Criacao de atividades por modelos homologados do Atividades_Config.
+ *
+ * O Portal envia apenas ID_CONFIG e dados concretos da ocorrencia. Regras
+ * institucionais sao sempre relidas e aplicadas pelo backend na base v2 DEV.
+ */
+
+var ATIVIDADES_MODELO_ACTIVITY_SCHEMA_HEADERS_ = Object.freeze([
+  'ID_CONFIG_MODELO',
+  'NOME_MODELO_PORTAL_SNAPSHOT',
+  'VERSAO_CONFIG_MODELO',
+  'TEM_EXCECAO_CONFIG',
+  'STATUS_EXCECAO_CONFIG',
+  'JUSTIFICATIVA_EXCECAO_CONFIG',
+  'PERMITE_JUSTIFICATIVA',
+  'EXIGE_EIXO_TEMATICO',
+  'PERMITE_EIXO_SECUNDARIO'
+]);
+
+var ATIVIDADES_MODELO_CACHE_TTL_SECONDS_ = 300;
+var ATIVIDADES_MODELO_CONFIRMATION_TTL_SECONDS_ = 600;
+
+function atividades_listarModelosCriacaoPortal_(contexto) {
+  var ctx = atividades_normalizePortalContext_(contexto || {});
+  var permission = atividades_modelosCriacaoValidateBasePermission_(ctx);
+  if (!permission.ok) return permission;
+
+  var cacheKey = atividades_modelosCriacaoListCacheKey_(ctx);
+  var cached = portalCacheGetJson_(cacheKey);
+  if (cached) return cached;
+
+  try {
+    var ss = atividadesV2_getDatabaseSpreadsheetDev_();
+    var rows = atividades_modelosCriacaoReadConfigRows_(ss);
+    var models = rows.filter(function(model) {
+      return atividades_modelosCriacaoIsEnabled_(model) &&
+        atividades_modelosCriacaoProfileAllowed_(model, ctx);
+    }).map(atividades_modelosCriacaoToSafeModel_);
+
+    models.sort(function(a, b) {
+      var groupCompare = String(a.grupoModelo || '').localeCompare(String(b.grupoModelo || ''), 'pt-BR');
+      if (groupCompare) return groupCompare;
+      var orderCompare = atividades_modelosCriacaoOrder_(a.ordemExibicao) - atividades_modelosCriacaoOrder_(b.ordemExibicao);
+      if (orderCompare) return orderCompare;
+      return String(a.nomeModeloPortal || '').localeCompare(String(b.nomeModeloPortal || ''), 'pt-BR');
+    });
+
+    var response = {
+      ok: true,
+      data: {
+        modelos: models,
+        grupos: atividades_modelosCriacaoBuildGroups_(models),
+        total: models.length,
+        ambiente: 'DEV',
+        ultimaAtualizacao: atividades_modelosCriacaoLatestUpdate_(rows)
+      },
+      avisos: models.length ? [] : ['Nenhum modelo homologado esta disponivel para este perfil.']
+    };
+    portalCachePutJson_(cacheKey, response, ATIVIDADES_MODELO_CACHE_TTL_SECONDS_);
+    return response;
+  } catch (err) {
+    return atividades_modelosCriacaoError_('ERRO_LISTAR_MODELOS_ATIVIDADE', 'Nao foi possivel carregar os modelos de atividade.', err);
+  }
+}
+
+function atividades_obterModeloCriacaoPortal_(idConfig, contexto) {
+  var ctx = atividades_normalizePortalContext_(contexto || {});
+  var permission = atividades_modelosCriacaoValidateBasePermission_(ctx);
+  if (!permission.ok) return permission;
+  var wanted = String(idConfig || '').trim();
+  if (!wanted) return atividades_modelosCriacaoError_('ID_CONFIG_OBRIGATORIO', 'Informe o modelo da atividade.');
+
+  try {
+    var ss = atividadesV2_getDatabaseSpreadsheetDev_();
+    var model = atividades_modelosCriacaoFindConfig_(atividades_modelosCriacaoReadConfigRows_(ss), wanted);
+    var validation = atividades_modelosCriacaoValidateModelAccess_(model, ctx);
+    if (!validation.ok) return validation;
+    return {
+      ok: true,
+      data: {
+        modelo: atividades_modelosCriacaoToSafeModel_(model),
+        ambiente: 'DEV'
+      },
+      avisos: []
+    };
+  } catch (err) {
+    return atividades_modelosCriacaoError_('ERRO_OBTER_MODELO_ATIVIDADE', 'Nao foi possivel carregar o modelo solicitado.', err);
+  }
+}
+
+function atividades_validarCriacaoAtividadePorModelo_(payload, contexto) {
+  var result = atividades_modelosCriacaoValidate_(payload || {}, contexto || {}, { emitirConfirmacao: true });
+  if (result && result.meta) delete result.meta;
+  return result;
+}
+
+function atividades_criarAtividadePorModelo_(payload, contexto) {
+  var request = payload || {};
+  if (request.dryRun !== false) {
+    return atividades_validarCriacaoAtividadePorModelo_(request, contexto || {});
+  }
+
+  var lock = LockService.getScriptLock();
+  if (!lock.tryLock(30000)) {
+    return atividades_modelosCriacaoError_('LOCK_INDISPONIVEL', 'Nao foi possivel obter lock para criar a atividade.');
+  }
+
+  var validated;
+  var creation;
+  try {
+    validated = atividades_modelosCriacaoValidate_(request, contexto || {}, { emitirConfirmacao: false });
+    if (!validated.ok) return validated;
+
+    var tokenCheck = atividades_modelosCriacaoValidateConfirmation_(request.confirmacaoToken, validated.meta.fingerprint);
+    if (!tokenCheck.ok) return tokenCheck;
+
+    var ss = atividadesV2_getDatabaseSpreadsheetDev_();
+    var sheet = atividadesV2_getTargetSheet_(ss, ATIVIDADES_V2_SHEETS.ATIVIDADES);
+    atividadesV2_applyHeadersIfMissing_(sheet, ATIVIDADES_V2_SCHEMA.ATIVIDADES);
+    creation = validated.meta.creation;
+    atividadesV2_appendAtividadeV2Row_(sheet, creation.row);
+    atividades_modelosCriacaoAppendLogs_(ss, creation, validated.meta.model, validated.meta.contexto);
+    portalCacheRemove_(atividades_modelosCriacaoConfirmationCacheKey_(request.confirmacaoToken));
+  } catch (err) {
+    return atividades_modelosCriacaoError_('ERRO_CRIAR_ATIVIDADE_POR_MODELO', 'Nao foi possivel criar a atividade pelo modelo.', err);
+  } finally {
+    lock.releaseLock();
+  }
+
+  var warnings = [];
+  var views = null;
+  try {
+    views = atividadesV2_refreshViewsAfterActivityCreate_();
+    atividadesV2_invalidateCachesAfterActivityCreate_(creation.idAtividade);
+  } catch (postErr) {
+    warnings.push('Atividade criada, mas houve falha ao atualizar views/cache. Execute a atualizacao manual das views.');
+    Logger.log('GEAPA-ATIVIDADES-V2-MODELOS pos-processamento: ' + atividadesV2_safeLogData_({
+      idAtividade: creation.idAtividade,
+      erro: atividadesV2_errorMessage_(postErr).slice(0, 300)
+    }));
+  }
+
+  return {
+    ok: true,
+    message: 'Atividade criada pelo modelo homologado como rascunho.',
+    data: atividades_modelosCriacaoBuildResponseData_(creation, validated.meta.safeModel),
+    meta: {
+      dryRun: false,
+      escrita: true,
+      ambiente: 'DEV',
+      viewsAtualizadas: views,
+      avisos: warnings
+    }
+  };
+}
+
+function atividades_migrarSchemaAtividadesParaModeloConfig_(options) {
+  options = options || {};
+  var dryRun = options.dryRun !== false;
+  var lock = null;
+  if (!dryRun) {
+    lock = LockService.getScriptLock();
+    if (!lock.tryLock(30000)) throw new Error('Nao foi possivel obter lock para migrar o schema de Atividades.');
+  }
+
+  try {
+    var ss = atividadesV2_getDatabaseSpreadsheetDev_();
+    var sheet = atividadesV2_getTargetSheet_(ss, ATIVIDADES_V2_SHEETS.ATIVIDADES);
+    var existing = atividades_modelosCriacaoHeaderSet_(sheet);
+    var missing = ATIVIDADES_MODELO_ACTIVITY_SCHEMA_HEADERS_.filter(function(header) {
+      return !existing[String(header).toUpperCase()];
+    });
+    var result = {
+      ok: true,
+      dryRun: dryRun,
+      ambiente: 'DEV',
+      aba: sheet.getName(),
+      colunasAusentes: missing.slice(),
+      colunasAdicionadas: [],
+      colunasJaExistentes: ATIVIDADES_MODELO_ACTIVITY_SCHEMA_HEADERS_.filter(function(header) {
+        return !!existing[String(header).toUpperCase()];
+      }),
+      avisos: [],
+      erros: []
+    };
+    if (dryRun) return result;
+
+    atividades_configModelosAppendHeaders_(sheet, missing);
+    result.colunasAdicionadas = missing.slice();
+    result.colunasAusentes = [];
+    atividadesV2_appendV2Log_(ss, {
+      FLUXO: 'SETUP_V1',
+      ACAO: 'MIGRAR_SCHEMA_ATIVIDADES_MODELO_CONFIG',
+      NIVEL: 'INFO',
+      STATUS: 'CONCLUIDO',
+      MENSAGEM: 'Schema de rastreabilidade de modelo adicionado/validado em Atividades DEV.',
+      DETALHES_JSON: JSON.stringify({ colunasAdicionadas: missing.length })
+    });
+    if (!missing.length) result.avisos.push('O schema de Atividades ja estava preparado para modelos.');
+    return result;
+  } finally {
+    if (lock) lock.releaseLock();
+  }
+}
+
+function atividades_modelosCriacaoValidate_(payload, contexto, options) {
+  options = options || {};
+  var request = payload || {};
+  var occurrencePayload = request.atividade || request.ocorrencia || request;
+  var ctx = atividades_normalizePortalContext_(contexto || {});
+  var permission = atividades_modelosCriacaoValidateBasePermission_(ctx);
+  if (!permission.ok) return permission;
+
+  var idConfig = String(
+    request.idConfig || request.ID_CONFIG || occurrencePayload.idConfig || occurrencePayload.ID_CONFIG || ''
+  ).trim();
+  if (!idConfig) return atividades_modelosCriacaoError_('ID_CONFIG_OBRIGATORIO', 'Selecione um modelo homologado.');
+
+  try {
+    var ss = atividadesV2_getDatabaseSpreadsheetDev_();
+    var model = atividades_modelosCriacaoFindConfig_(atividades_modelosCriacaoReadConfigRows_(ss), idConfig);
+    var modelAccess = atividades_modelosCriacaoValidateModelAccess_(model, ctx);
+    if (!modelAccess.ok) return modelAccess;
+
+    var normalized = atividades_modelosCriacaoNormalizeOccurrence_(occurrencePayload, model);
+    if (!normalized.ok) {
+      return {
+        ok: false,
+        errorCode: 'VALIDACAO_ATIVIDADE_MODELO',
+        message: 'Revise os dados da ocorrencia.',
+        fieldErrors: normalized.fieldErrors,
+        mensagens: normalized.mensagens,
+        avisos: normalized.avisos,
+        excecaoNecessaria: false,
+        camposDivergentes: []
+      };
+    }
+
+    var inherited = atividades_modelosCriacaoBuildInheritedFields_(model, normalized.data);
+    var divergences = atividades_modelosCriacaoDetectSensitiveDivergences_(occurrencePayload, inherited);
+    var exceptionMeta = atividades_modelosCriacaoBuildExceptionMeta_(model, divergences);
+    if (divergences.length) {
+      return {
+        ok: false,
+        errorCode: 'EXCECAO_NECESSARIA',
+        message: 'Esta alteracao exige fluxo de excecao e nao pode ser aplicada na criacao normal.',
+        mensagens: [],
+        avisos: [],
+        modeloAplicado: atividades_modelosCriacaoToSafeModel_(model),
+        camposHerdados: inherited,
+        camposDaOcorrencia: normalized.data,
+        excecoesDetectadas: divergences,
+        excecaoNecessaria: true,
+        camposDivergentes: divergences.map(function(item) { return item.campo; }),
+        aprovacaoExigida: exceptionMeta.aprovacaoExigida,
+        perfisAprovadores: exceptionMeta.perfisAprovadores,
+        qtdAprovadores: exceptionMeta.qtdAprovadores
+      };
+    }
+
+    var safeModel = atividades_modelosCriacaoToSafeModel_(model);
+    var creation = atividades_modelosCriacaoBuildPreview_(normalized.data, inherited, model, ctx, ss);
+    var fingerprint = atividades_modelosCriacaoFingerprint_(idConfig, safeModel.versaoConfigModelo, normalized.data, inherited, ctx);
+    var confirmationToken = options.emitirConfirmacao
+      ? atividades_modelosCriacaoIssueConfirmation_(fingerprint)
+      : '';
+    if (options.emitirConfirmacao && !confirmationToken) {
+      return atividades_modelosCriacaoError_(
+        'CACHE_CONFIRMACAO_INDISPONIVEL',
+        'Nao foi possivel registrar a confirmacao temporaria. Tente validar novamente.'
+      );
+    }
+
+    return {
+      ok: true,
+      message: 'Criacao por modelo validada. Confirme para gravar o rascunho.',
+      mensagens: ['Modelo homologado aplicado pelo backend.'],
+      avisos: normalized.avisos,
+      modeloAplicado: safeModel,
+      camposHerdados: inherited,
+      camposDaOcorrencia: normalized.data,
+      excecoesDetectadas: [],
+      excecaoNecessaria: false,
+      camposDivergentes: [],
+      aprovacaoExigida: exceptionMeta.aprovacaoExigida,
+      perfisAprovadores: exceptionMeta.perfisAprovadores,
+      qtdAprovadores: exceptionMeta.qtdAprovadores,
+      atividadePreview: atividades_modelosCriacaoBuildResponseData_(creation, safeModel),
+      confirmacaoToken: confirmationToken,
+      dryRun: true,
+      meta: {
+        fingerprint: fingerprint,
+        creation: creation,
+        model: model,
+        safeModel: safeModel,
+        contexto: ctx
+      }
+    };
+  } catch (err) {
+    return atividades_modelosCriacaoError_('ERRO_VALIDAR_ATIVIDADE_POR_MODELO', 'Nao foi possivel validar a atividade pelo modelo.', err);
+  }
+}
+
+function atividades_modelosCriacaoNormalizeOccurrence_(payload, model) {
+  var p = payload || {};
+  var fieldErrors = {};
+  var warnings = [];
+  var title = atividades_sanitizePortalText_(atividadesV2_pickPayloadValue_(p, ['tituloPublico', 'TITULO_PUBLICO', 'titulo']), 240);
+  var descriptionPublic = atividades_sanitizePortalText_(atividadesV2_pickPayloadValue_(p, ['descricaoPublica', 'DESCRICAO_PUBLICA']), 1500);
+  var date = atividades_parseDateOrNull_(atividadesV2_pickPayloadValue_(p, ['dataAtividade', 'DATA_ATIVIDADE', 'data']));
+  var startRaw = atividadesV2_pickPayloadValue_(p, ['horarioInicio', 'HORARIO_INICIO', 'inicio']);
+  var endRaw = atividadesV2_pickPayloadValue_(p, ['horarioFim', 'HORARIO_FIM', 'fim']);
+  var startMinutes = atividades_parseTimeValueToMinutes_(startRaw);
+  var endMinutes = atividades_parseTimeValueToMinutes_(endRaw);
+  var format = atividades_normalizeTextUpper_(atividadesV2_pickPayloadValue_(p, ['formato', 'FORMATO']));
+  var location = atividades_sanitizePortalText_(atividadesV2_pickPayloadValue_(p, ['local', 'LOCAL']), 180);
+  var requiresTitle = atividades_modelosCriacaoIsYes_(model.EXIGE_TITULO_PUBLICO);
+
+  if (requiresTitle && !title) fieldErrors.tituloPublico = 'Informe o titulo publico exigido pelo modelo.';
+  if (!date) fieldErrors.dataAtividade = 'Informe uma data valida.';
+  if (startMinutes === null) fieldErrors.horarioInicio = 'Informe um horario de inicio valido.';
+  if (endMinutes === null) fieldErrors.horarioFim = 'Informe um horario de fim valido.';
+  if (startMinutes !== null && endMinutes !== null && endMinutes <= startMinutes) {
+    fieldErrors.horarioFim = 'O horario de fim deve ser posterior ao inicio.';
+  }
+  if (['PRESENCIAL', 'REMOTO', 'HIBRIDO', 'HIBRIDA'].indexOf(format) < 0) fieldErrors.formato = 'Informe um formato valido.';
+  if (!location) fieldErrors.local = 'Informe o local ou ambiente da atividade.';
+
+  var mainAxis = atividades_sanitizePortalText_(atividadesV2_pickPayloadValue_(p, ['eixoTematicoPrincipal', 'EIXO_TEMATICO_PRINCIPAL']), 180);
+  var secondaryAxis = atividades_sanitizePortalText_(atividadesV2_pickPayloadValue_(p, ['eixoTematicoSecundario', 'EIXO_TEMATICO_SECUNDARIO']), 180);
+  if (atividades_modelosCriacaoIsYes_(model.EXIGE_EIXO_TEMATICO) && !mainAxis) {
+    fieldErrors.eixoTematicoPrincipal = 'O modelo exige eixo tematico principal.';
+  }
+  if (!atividades_modelosCriacaoIsYes_(model.PERMITE_EIXO_SECUNDARIO) && secondaryAxis) {
+    fieldErrors.eixoTematicoSecundario = 'O modelo nao permite eixo tematico secundario.';
+  }
+
+  var person = atividades_modelosCriacaoNormalizePrincipalPerson_(p, model, fieldErrors);
+  var defaultHours = atividadesV2_parsePositiveNumber_(model.CARGA_HORARIA_PADRAO);
+  var derivedHours = startMinutes !== null && endMinutes !== null && endMinutes > startMinutes
+    ? (endMinutes - startMinutes) / 60
+    : null;
+  var hours = defaultHours !== null ? defaultHours : derivedHours;
+  if (hours === null || hours <= 0) fieldErrors.cargaHoraria = 'Nao foi possivel definir a carga horaria pelo modelo ou pelos horarios.';
+  if (defaultHours === null && derivedHours !== null) warnings.push('Carga horaria calculada pelos horarios da ocorrencia.');
+
+  if (Object.keys(fieldErrors).length) {
+    return { ok: false, fieldErrors: fieldErrors, mensagens: [], avisos: warnings };
+  }
+
+  return {
+    ok: true,
+    fieldErrors: {},
+    mensagens: [],
+    avisos: warnings,
+    data: {
+      idConfig: String(model.ID_CONFIG || '').trim(),
+      tituloPublico: title || atividades_sanitizePortalText_(model.NOME_MODELO_PORTAL || model.SUBTIPO_ATIVIDADE || 'Atividade do GEAPA', 240),
+      descricaoPublica: descriptionPublic,
+      descricaoInterna: atividades_sanitizePortalText_(atividadesV2_pickPayloadValue_(p, ['descricaoInterna', 'DESCRICAO']), 1500),
+      dataAtividade: date,
+      horarioInicio: atividadesV2_minutesToPortalTime_(startMinutes),
+      horarioFim: atividadesV2_minutesToPortalTime_(endMinutes),
+      formato: format === 'HIBRIDA' ? 'HIBRIDO' : format,
+      local: location,
+      cargaHoraria: hours,
+      eixoTematicoPrincipal: mainAxis,
+      eixoTematicoSecundario: secondaryAxis,
+      idPessoaPrincipal: person.idPessoa,
+      nomePessoaPrincipalPublico: person.nome,
+      rgaPessoaPrincipal: person.rga,
+      emailPessoaPrincipal: person.email,
+      tipoPessoaPrincipal: person.tipo,
+      instituicaoPessoaPrincipal: person.instituicao,
+      responsavelInterno: atividades_sanitizePortalText_(atividadesV2_pickPayloadValue_(p, ['responsavelInterno', 'RESPONSAVEL_INTERNO']), 180),
+      responsavelEmail: atividades_normalizeTextLower_(atividadesV2_pickPayloadValue_(p, ['responsavelEmail', 'RESPONSAVEL_EMAIL'])),
+      publicoAlvo: atividades_sanitizePortalText_(atividadesV2_pickPayloadValue_(p, ['publicoAlvo', 'PUBLICO_ALVO']), 240),
+      observacoes: atividades_sanitizePortalText_(atividadesV2_pickPayloadValue_(p, ['observacoes', 'observacoesInternas', 'OBSERVACOES']), 1000)
+    }
+  };
+}
+
+function atividades_modelosCriacaoNormalizePrincipalPerson_(payload, model, fieldErrors) {
+  var required = atividades_modelosCriacaoIsYes_(model.EXIGE_PESSOA_PRINCIPAL);
+  var allowedTypes = atividades_modelosCriacaoAllowedPrincipalTypes_(model);
+  var type = atividades_normalizeTextUpper_(atividadesV2_pickPayloadValue_(payload, ['tipoPessoaPrincipal', 'TIPO_PESSOA_PRINCIPAL']));
+  if (!type && allowedTypes.length === 1) type = allowedTypes[0];
+
+  var idPessoa = atividadesV2_sanitizeIdToken_(atividadesV2_pickPayloadValue_(payload, ['idPessoaPrincipal', 'ID_PESSOA_PRINCIPAL']));
+  var name = atividades_sanitizePortalText_(atividadesV2_pickPayloadValue_(payload, ['nomePessoaPrincipalPublico', 'pessoaPrincipal', 'NOME_PESSOA_PRINCIPAL_PUBLICO']), 180);
+  var rga = atividadesV2_sanitizeIdToken_(atividadesV2_pickPayloadValue_(payload, ['rgaPessoaPrincipal', 'RGA_PESSOA_PRINCIPAL']));
+  var email = atividades_normalizeTextLower_(atividadesV2_pickPayloadValue_(payload, ['emailPessoaPrincipal', 'EMAIL_PESSOA_PRINCIPAL']));
+  var institution = atividades_sanitizePortalText_(atividadesV2_pickPayloadValue_(payload, ['instituicaoPessoaPrincipal', 'INSTITUICAO_PESSOA_PRINCIPAL']), 180);
+
+  if (required && !idPessoa && !name) fieldErrors.pessoaPrincipal = 'O modelo exige uma pessoa principal.';
+  if (required && allowedTypes.length > 1 && !type) fieldErrors.tipoPessoaPrincipal = 'Selecione o tipo da pessoa principal.';
+  if (type && allowedTypes.length && allowedTypes.indexOf(type) < 0) fieldErrors.tipoPessoaPrincipal = 'Tipo de pessoa principal nao permitido pelo modelo.';
+  if (type === 'MEMBRO' && required && !idPessoa) fieldErrors.idPessoaPrincipal = 'Selecione um membro identificado por ID_PESSOA.';
+  if (atividades_modelosCriacaoIsYes_(model.EXIGE_EMAIL_PESSOA_PRINCIPAL) && !email) fieldErrors.emailPessoaPrincipal = 'O modelo exige e-mail da pessoa principal.';
+  if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) fieldErrors.emailPessoaPrincipal = 'Informe um e-mail valido.';
+  if (atividades_modelosCriacaoIsYes_(model.EXIGE_INSTITUICAO_PESSOA_PRINCIPAL) && !institution) {
+    fieldErrors.instituicaoPessoaPrincipal = 'O modelo exige instituicao da pessoa principal.';
+  }
+
+  return { idPessoa: idPessoa, nome: name, rga: rga, email: email, tipo: type, instituicao: institution };
+}
+
+function atividades_modelosCriacaoBuildInheritedFields_(model, occurrence) {
+  return {
+    ID_CONFIG_MODELO: String(model.ID_CONFIG || '').trim(),
+    NOME_MODELO_PORTAL_SNAPSHOT: atividades_sanitizePortalText_(model.NOME_MODELO_PORTAL || model.SUBTIPO_ATIVIDADE || '', 240),
+    VERSAO_CONFIG_MODELO: atividades_modelosCriacaoVersion_(model),
+    CLASSIFICACAO_REUNIAO: atividades_normalizeTextUpper_(model.CLASSIFICACAO_REUNIAO),
+    TIPO_ATIVIDADE: atividades_normalizeTextUpper_(model.TIPO_ATIVIDADE),
+    SUBTIPO_ATIVIDADE: atividades_normalizeTextUpper_(model.SUBTIPO_ATIVIDADE),
+    CLASSIFICACAO_ACESSO: atividades_normalizeTextUpper_(model.CLASSIFICACAO_ACESSO_PADRAO || 'INTERNA'),
+    OBRIGATORIA: atividades_modelosCriacaoSimNao_(model.OBRIGATORIA_PADRAO, 'NAO'),
+    EXIGE_CONVOCACAO: atividades_modelosCriacaoSimNao_(model.EXIGE_CONVOCACAO_PADRAO, 'NAO'),
+    EXIGE_LEMBRETE: atividades_modelosCriacaoSimNao_(model.EXIGE_LEMBRETE_PADRAO, 'NAO'),
+    EXIGE_ATA: atividades_modelosCriacaoSimNao_(model.EXIGE_ATA_PADRAO, 'NAO'),
+    EXIGE_MATERIAL: atividades_modelosCriacaoSimNao_(model.EXIGE_MATERIAL_PADRAO, 'NAO'),
+    EXIGE_LISTA_PRESENCA: atividades_modelosCriacaoSimNao_(model.EXIGE_LISTA_PRESENCA_PADRAO, 'NAO'),
+    EXIGE_CONFIRMACAO_PRESENCA: atividades_modelosCriacaoSimNao_(model.EXIGE_CONFIRMACAO_PRESENCA_PADRAO, 'NAO'),
+    CONTA_PRESENCA: atividades_modelosCriacaoSimNao_(model.CONTA_PRESENCA_PADRAO, 'NAO'),
+    CONTA_FALTA: atividades_modelosCriacaoSimNao_(model.CONTA_FALTA_PADRAO, 'NAO'),
+    PERMITE_JUSTIFICATIVA: atividades_modelosCriacaoSimNao_(model.PERMITE_JUSTIFICATIVA, 'NAO'),
+    GERA_CERTIFICADO: atividades_modelosCriacaoSimNao_(model.GERA_CERTIFICADO_PADRAO, 'NAO'),
+    CARGA_HORARIA: occurrence.cargaHoraria,
+    STATUS_OPERACIONAL: 'PLANEJADA',
+    STATUS_PUBLICACAO_PORTAL: atividades_modelosCriacaoInitialPublication_(model.STATUS_PUBLICACAO_PORTAL_PADRAO),
+    VISIBILIDADE_PORTAL: atividades_modelosCriacaoInitialVisibility_(model.VISIBILIDADE_PORTAL_PADRAO),
+    EXIGE_EIXO_TEMATICO: atividades_modelosCriacaoSimNao_(model.EXIGE_EIXO_TEMATICO, 'NAO'),
+    PERMITE_EIXO_SECUNDARIO: atividades_modelosCriacaoSimNao_(model.PERMITE_EIXO_SECUNDARIO, 'NAO'),
+    PAPEL_PESSOA_PRINCIPAL: atividades_normalizeTextUpper_(model.PAPEL_PADRAO_PESSOA_PRINCIPAL),
+    ORIGEM_FLUXO: 'PORTAL_MODELO_HOMOLOGADO',
+    TEM_EXCECAO_CONFIG: 'NAO',
+    STATUS_EXCECAO_CONFIG: 'NAO_APLICAVEL',
+    JUSTIFICATIVA_EXCECAO_CONFIG: '',
+    REGRAS_PENDENCIAS_MODELO: {
+      geraPendenciaTituloEixo: atividades_modelosCriacaoIsYes_(model.GERA_PENDENCIA_TITULO_EIXO),
+      geraPendenciaMaterial: atividades_modelosCriacaoIsYes_(model.GERA_PENDENCIA_MATERIAL),
+      geraPendenciaAta: atividades_modelosCriacaoIsYes_(model.GERA_PENDENCIA_ATA),
+      geraPendenciaFotos: atividades_modelosCriacaoIsYes_(model.GERA_PENDENCIA_FOTOS),
+      geraPendenciaListaPresenca: atividades_modelosCriacaoIsYes_(model.GERA_PENDENCIA_LISTA_PRESENCA),
+      geraPendenciaConfirmacaoConvidado: atividades_modelosCriacaoIsYes_(model.GERA_PENDENCIA_CONFIRMACAO_CONVIDADO)
+    }
+  };
+}
+
+function atividades_modelosCriacaoDetectSensitiveDivergences_(payload, inherited) {
+  var specs = [
+    ['TIPO_ATIVIDADE', ['tipoAtividade', 'TIPO_ATIVIDADE'], 'TEXT'],
+    ['SUBTIPO_ATIVIDADE', ['subtipoAtividade', 'SUBTIPO_ATIVIDADE'], 'TEXT'],
+    ['CLASSIFICACAO_REUNIAO', ['classificacaoReuniao', 'CLASSIFICACAO_REUNIAO'], 'TEXT'],
+    ['CLASSIFICACAO_ACESSO', ['classificacaoAcesso', 'CLASSIFICACAO_ACESSO'], 'TEXT'],
+    ['CONTA_PRESENCA', ['contaPresenca', 'CONTA_PRESENCA'], 'SIM_NAO'],
+    ['CONTA_FALTA', ['contaFalta', 'CONTA_FALTA'], 'SIM_NAO'],
+    ['GERA_CERTIFICADO', ['geraCertificado', 'GERA_CERTIFICADO'], 'SIM_NAO'],
+    ['PERMITE_JUSTIFICATIVA', ['permiteJustificativa', 'PERMITE_JUSTIFICATIVA'], 'SIM_NAO'],
+    ['EXIGE_ATA', ['exigeAta', 'EXIGE_ATA'], 'SIM_NAO'],
+    ['EXIGE_MATERIAL', ['exigeMaterial', 'EXIGE_MATERIAL'], 'SIM_NAO'],
+    ['EXIGE_LISTA_PRESENCA', ['exigeListaPresenca', 'EXIGE_LISTA_PRESENCA'], 'SIM_NAO'],
+    ['EXIGE_CONVOCACAO', ['exigeConvocacao', 'EXIGE_CONVOCACAO'], 'SIM_NAO'],
+    ['EXIGE_LEMBRETE', ['exigeLembrete', 'EXIGE_LEMBRETE'], 'SIM_NAO'],
+    ['EXIGE_CONFIRMACAO_PRESENCA', ['exigeConfirmacaoPresenca', 'EXIGE_CONFIRMACAO_PRESENCA'], 'SIM_NAO'],
+    ['CARGA_HORARIA', ['cargaHoraria', 'CARGA_HORARIA'], 'NUMBER'],
+    ['STATUS_PUBLICACAO_PORTAL', ['statusPublicacaoPortal', 'STATUS_PUBLICACAO_PORTAL'], 'TEXT'],
+    ['VISIBILIDADE_PORTAL', ['visibilidadePortal', 'VISIBILIDADE_PORTAL'], 'TEXT']
+  ];
+  var divergences = [];
+  specs.forEach(function(spec) {
+    var sent = atividades_modelosCriacaoFindSentValue_(payload, spec[1]);
+    if (!sent.found) return;
+    var expected = inherited[spec[0]];
+    var received = sent.value;
+    var equal = spec[2] === 'NUMBER'
+      ? Math.abs(Number(received) - Number(expected)) < 0.0001
+      : spec[2] === 'SIM_NAO'
+        ? atividades_modelosCriacaoSimNao_(received, '') === expected
+        : atividades_normalizeTextUpper_(received) === atividades_normalizeTextUpper_(expected);
+    if (!equal) {
+      divergences.push({ campo: spec[0], valorModelo: expected, valorSolicitado: received });
+    }
+  });
+  return divergences;
+}
+
+function atividades_modelosCriacaoBuildPreview_(occurrence, inherited, model, contexto, ss) {
+  var identity = atividadesV2_buildNextActivityIdentityForCreate_(occurrence.dataAtividade, ss);
+  var now = new Date();
+  var actor = atividadesV2_portalActorToken_(contexto);
+  var hasAxis = !!String(occurrence.eixoTematicoPrincipal || occurrence.eixoTematicoSecundario || '').trim();
+  var row = {
+    ID_ATIVIDADE: identity.idAtividade,
+    CICLO: 'GEAPA_' + identity.ano,
+    ANO: identity.ano,
+    SEMESTRE: identity.semestre,
+    NUMERO_SEQUENCIAL_NO_CICLO: identity.sequencial,
+    CLASSIFICACAO_REUNIAO: inherited.CLASSIFICACAO_REUNIAO,
+    TIPO_ATIVIDADE: inherited.TIPO_ATIVIDADE,
+    SUBTIPO_ATIVIDADE: inherited.SUBTIPO_ATIVIDADE,
+    CLASSIFICACAO_ACESSO: inherited.CLASSIFICACAO_ACESSO,
+    TITULO: occurrence.tituloPublico,
+    TITULO_PUBLICO: occurrence.tituloPublico,
+    DESCRICAO: occurrence.descricaoInterna || occurrence.descricaoPublica,
+    DESCRICAO_PUBLICA: occurrence.descricaoPublica,
+    EIXO_TEMATICO_PRINCIPAL: occurrence.eixoTematicoPrincipal,
+    EIXO_TEMATICO_SECUNDARIO: occurrence.eixoTematicoSecundario,
+    STATUS_EIXO_TEMATICO: hasAxis && inherited.EXIGE_EIXO_TEMATICO === 'SIM' ? 'PENDENTE' : '',
+    ID_PESSOA_PRINCIPAL: occurrence.idPessoaPrincipal,
+    NOME_PESSOA_PRINCIPAL_PUBLICO: occurrence.nomePessoaPrincipalPublico,
+    RGA_PESSOA_PRINCIPAL: occurrence.rgaPessoaPrincipal,
+    EMAIL_PESSOA_PRINCIPAL: occurrence.emailPessoaPrincipal,
+    TIPO_PESSOA_PRINCIPAL: occurrence.tipoPessoaPrincipal,
+    PAPEL_PESSOA_PRINCIPAL: inherited.PAPEL_PESSOA_PRINCIPAL,
+    INSTITUICAO_PESSOA_PRINCIPAL: occurrence.instituicaoPessoaPrincipal,
+    DATA_ATIVIDADE: occurrence.dataAtividade,
+    HORARIO_INICIO: occurrence.horarioInicio,
+    HORARIO_FIM: occurrence.horarioFim,
+    LOCAL: occurrence.local,
+    FORMATO: occurrence.formato,
+    RESPONSAVEL_INTERNO: occurrence.responsavelInterno,
+    RESPONSAVEL_EMAIL: occurrence.responsavelEmail,
+    PUBLICO_ALVO: occurrence.publicoAlvo,
+    OBRIGATORIA: inherited.OBRIGATORIA,
+    EXIGE_CONVOCACAO: inherited.EXIGE_CONVOCACAO,
+    EXIGE_LEMBRETE: inherited.EXIGE_LEMBRETE,
+    EXIGE_ATA: inherited.EXIGE_ATA,
+    EXIGE_MATERIAL: inherited.EXIGE_MATERIAL,
+    EXIGE_LISTA_PRESENCA: inherited.EXIGE_LISTA_PRESENCA,
+    EXIGE_CONFIRMACAO_PRESENCA: inherited.EXIGE_CONFIRMACAO_PRESENCA,
+    CONTA_PRESENCA: inherited.CONTA_PRESENCA,
+    CONTA_FALTA: inherited.CONTA_FALTA,
+    GERA_CERTIFICADO: inherited.GERA_CERTIFICADO,
+    CARGA_HORARIA: inherited.CARGA_HORARIA,
+    STATUS_OPERACIONAL: inherited.STATUS_OPERACIONAL,
+    STATUS_PUBLICACAO_PORTAL: inherited.STATUS_PUBLICACAO_PORTAL,
+    VISIBILIDADE_PORTAL: inherited.VISIBILIDADE_PORTAL,
+    DATA_LIMITE_JUSTIFICATIVA: atividades_modelosCriacaoDeadline_(occurrence, model.PRAZO_JUSTIFICATIVA_HORAS),
+    DATA_LIMITE_ATA: atividades_modelosCriacaoDeadline_(occurrence, model.PRAZO_ATA_HORAS),
+    DATA_LIMITE_MATERIAL: atividades_modelosCriacaoDeadline_(occurrence, model.PRAZO_MATERIAL_HORAS),
+    ORIGEM_FLUXO: inherited.ORIGEM_FLUXO,
+    CRIADO_POR: actor,
+    CRIADO_EM: now,
+    ATUALIZADO_POR: actor,
+    ATUALIZADO_EM: now,
+    BLOQUEADO_PARA_EDICAO: 'NAO',
+    OBSERVACOES: atividades_modelosCriacaoObservations_(occurrence, model),
+    ATIVO: 'SIM',
+    ID_CONFIG_MODELO: inherited.ID_CONFIG_MODELO,
+    NOME_MODELO_PORTAL_SNAPSHOT: inherited.NOME_MODELO_PORTAL_SNAPSHOT,
+    VERSAO_CONFIG_MODELO: inherited.VERSAO_CONFIG_MODELO,
+    TEM_EXCECAO_CONFIG: inherited.TEM_EXCECAO_CONFIG,
+    STATUS_EXCECAO_CONFIG: inherited.STATUS_EXCECAO_CONFIG,
+    JUSTIFICATIVA_EXCECAO_CONFIG: inherited.JUSTIFICATIVA_EXCECAO_CONFIG,
+    PERMITE_JUSTIFICATIVA: inherited.PERMITE_JUSTIFICATIVA,
+    EXIGE_EIXO_TEMATICO: inherited.EXIGE_EIXO_TEMATICO,
+    PERMITE_EIXO_SECUNDARIO: inherited.PERMITE_EIXO_SECUNDARIO
+  };
+  return {
+    idAtividade: identity.idAtividade,
+    row: row,
+    rotuloSemestre: identity.ano + '/' + identity.semestre,
+    payloadNormalizado: occurrence
+  };
+}
+
+function atividades_modelosCriacaoToSafeModel_(model) {
+  return {
+    idConfig: String(model.ID_CONFIG || '').trim(),
+    nomeModeloPortal: atividades_sanitizePortalText_(model.NOME_MODELO_PORTAL || model.SUBTIPO_ATIVIDADE || 'Atividade', 240),
+    descricaoModeloPortal: atividades_sanitizePortalText_(model.DESCRICAO_MODELO_PORTAL, 800),
+    grupoModelo: atividades_sanitizePortalText_(model.GRUPO_MODELO || 'Outros', 120),
+    ordemExibicao: Number(model.ORDEM_EXIBICAO) || 0,
+    tipoAtividade: atividades_normalizeTextUpper_(model.TIPO_ATIVIDADE),
+    subtipoAtividade: atividades_normalizeTextUpper_(model.SUBTIPO_ATIVIDADE),
+    classificacaoReuniao: atividades_normalizeTextUpper_(model.CLASSIFICACAO_REUNIAO),
+    tipoPublico: atividadesV2_getTipoPublicoCalendario_(model),
+    cargaHorariaPadrao: atividadesV2_parsePositiveNumber_(model.CARGA_HORARIA_PADRAO) || '',
+    exigeTituloPublico: atividades_modelosCriacaoIsYes_(model.EXIGE_TITULO_PUBLICO),
+    exigeEixoTematico: atividades_modelosCriacaoIsYes_(model.EXIGE_EIXO_TEMATICO),
+    permiteEixoSecundario: atividades_modelosCriacaoIsYes_(model.PERMITE_EIXO_SECUNDARIO),
+    exigePessoaPrincipal: atividades_modelosCriacaoIsYes_(model.EXIGE_PESSOA_PRINCIPAL),
+    papelPadraoPessoaPrincipal: atividades_normalizeTextUpper_(model.PAPEL_PADRAO_PESSOA_PRINCIPAL),
+    tipoPessoaPrincipalPadrao: atividades_modelosCriacaoAllowedPrincipalTypes_(model),
+    permitePessoaExternaPrincipal: atividades_modelosCriacaoIsYes_(model.PERMITE_PESSOA_EXTERNA_PRINCIPAL),
+    permiteMembroComoPrincipal: atividades_modelosCriacaoIsYes_(model.PERMITE_MEMBRO_COMO_PRINCIPAL),
+    permiteProfessorComoPrincipal: atividades_modelosCriacaoIsYes_(model.PERMITE_PROFESSOR_COMO_PRINCIPAL),
+    exigeEmailPessoaPrincipal: atividades_modelosCriacaoIsYes_(model.EXIGE_EMAIL_PESSOA_PRINCIPAL),
+    exigeInstituicaoPessoaPrincipal: atividades_modelosCriacaoIsYes_(model.EXIGE_INSTITUICAO_PESSOA_PRINCIPAL),
+    contaPresencaPadrao: atividades_modelosCriacaoIsYes_(model.CONTA_PRESENCA_PADRAO),
+    contaFaltaPadrao: atividades_modelosCriacaoIsYes_(model.CONTA_FALTA_PADRAO),
+    geraCertificadoPadrao: atividades_modelosCriacaoIsYes_(model.GERA_CERTIFICADO_PADRAO),
+    permiteJustificativa: atividades_modelosCriacaoIsYes_(model.PERMITE_JUSTIFICATIVA),
+    exigeMaterialPadrao: atividades_modelosCriacaoIsYes_(model.EXIGE_MATERIAL_PADRAO),
+    tiposArquivoMaterialPermitidos: atividades_modelosCriacaoCsv_(model.TIPOS_ARQUIVO_MATERIAL_PERMITIDOS),
+    tamanhoMaxMaterialMb: Number(model.TAMANHO_MAX_MATERIAL_MB) || 0,
+    instrucaoUploadMaterial: atividades_sanitizePortalText_(model.INSTRUCAO_UPLOAD_MATERIAL, 800),
+    visibilidadePortalPadrao: atividades_modelosCriacaoInitialVisibility_(model.VISIBILIDADE_PORTAL_PADRAO),
+    statusPublicacaoPortalPadrao: atividades_modelosCriacaoInitialPublication_(model.STATUS_PUBLICACAO_PORTAL_PADRAO),
+    exibeNoCalendario: atividades_modelosCriacaoIsYes_(model.EXIBE_NO_CALENDARIO),
+    exibeEmProximasAtividades: atividades_modelosCriacaoIsYes_(model.EXIBE_EM_PROXIMAS_ATIVIDADES),
+    exigeRevisaoAntesPublicar: atividades_modelosCriacaoIsYes_(model.EXIGE_REVISAO_ANTES_PUBLICAR),
+    versaoConfigModelo: atividades_modelosCriacaoVersion_(model)
+  };
+}
+
+function atividades_modelosCriacaoReadConfigRows_(ss) {
+  var sheet = atividadesV2_getTargetSheet_(ss, ATIVIDADES_V2_SHEETS.CONFIG);
+  return atividadesV2_readSheetObjects_(sheet);
+}
+
+function atividades_modelosCriacaoFindConfig_(rows, idConfig) {
+  var wanted = String(idConfig || '').trim().toUpperCase();
+  for (var i = 0; i < rows.length; i++) {
+    if (String(rows[i].ID_CONFIG || '').trim().toUpperCase() === wanted) return rows[i];
+  }
+  return null;
+}
+
+function atividades_modelosCriacaoValidateBasePermission_(ctx) {
+  if (!atividadesV2_canCreateActivityFromPortal_(ctx)) {
+    return atividades_modelosCriacaoError_('PERMISSAO_INSUFICIENTE', 'Perfil sem permissao para criar atividades.');
+  }
+  if (!String(ctx.idPessoa || ctx.email || '').trim()) {
+    return atividades_modelosCriacaoError_('USUARIO_NAO_IDENTIFICADO', 'Nao foi possivel identificar o usuario da sessao.');
+  }
+  return { ok: true };
+}
+
+function atividades_modelosCriacaoValidateModelAccess_(model, ctx) {
+  if (!model) return atividades_modelosCriacaoError_('MODELO_NAO_ENCONTRADO', 'Modelo de atividade nao encontrado.');
+  if (atividades_normalizeTextUpper_(model.ATIVO) !== 'SIM') {
+    return atividades_modelosCriacaoError_('MODELO_INATIVO', 'O modelo de atividade esta inativo.');
+  }
+  if (atividades_normalizeTextUpper_(model.PERMITE_CRIACAO_PORTAL) !== 'SIM') {
+    return atividades_modelosCriacaoError_('MODELO_NAO_PERMITE_CRIACAO_PORTAL', 'O modelo nao permite criacao pelo Portal.');
+  }
+  if (!atividades_modelosCriacaoProfileAllowed_(model, ctx)) {
+    return atividades_modelosCriacaoError_('PERMISSAO_MODELO_NEGADA', 'Seu perfil nao pode criar atividades com este modelo.');
+  }
+  return { ok: true };
+}
+
+function atividades_modelosCriacaoIsEnabled_(model) {
+  return atividades_normalizeTextUpper_(model.ATIVO) === 'SIM' &&
+    atividades_normalizeTextUpper_(model.PERMITE_CRIACAO_PORTAL) === 'SIM';
+}
+
+function atividades_modelosCriacaoProfileAllowed_(model, ctx) {
+  var allowed = atividades_modelosCriacaoCsv_(model.PERFIS_QUE_PODEM_CRIAR).map(atividades_modelosCriacaoNormalizeProfile_);
+  if (!allowed.length) return false;
+  var actual = [ctx.perfil].concat(ctx.perfisPortal || []).map(atividades_modelosCriacaoNormalizeProfile_);
+  return actual.some(function(profile) { return allowed.indexOf(profile) >= 0; });
+}
+
+function atividades_modelosCriacaoNormalizeProfile_(profile) {
+  var value = atividades_normalizeTextUpper_(profile);
+  if (value === 'SECRETARIA') return 'SECRETARIO';
+  if (value === 'PRESIDENCIA' || value === 'PRESIDENTE') return 'DIRETORIA';
+  if (value === 'ADMIN') return 'ADMIN_TECNICO';
+  return value;
+}
+
+function atividades_modelosCriacaoBuildExceptionMeta_(model, divergences) {
+  return {
+    excecaoNecessaria: !!(divergences || []).length,
+    aprovacaoExigida: atividades_normalizeTextUpper_(model.APROVACAO_EXCECAO_NIVEL || 'DIRETORIA'),
+    perfisAprovadores: atividades_modelosCriacaoCsv_(model.PERFIS_APROVADORES_EXCECAO),
+    qtdAprovadores: Math.max(1, Number(model.QTD_APROVADORES_EXCECAO) || 1)
+  };
+}
+
+function atividades_modelosCriacaoBuildResponseData_(creation, safeModel) {
+  return {
+    idAtividade: creation.idAtividade,
+    idConfig: creation.row.ID_CONFIG_MODELO,
+    nomeModeloPortal: creation.row.NOME_MODELO_PORTAL_SNAPSHOT,
+    versaoConfigModelo: creation.row.VERSAO_CONFIG_MODELO,
+    tituloPublico: creation.row.TITULO_PUBLICO,
+    dataAtividade: atividades_formatPortalDateIso_(creation.row.DATA_ATIVIDADE),
+    horarioInicio: creation.row.HORARIO_INICIO,
+    horarioFim: creation.row.HORARIO_FIM,
+    statusOperacional: creation.row.STATUS_OPERACIONAL,
+    statusPublicacaoPortal: creation.row.STATUS_PUBLICACAO_PORTAL,
+    visibilidadePortal: creation.row.VISIBILIDADE_PORTAL,
+    rotuloSemestre: creation.rotuloSemestre,
+    modeloAplicado: safeModel,
+    regrasAplicadas: {
+      tipoAtividade: creation.row.TIPO_ATIVIDADE,
+      subtipoAtividade: creation.row.SUBTIPO_ATIVIDADE,
+      classificacaoAcesso: creation.row.CLASSIFICACAO_ACESSO,
+      contaPresenca: creation.row.CONTA_PRESENCA,
+      contaFalta: creation.row.CONTA_FALTA,
+      geraCertificado: creation.row.GERA_CERTIFICADO,
+      permiteJustificativa: creation.row.PERMITE_JUSTIFICATIVA,
+      cargaHoraria: creation.row.CARGA_HORARIA
+    }
+  };
+}
+
+function atividades_modelosCriacaoAppendLogs_(ss, creation, model, contexto) {
+  var safeDetails = {
+    idAtividade: creation.idAtividade,
+    idConfig: String(model.ID_CONFIG || '').trim(),
+    versaoConfigModelo: creation.row.VERSAO_CONFIG_MODELO,
+    statusOperacional: creation.row.STATUS_OPERACIONAL,
+    statusPublicacaoPortal: creation.row.STATUS_PUBLICACAO_PORTAL,
+    visibilidadePortal: creation.row.VISIBILIDADE_PORTAL
+  };
+  atividadesV2_appendV2Log_(ss, {
+    FLUXO: 'PORTAL_ATIVIDADES_GESTAO_DEV',
+    ACAO: 'CRIAR_ATIVIDADE_POR_MODELO',
+    NIVEL: 'INFO',
+    STATUS: 'OK',
+    ID_ATIVIDADE: creation.idAtividade,
+    MENSAGEM: 'Atividade criada por modelo homologado em modo rascunho.',
+    DETALHES_JSON: atividadesV2_safeLogData_(safeDetails)
+  });
+  atividadesV2_portalAppendAcao_(ss, {
+    ID_ACAO_PORTAL: atividadesV2_buildDeterministicId_('AACT', ['ATIVIDADE_MODELO_CRIADA', creation.idAtividade, new Date().getTime()]),
+    DATA_HORA: new Date(),
+    USUARIO_EMAIL: contexto.email || '',
+    PERFIL_USUARIO: contexto.perfil || '',
+    TIPO_ACAO: 'ATIVIDADE_MODELO_CRIADA',
+    ID_ATIVIDADE: creation.idAtividade,
+    ID_ENTIDADE: creation.idAtividade,
+    TIPO_ENTIDADE: 'ATIVIDADE',
+    PAYLOAD_JSON: atividadesV2_safeLogData_(safeDetails),
+    STATUS_PROCESSAMENTO: 'CONCLUIDO',
+    RESULTADO_JSON: atividadesV2_safeLogData_({ ok: true, idAtividade: creation.idAtividade }),
+    PROCESSADO_EM: new Date(),
+    PROCESSADO_POR: atividadesV2_portalActorToken_(contexto),
+    OBSERVACOES: 'Criacao DEV por modelo homologado.',
+    ATIVO: 'SIM'
+  });
+}
+
+function atividades_modelosCriacaoIssueConfirmation_(fingerprint) {
+  var token = Utilities.getUuid().replace(/-/g, '');
+  var stored = portalCachePutJson_(atividades_modelosCriacaoConfirmationCacheKey_(token), {
+    fingerprint: fingerprint,
+    expiresAt: new Date().getTime() + ATIVIDADES_MODELO_CONFIRMATION_TTL_SECONDS_ * 1000
+  }, ATIVIDADES_MODELO_CONFIRMATION_TTL_SECONDS_);
+  return stored ? token : '';
+}
+
+function atividades_modelosCriacaoValidateConfirmation_(token, fingerprint) {
+  var normalized = String(token || '').trim();
+  if (!normalized) return atividades_modelosCriacaoError_('CONFIRMACAO_DRY_RUN_OBRIGATORIA', 'Valide a atividade antes de confirmar a criacao.');
+  var cached = portalCacheGetJson_(atividades_modelosCriacaoConfirmationCacheKey_(normalized));
+  if (!cached || cached.fingerprint !== fingerprint || Number(cached.expiresAt || 0) < new Date().getTime()) {
+    return atividades_modelosCriacaoError_('CONFIRMACAO_DRY_RUN_INVALIDA', 'A validacao expirou ou os dados mudaram. Valide novamente.');
+  }
+  return { ok: true };
+}
+
+function atividades_modelosCriacaoFingerprint_(idConfig, version, occurrence, inherited, contexto) {
+  return portalCacheHash_(JSON.stringify({
+    idConfig: idConfig,
+    version: version,
+    occurrence: occurrence,
+    inherited: inherited,
+    actor: atividadesV2_portalActorToken_(contexto)
+  }));
+}
+
+function atividades_modelosCriacaoConfirmationCacheKey_(token) {
+  return portalCacheBuildKey_('modelo_criacao_confirmacao', String(token || '').trim());
+}
+
+function atividades_modelosCriacaoListCacheKey_(ctx) {
+  return portalCacheBuildKey_('modelos_criacao', atividades_modelosCriacaoNormalizeProfile_(ctx.perfil || 'MEMBRO'));
+}
+
+function atividades_modelosCriacaoInvalidateCaches_() {
+  ['MEMBRO', 'SECRETARIO', 'DIRETORIA', 'ADMIN_TECNICO'].forEach(function(profile) {
+    portalCacheRemove_(portalCacheBuildKey_('modelos_criacao', profile));
+  });
+}
+
+function atividades_modelosCriacaoBuildGroups_(models) {
+  var groups = {};
+  (models || []).forEach(function(model) {
+    var group = model.grupoModelo || 'Outros';
+    if (!groups[group]) groups[group] = [];
+    groups[group].push(model.idConfig);
+  });
+  return Object.keys(groups).sort().map(function(group) {
+    return { grupo: group, idsModelos: groups[group] };
+  });
+}
+
+function atividades_modelosCriacaoLatestUpdate_(rows) {
+  var latest = 0;
+  (rows || []).forEach(function(row) {
+    var value = row.ATUALIZADO_EM || row.CRIADO_EM;
+    var date = value instanceof Date ? value : new Date(value || 0);
+    if (!isNaN(date.getTime())) latest = Math.max(latest, date.getTime());
+  });
+  return latest ? new Date(latest).toISOString() : '';
+}
+
+function atividades_modelosCriacaoVersion_(model) {
+  var snapshot = {};
+  ATIVIDADES_CONFIG_MODELOS_LEGACY_HEADERS_.concat(ATIVIDADES_CONFIG_MODELOS_NEW_HEADERS_).forEach(function(header) {
+    if (['CRIADO_EM', 'ATUALIZADO_EM', 'OBSERVACOES'].indexOf(header) < 0) {
+      snapshot[header] = model[header] === null || typeof model[header] === 'undefined' ? '' : model[header];
+    }
+  });
+  return 'MODELO-V1-' + portalCacheHash_(JSON.stringify(snapshot)).slice(0, 16);
+}
+
+function atividades_modelosCriacaoInitialPublication_(value) {
+  var normalized = atividades_normalizeTextUpper_(value);
+  return normalized === 'OCULTA' || normalized === 'CANCELADA' ? 'OCULTA' : 'RASCUNHO';
+}
+
+function atividades_modelosCriacaoInitialVisibility_(value) {
+  return atividades_normalizeTextUpper_(value) === 'OCULTA' ? 'OCULTA' : 'DIRETORIA';
+}
+
+function atividades_modelosCriacaoDeadline_(occurrence, hoursValue) {
+  var rawHours = String(hoursValue === null || hoursValue === undefined ? '' : hoursValue).trim();
+  if (!rawHours) return '';
+  var hours = Number(rawHours.replace(',', '.'));
+  if (!isFinite(hours) || hours < 0) return '';
+  var date = atividades_parseDateOrNull_(occurrence.dataAtividade);
+  var endMinutes = atividades_parseTimeValueToMinutes_(occurrence.horarioFim);
+  if (!date || endMinutes === null) return '';
+  date.setHours(Math.floor(endMinutes / 60), endMinutes % 60, 0, 0);
+  date.setTime(date.getTime() + hours * 60 * 60 * 1000);
+  return date;
+}
+
+function atividades_modelosCriacaoObservations_(occurrence, model) {
+  var parts = [];
+  if (occurrence.observacoes) parts.push(occurrence.observacoes);
+  parts.push('Criada pelo Portal GEAPA a partir do modelo homologado ' + String(model.ID_CONFIG || '') + '.');
+  return atividades_sanitizePortalText_(parts.join(' '), 1000);
+}
+
+function atividades_modelosCriacaoCsv_(value) {
+  return String(value || '').split(',').map(function(item) {
+    return atividades_normalizeTextUpper_(item);
+  }).filter(function(item) { return !!item; });
+}
+
+function atividades_modelosCriacaoAllowedPrincipalTypes_(model) {
+  var types = atividades_modelosCriacaoCsv_(model.TIPO_PESSOA_PRINCIPAL_PADRAO);
+  if (atividades_modelosCriacaoIsYes_(model.PERMITE_MEMBRO_COMO_PRINCIPAL)) types.push('MEMBRO');
+  if (atividades_modelosCriacaoIsYes_(model.PERMITE_PROFESSOR_COMO_PRINCIPAL)) types.push('PROFESSOR');
+  if (atividades_modelosCriacaoIsYes_(model.PERMITE_PESSOA_EXTERNA_PRINCIPAL)) types.push('EXTERNO');
+  return types.filter(function(type, index) { return types.indexOf(type) === index; });
+}
+
+function atividades_modelosCriacaoIsYes_(value) {
+  return atividades_modelosCriacaoSimNao_(value, 'NAO') === 'SIM';
+}
+
+function atividades_modelosCriacaoSimNao_(value, fallback) {
+  return atividadesV2_normalizarSimNaoValor_(value) || fallback;
+}
+
+function atividades_modelosCriacaoOrder_(value) {
+  var number = Number(value);
+  return isFinite(number) && number > 0 ? number : 999999;
+}
+
+function atividades_modelosCriacaoFindSentValue_(payload, aliases) {
+  for (var i = 0; i < aliases.length; i++) {
+    if (Object.prototype.hasOwnProperty.call(payload || {}, aliases[i])) {
+      return { found: true, value: payload[aliases[i]] };
+    }
+  }
+  return { found: false, value: '' };
+}
+
+function atividades_modelosCriacaoHeaderSet_(sheet) {
+  var headers = atividadesV2_getSheetHeaders_(sheet);
+  var set = {};
+  headers.forEach(function(header) {
+    var key = String(header || '').trim().toUpperCase();
+    if (key) set[key] = true;
+  });
+  return set;
+}
+
+function atividades_modelosCriacaoError_(code, message, err) {
+  var result = {
+    ok: false,
+    errorCode: code,
+    message: message,
+    mensagens: [],
+    avisos: [],
+    erros: []
+  };
+  if (err) result.detalhes = atividadesV2_errorMessage_(err).slice(0, 300);
+  return result;
+}
+
+function atividades_runTesteCriacaoPorModeloDev_() {
+  var ss = atividadesV2_getDatabaseSpreadsheetDev_();
+  var rows = atividades_modelosCriacaoReadConfigRows_(ss);
+  var wanted = ['APRESENTACAO_MEMBRO', 'PALESTRA', 'ABERTURA_PERIODO', 'FECHAMENTO_PERIODO'];
+  var contexto = { perfil: 'ADMIN_TECNICO', email: 'teste-dev@geapa.local' };
+  var tests = wanted.map(function(subtype) {
+    var model = rows.filter(function(row) {
+      return atividades_normalizeTextUpper_(row.SUBTIPO_ATIVIDADE) === subtype;
+    })[0];
+    if (!model) return { subtipoAtividade: subtype, ok: false, errorCode: 'MODELO_NAO_ENCONTRADO' };
+
+    var allowedTypes = atividades_modelosCriacaoAllowedPrincipalTypes_(model);
+    var payload = {
+      idConfig: model.ID_CONFIG,
+      atividade: {
+        tituloPublico: 'Teste DEV - ' + subtype,
+        dataAtividade: '2026-08-20',
+        horarioInicio: '18h30',
+        horarioFim: '20h30',
+        formato: 'PRESENCIAL',
+        local: 'Ambiente de teste DEV',
+        eixoTematicoPrincipal: atividades_modelosCriacaoIsYes_(model.EXIGE_EIXO_TEMATICO) ? 'Eixo de teste' : '',
+        idPessoaPrincipal: allowedTypes.indexOf('MEMBRO') >= 0 ? 'PES-TESTE-DEV' : '',
+        nomePessoaPrincipalPublico: atividades_modelosCriacaoIsYes_(model.EXIGE_PESSOA_PRINCIPAL) ? 'Pessoa de teste' : '',
+        tipoPessoaPrincipal: allowedTypes[0] || '',
+        emailPessoaPrincipal: atividades_modelosCriacaoIsYes_(model.EXIGE_EMAIL_PESSOA_PRINCIPAL) ? 'teste-dev@geapa.local' : '',
+        instituicaoPessoaPrincipal: atividades_modelosCriacaoIsYes_(model.EXIGE_INSTITUICAO_PESSOA_PRINCIPAL) ? 'Instituicao de teste' : ''
+      }
+    };
+    var result = atividades_modelosCriacaoValidate_(payload, contexto, { emitirConfirmacao: false });
+    return {
+      subtipoAtividade: subtype,
+      idConfig: String(model.ID_CONFIG || ''),
+      ok: result.ok === true,
+      errorCode: result.errorCode || '',
+      excecaoNecessaria: result.excecaoNecessaria === true
+    };
+  });
+
+  return {
+    ok: tests.every(function(test) { return test.ok; }),
+    dryRun: true,
+    escrita: false,
+    ambiente: 'DEV',
+    testes: tests,
+    total: tests.length,
+    aprovados: tests.filter(function(test) { return test.ok; }).length
+  };
+}

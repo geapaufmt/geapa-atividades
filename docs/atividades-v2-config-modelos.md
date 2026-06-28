@@ -2,7 +2,7 @@
 
 ## Escopo
 
-Esta etapa prepara a aba `Atividades_Config` da base Atividades v2 DEV para funcionar como catalogo oficial de modelos homologados. Ela nao cria a nova tela do Portal, nao altera o contrato atual de criacao de atividades, nao ativa Firestore e nao implementa upload de arquivos.
+Esta etapa prepara a aba `Atividades_Config` da base Atividades v2 DEV para funcionar como catalogo oficial de modelos homologados. O consumo desse catalogo pela criacao do Portal esta documentado em `docs/atividades-v2-criacao-modelos.md`. Firestore e upload real de arquivos continuam fora de escopo.
 
 A planilha e aberta exclusivamente pela key DEV `ATIVIDADES_V2_DB`. Nenhuma rotina deste pacote remove, renomeia ou reordena colunas existentes.
 
