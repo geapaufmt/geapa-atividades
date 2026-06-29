@@ -114,6 +114,52 @@ function atividadesV2_portalCriarAtividade(payload, contexto) {
   }, { entrypoint: 'atividadesV2_portalCriarAtividade' });
 }
 
+function atividadesV2_portalListarAtividadesAdmin(filtros, contexto) {
+  return atividadesV2_portalListarAtividadesAdmin_(filtros || {}, contexto || {});
+}
+
+function atividadesV2_portalGetDetalheAtividadeAdmin(idAtividade, contexto) {
+  return atividadesV2_portalGetDetalheAtividadeAdmin_(idAtividade, contexto || {});
+}
+
+function atividadesV2_portalValidarEdicaoAtividadeAdmin(payload, contexto) {
+  return atividadesV2_portalValidarEdicaoAtividadeAdmin_(payload || {}, contexto || {});
+}
+
+function atividadesV2_portalSalvarEdicaoAtividadeAdmin(payload, contexto) {
+  return atividades_runWithOperationalGuard_('ATUALIZACAO_PORTAL_V2', null, function() {
+    return atividadesV2_portalSalvarEdicaoAtividadeAdmin_(payload || {}, contexto || {});
+  }, { entrypoint: 'atividadesV2_portalSalvarEdicaoAtividadeAdmin' });
+}
+
+function atividadesV2_portalPublicarAtividadeAdmin(payload, contexto) {
+  return atividades_runWithOperationalGuard_('ATUALIZACAO_PORTAL_V2', null, function() {
+    return atividadesV2_portalAlterarStatusAtividadeAdmin_('PUBLICAR', payload || {}, contexto || {});
+  }, { entrypoint: 'atividadesV2_portalPublicarAtividadeAdmin' });
+}
+
+function atividadesV2_portalOcultarAtividadeAdmin(payload, contexto) {
+  return atividades_runWithOperationalGuard_('ATUALIZACAO_PORTAL_V2', null, function() {
+    return atividadesV2_portalAlterarStatusAtividadeAdmin_('OCULTAR', payload || {}, contexto || {});
+  }, { entrypoint: 'atividadesV2_portalOcultarAtividadeAdmin' });
+}
+
+function atividadesV2_portalCancelarAtividadeAdmin(payload, contexto) {
+  return atividades_runWithOperationalGuard_('ATUALIZACAO_PORTAL_V2', null, function() {
+    return atividadesV2_portalAlterarStatusAtividadeAdmin_('CANCELAR', payload || {}, contexto || {});
+  }, { entrypoint: 'atividadesV2_portalCancelarAtividadeAdmin' });
+}
+
+function atividadesV2_portalReabrirAtividadeAdmin(payload, contexto) {
+  return atividades_runWithOperationalGuard_('ATUALIZACAO_PORTAL_V2', null, function() {
+    return atividadesV2_portalAlterarStatusAtividadeAdmin_('REABRIR', payload || {}, contexto || {});
+  }, { entrypoint: 'atividadesV2_portalReabrirAtividadeAdmin' });
+}
+
+function atividadesV2_runTesteGestaoAtividadesAdminDev() {
+  return atividadesV2_runTesteGestaoAtividadesAdminDev_();
+}
+
 function atividadesV2_runTesteCriarAtividadePortalDev() {
   return atividades_runWithOperationalGuard_('CONFERENCIA_V2', null, function() {
     return atividadesV2_runTesteCriarAtividadePortalDev_();

@@ -987,8 +987,13 @@ function atividadesV2_portalCamelCase_(value) {
 function atividades_isPortalBlockedStatus_(status) {
   var normalized = atividades_normalizeTextUpper_(status);
   return normalized === 'CANCELADA' ||
+    normalized === 'CANCELADO' ||
     normalized === 'ARQUIVADA' ||
-    normalized === 'OCULTA';
+    normalized === 'ARQUIVADO' ||
+    normalized === 'OCULTA' ||
+    normalized === 'RASCUNHO' ||
+    normalized === 'PLANEJADA' ||
+    normalized === 'ADIADA';
 }
 
 function atividades_canShowActivityInPortal_(record, contexto) {
@@ -997,18 +1002,25 @@ function atividades_canShowActivityInPortal_(record, contexto) {
   var acesso = atividades_normalizeTextUpper_(record && record.CLASSIFICACAO_ACESSO);
   var visibilidade = atividades_normalizeTextUpper_(record && record.VISIBILIDADE_PORTAL);
   var statusPublicacao = atividades_normalizeTextUpper_(
-    (record && record.STATUS_PUBLICO) ||
     (record && record.STATUS_PUBLICACAO_PORTAL) ||
-    (record && record.STATUS_OPERACIONAL) ||
-    (record && record.STATUS)
+    (record && record.STATUS_PUBLICO)
   );
+  var statusOperacional = atividades_normalizeTextUpper_(record && record.STATUS_OPERACIONAL);
 
   if (!idAtividade) return false;
   if (typeof atividades_isRegistroInstitucionalForaDoEscopo_ === 'function' &&
     atividades_isRegistroInstitucionalForaDoEscopo_(record)) return false;
 
-  if (atividades_isPortalBlockedStatus_(statusPublicacao)) {
-    if (ctx.perfil === 'MEMBRO' || ctx.somenteVisiveis) return false;
+  if (atividades_isPortalBlockedStatus_(statusPublicacao)) return false;
+  if (['PUBLICADA', 'AGENDADA'].indexOf(statusPublicacao) < 0) return false;
+  if (['CANCELADA', 'CANCELADO', 'ARQUIVADA', 'ARQUIVADO'].indexOf(statusOperacional) >= 0) return false;
+
+  // A view so materializa agendamentos ja liberados. No fallback operacional,
+  // a coluna existe e precisa ser revalidada para nao antecipar a publicacao.
+  if (statusPublicacao === 'AGENDADA' &&
+      Object.prototype.hasOwnProperty.call(record || {}, 'DATA_LIBERACAO_PORTAL')) {
+    var liberacao = atividades_parseDateOrNull_(record.DATA_LIBERACAO_PORTAL);
+    if (!liberacao || liberacao.getTime() > new Date().getTime()) return false;
   }
 
   if (ctx.perfil === 'MEMBRO') {
@@ -1384,6 +1396,7 @@ function atividadesV2_portalGetCalendario_(contexto) {
     var cacheKey = portalCacheBuildKey_('calendario', portalCacheContextToken_(ctx));
     var cached = portalCacheGetJson_(cacheKey);
     if (cached) {
+      cached = atividades_filterConfirmedPortalCacheList_(cached);
       portalPerfMark_(perf, 'cache_hit_calendario', {
         total: cached.length || 0,
         payloadBytes: portalApproxPayloadBytes_(cached)
@@ -1488,6 +1501,10 @@ function atividades_buscarDetalheParaPortal_(idAtividade, contexto) {
     var ctx = atividades_normalizePortalContext_(contexto);
     var cacheKey = portalCacheBuildKey_('atividade:detalhes', wantedId + ':' + portalCacheContextToken_(ctx));
     var cached = portalCacheGetJson_(cacheKey);
+    if (cached && !atividades_isConfirmedPortalCacheRecord_(cached)) {
+      portalCacheRemove_(cacheKey);
+      cached = null;
+    }
     if (cached) {
       portalPerfMark_(perf, 'cache_hit_detalhe', { idAtividade: wantedId });
       var cachedPerf = portalPerfEnd_(perf);
@@ -1501,7 +1518,8 @@ function atividades_buscarDetalheParaPortal_(idAtividade, contexto) {
 
     var bundleCacheKey = portalCacheBuildKey_('detalhes', portalCacheContextToken_(ctx));
     var cachedDetails = portalCacheGetJson_(bundleCacheKey);
-    if (cachedDetails && cachedDetails.detalhesPorId && cachedDetails.detalhesPorId[wantedId]) {
+    if (cachedDetails && cachedDetails.detalhesPorId && cachedDetails.detalhesPorId[wantedId] &&
+        atividades_isConfirmedPortalCacheRecord_(cachedDetails.detalhesPorId[wantedId])) {
       portalPerfMark_(perf, 'cache_hit_detalhes_agregado', { idAtividade: wantedId });
       var aggregatePerf = portalPerfEnd_(perf);
       return {
@@ -1566,6 +1584,7 @@ function atividadesV2_portalGetAtividadesDetalhes_(contexto) {
     var cacheKey = portalCacheBuildKey_('detalhes', portalCacheContextToken_(ctx));
     var cached = portalCacheGetJson_(cacheKey);
     if (cached) {
+      cached = atividades_filterConfirmedPortalDetailsCache_(cached);
       portalPerfMark_(perf, 'cache_hit_detalhes', {
         total: cached && cached.detalhesPorId ? Object.keys(cached.detalhesPorId).length : 0,
         payloadBytes: portalApproxPayloadBytes_(cached)
@@ -1636,6 +1655,8 @@ function atividadesV2_portalGetAtividadesBundle_(contexto) {
     var cacheKey = portalCacheBuildKey_(cacheScope, portalCacheContextToken_(ctx));
     var cached = portalCacheGetJson_(cacheKey);
     if (cached) {
+      cached.calendario = atividades_filterConfirmedPortalCacheList_(cached.calendario || []);
+      cached.detalhesPorId = atividades_filterConfirmedPortalDetailsMap_(cached.detalhesPorId || {}, cached.calendario);
       portalPerfMark_(perf, 'cache_hit_bundle', {
         modo: incluirDetalhes ? 'com_detalhes' : 'leve',
         total: cached.calendario ? cached.calendario.length : 0,
@@ -1707,6 +1728,48 @@ function atividadesV2_portalGetAtividadesBundle_(contexto) {
       tempoTotalMs: errorPerf ? errorPerf.totalMs : ''
     }, errorPerf);
   }
+}
+
+function atividades_isConfirmedPortalCacheRecord_(record) {
+  var statusPublicacao = atividades_normalizeTextUpper_(record && (
+    record.statusPublicacaoPortal || record.STATUS_PUBLICACAO_PORTAL ||
+    record.statusPublico || record.STATUS_PUBLICO
+  ));
+  var statusOperacional = atividades_normalizeTextUpper_(record && (
+    record.statusOperacional || record.STATUS_OPERACIONAL
+  ));
+  return ['PUBLICADA', 'AGENDADA'].indexOf(statusPublicacao) >= 0 &&
+    ['CANCELADA', 'CANCELADO', 'ARQUIVADA', 'ARQUIVADO'].indexOf(statusOperacional) < 0;
+}
+
+function atividades_filterConfirmedPortalCacheList_(records) {
+  return (Array.isArray(records) ? records : []).filter(atividades_isConfirmedPortalCacheRecord_);
+}
+
+function atividades_filterConfirmedPortalDetailsMap_(detailsById, calendar) {
+  var allowed = {};
+  (calendar || []).forEach(function(item) {
+    var id = String(item && (item.idAtividade || item.ID_ATIVIDADE) || '').trim();
+    if (id) allowed[id] = true;
+  });
+  var out = {};
+  Object.keys(detailsById || {}).forEach(function(id) {
+    var detail = detailsById[id];
+    if (allowed[id] && atividades_isConfirmedPortalCacheRecord_(detail)) out[id] = detail;
+  });
+  return out;
+}
+
+function atividades_filterConfirmedPortalDetailsCache_(cached) {
+  var data = cached || {};
+  var out = Object.assign({}, data);
+  out.detalhesPorId = {};
+  Object.keys(data.detalhesPorId || {}).forEach(function(id) {
+    if (atividades_isConfirmedPortalCacheRecord_(data.detalhesPorId[id])) {
+      out.detalhesPorId[id] = data.detalhesPorId[id];
+    }
+  });
+  return out;
 }
 
 function atividadesV2_runTestePortalPerformanceDev_() {

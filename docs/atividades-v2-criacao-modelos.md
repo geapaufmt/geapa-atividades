@@ -42,6 +42,8 @@ Enquanto o Registry ainda apontar a key oficial para uma aba legada, a leitura p
 
 O Portal envia `ID_PESSOA` como chave. Nome, RGA e e-mail sao reobtidos no backend e gravados como dados auxiliares. O navegador nao decide elegibilidade nem pode substituir os dados canonicos da pessoa.
 
+Quando o modelo permite ou exige eixo tematico no agendamento, o Portal usa exclusivamente o catalogo oficial retornado por `atividadesV2_portalListarEixosTematicos`. O backend resolve novamente os valores contra a base oficial ativa, rejeita texto livre, eixo inativo e combinacao principal/secundario duplicada. Em `APRESENTACAO_MEMBRO`, os eixos continuam fora do agendamento e pertencem ao fluxo posterior do apresentador.
+
 ## Schema de Atividades
 
 A migracao adiciona somente ao final, sem reordenar ou remover colunas:

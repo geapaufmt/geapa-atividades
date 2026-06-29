@@ -771,6 +771,8 @@ A base `ATIVIDADES INTERNAS GEAPA v2 - DEV` possui rotinas manuais para material
 
 As rotinas aceitam `dryRun`, usam `LockService` em escrita e passam pelos fluxos `MIGRACAO_V2_DEV`, `ATUALIZACAO_PORTAL_V2`, `FREQUENCIA_V2` e `CONFERENCIA_V2` do controle operacional. A sincronizacao incremental das bases brutas insere faltantes por padrao e preserva registros ja curados na v2. A migracao de modelagem copia dados legados de apresentacoes para `Atividades` e `Atividades_Envolvidos`, mantendo `Atividades` como fonte principal de agenda, titulo, eixo e pessoa principal. As views ativas usam `PORTAL_ATIVIDADES_CALENDARIO` como lista/cards/historico e `PORTAL_ATIVIDADES_DETALHES` como detalhe unico por atividade, com multiplas apresentacoes em `APRESENTACOES_PUBLICAS_JSON`; a antiga view `PORTAL_APRESENTACOES` foi removida do contrato ativo. O job `atividadesV2_jobPortal(options)` usa escrita nao destrutiva por upsert nas views ativas. Detalhes: [`docs/atividades-v2-rotinas-portal.md`](docs/atividades-v2-rotinas-portal.md). Modelagem: [`docs/atividades-v2-modelagem.md`](docs/atividades-v2-modelagem.md). Roteiro de homologacao: [`docs/atividades-v2-homologacao.md`](docs/atividades-v2-homologacao.md).
 
+A gestao administrativa de rascunhos e atividades criadas por modelo usa contratos proprios, com whitelist de edicao, `LockService`, logs seguros e acoes separadas de publicar, ocultar, cancelar e reabrir. Consulte [`docs/atividades-v2-gestao-portal.md`](docs/atividades-v2-gestao-portal.md).
+
 ## Fluxo de virada de periodo
 
 1. o modulo resolve o periodo vigente;

@@ -424,11 +424,19 @@ function atividades_modelosCriacaoNormalizeOccurrence_(payload, model) {
 
   var mainAxis = atividades_sanitizePortalText_(atividadesV2_pickPayloadValue_(p, ['eixoTematicoPrincipal', 'EIXO_TEMATICO_PRINCIPAL']), 180);
   var secondaryAxis = atividades_sanitizePortalText_(atividadesV2_pickPayloadValue_(p, ['eixoTematicoSecundario', 'EIXO_TEMATICO_SECUNDARIO']), 180);
+  if (!isMemberPresentation) {
+    mainAxis = atividades_modelosCriacaoResolveOfficialAxis_(mainAxis, 'eixoTematicoPrincipal', fieldErrors);
+    secondaryAxis = atividades_modelosCriacaoResolveOfficialAxis_(secondaryAxis, 'eixoTematicoSecundario', fieldErrors);
+  }
   if (!isMemberPresentation && atividades_modelosCriacaoIsYes_(model.EXIGE_EIXO_TEMATICO) && !mainAxis) {
-    fieldErrors.eixoTematicoPrincipal = 'O modelo exige eixo tematico principal.';
+    if (!fieldErrors.eixoTematicoPrincipal) fieldErrors.eixoTematicoPrincipal = 'O modelo exige eixo tematico principal.';
   }
   if (!isMemberPresentation && !atividades_modelosCriacaoIsYes_(model.PERMITE_EIXO_SECUNDARIO) && secondaryAxis) {
     fieldErrors.eixoTematicoSecundario = 'O modelo nao permite eixo tematico secundario.';
+  }
+  if (!isMemberPresentation && mainAxis && secondaryAxis &&
+      atividades_normalizarComparacaoApresentacoes_(mainAxis) === atividades_normalizarComparacaoApresentacoes_(secondaryAxis)) {
+    fieldErrors.eixoTematicoSecundario = 'O eixo secundario deve ser diferente do eixo principal.';
   }
   if (isMemberPresentation && (title || descriptionPublic || mainAxis || secondaryAxis)) {
     warnings.push('Titulo, descricao e eixos enviados no agendamento foram ignorados; o membro informara esses dados depois.');
@@ -481,6 +489,17 @@ function atividades_modelosCriacaoNormalizeOccurrence_(payload, model) {
       observacoes: atividades_sanitizePortalText_(atividadesV2_pickPayloadValue_(p, ['observacoes', 'observacoesInternas', 'OBSERVACOES']), 1000)
     }
   };
+}
+
+function atividades_modelosCriacaoResolveOfficialAxis_(value, fieldName, fieldErrors) {
+  var raw = String(value || '').trim();
+  if (!raw) return '';
+  var entry = atividades_findEixoMapEntryApresentacoes_(raw);
+  if (!entry) {
+    fieldErrors[fieldName] = 'Selecione um eixo tematico oficial ativo.';
+    return '';
+  }
+  return entry.canonico;
 }
 
 function atividades_modelosCriacaoNormalizePrincipalPerson_(payload, model, fieldErrors) {
@@ -1581,6 +1600,7 @@ function atividades_runTesteCriacaoPorModeloDev_() {
   var wanted = ['APRESENTACAO_MEMBRO', 'PALESTRA', 'ABERTURA_PERIODO', 'FECHAMENTO_PERIODO'];
   var contexto = { perfil: 'ADMIN_TECNICO', email: 'teste-dev@geapa.local' };
   var testDate = '2026-08-20';
+  var officialAxis = atividades_listRotulosEixosApresentacoes_()[0] || '';
   var tests = wanted.map(function(subtype) {
     var model = rows.filter(function(row) {
       return atividades_normalizeTextUpper_(row.SUBTIPO_ATIVIDADE) === subtype;
@@ -1614,7 +1634,7 @@ function atividades_runTesteCriacaoPorModeloDev_() {
         horarioFim: '20h30',
         formato: 'PRESENCIAL',
         local: 'Ambiente de teste DEV',
-        eixoTematicoPrincipal: atividades_modelosCriacaoIsYes_(model.EXIGE_EIXO_TEMATICO) ? 'Eixo de teste' : '',
+        eixoTematicoPrincipal: atividades_modelosCriacaoIsYes_(model.EXIGE_EIXO_TEMATICO) ? officialAxis : '',
         idPessoaPrincipal: presenter ? presenter.idPessoa : '',
         nomePessoaPrincipalPublico: presenter
           ? presenter.nomeExibicao
@@ -1638,6 +1658,17 @@ function atividades_runTesteCriacaoPorModeloDev_() {
   });
 
   var testCycle = atividades_modelosCriacaoResolverCicloReferencia_(testDate);
+  var invalidAxisErrors = {};
+  var invalidAxisResolved = atividades_modelosCriacaoResolveOfficialAxis_(
+    'EIXO_LIVRE_NAO_OFICIAL_TESTE',
+    'eixoTematicoPrincipal',
+    invalidAxisErrors
+  );
+  var axisTest = {
+    ok: !invalidAxisResolved && !!invalidAxisErrors.eixoTematicoPrincipal,
+    eixoOficialUsado: officialAxis,
+    textoLivreRejeitado: !invalidAxisResolved && !!invalidAxisErrors.eixoTematicoPrincipal
+  };
   var semestersMatchCycle = atividades_modelosCriacaoActivityMatchesCiclo_({ CICLO: testCycle.idCiclo, ANO: 2026, SEMESTRE: 1 }, testCycle) &&
     atividades_modelosCriacaoActivityMatchesCiclo_({ CICLO: testCycle.idCiclo, ANO: 2026, SEMESTRE: 2 }, testCycle);
   var cycleTest = {
@@ -1649,12 +1680,13 @@ function atividades_runTesteCriacaoPorModeloDev_() {
   cycleTest.ok = cycleTest.ok && cycleTest.cachePorIdCiclo;
 
   return {
-    ok: tests.every(function(test) { return test.ok; }) && cycleTest.ok,
+    ok: tests.every(function(test) { return test.ok; }) && cycleTest.ok && axisTest.ok,
     dryRun: true,
     escrita: false,
     ambiente: 'DEV',
     testes: tests,
     testeCiclo: cycleTest,
+    testeEixosOficiais: axisTest,
     total: tests.length,
     aprovados: tests.filter(function(test) { return test.ok; }).length
   };
