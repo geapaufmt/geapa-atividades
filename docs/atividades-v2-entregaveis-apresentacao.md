@@ -66,3 +66,46 @@ O upload atual de slide continua em
 
 As rotinas operam somente na base V2 DEV, usam `LockService`, registram auditoria
 em `Portal_Acoes`/`Atividades_Log` e invalidam caches apos escritas.
+
+## Repopulacao historica
+
+Arquivos anteriores ao novo fluxo podem ser catalogados com:
+
+- `atividades_repopularAtividadesArquivosHistoricoDryRun()`;
+- `atividades_repopularAtividadesArquivosHistorico()`.
+
+O dry-run le `Atividades`, `Atividades_Apresentacoes`, `Atividades_Arquivos` e as
+pastas das atividades no Drive, mas nao escreve nem move arquivos. O relatorio
+informa slides, fotos e dispensas que seriam criados, duplicidades, pastas
+inacessiveis e imagens ambiguas.
+
+A execucao real repete o mesmo planejamento sob `LockService` e acrescenta as
+linhas em lote. Slides sao reconstruidos pelos campos legados de
+`Atividades_Apresentacoes`. Fotos JPG, JPEG, PNG, WEBP e HEIC sao catalogadas a
+partir da pasta da atividade e de subpastas de fotos. Nomes associados a logo,
+banner, arte, divulgacao, card, post, capa ou imagem institucional ficam para
+revisao e nao geram foto nem dispensa automatica.
+
+Uma dispensa historica somente e criada quando a apresentacao esta realizada ou
+historica, nao existe foto resolvida, a pasta nao esta inacessivel e nao ha
+imagem ambigua. Apresentacoes futuras continuam com suas pendencias normais.
+
+As chaves de duplicidade usam atividade, apresentacao, tipo e ID/link do Drive.
+Quando nao existe identificador de Drive, o nome do arquivo e usado como
+fallback. Por isso, as duas funcoes podem ser executadas novamente sem recriar
+linhas equivalentes.
+
+Depois da escrita, a rotina atualiza `PORTAL_ATIVIDADES_DETALHES`,
+`PORTAL_PENDENCIAS_DIRETORIA` e `PORTAL_STATUS_ATIVIDADES`, registra um resumo
+seguro em `Atividades_Log` e limpa os caches agregados do Portal.
+
+### Ordem de homologacao
+
+1. Execute `atividades_repopularAtividadesArquivosHistoricoDryRun()`.
+2. Confira `totalCasosAmbiguos`, `totalPastasInacessiveis`, `avisos`, `erros` e
+   `exemplos`.
+3. Corrija pastas inacessiveis e revise imagens ambiguas antes de prosseguir.
+4. Execute `atividades_repopularAtividadesArquivosHistorico()`.
+5. Execute novamente o dry-run: os contadores de novas linhas devem ficar em
+   zero, salvo se arquivos tiverem sido adicionados ao Drive.
+6. Confira `Atividades_Arquivos` e as views materializadas do Portal.

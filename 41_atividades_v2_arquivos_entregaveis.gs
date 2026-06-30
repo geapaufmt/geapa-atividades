@@ -305,10 +305,14 @@ function atividadesV2_indexLatestArquivos_(records) {
   var out = {};
   (records || []).forEach(function(record) {
     if (atividades_normalizeTextUpper_(record.ATIVO || 'SIM') === 'NAO') return;
-    if (atividades_normalizeTextUpper_(record.STATUS_ARQUIVO) === 'HISTORICO') return;
     var key = [record.ID_ATIVIDADE, record.ID_APRESENTACAO, atividades_normalizeTextUpper_(record.TIPO_ARQUIVO_ATIVIDADE)].join('|');
     var current = out[key];
-    if (!current || Number(record._rowNumber || 0) > Number(current._rowNumber || 0)) out[key] = record;
+    var recordIsHistorical = atividades_normalizeTextUpper_(record.STATUS_ARQUIVO) === 'HISTORICO';
+    var currentIsHistorical = current && atividades_normalizeTextUpper_(current.STATUS_ARQUIVO) === 'HISTORICO';
+    if (!current || (currentIsHistorical && !recordIsHistorical) ||
+        (currentIsHistorical === recordIsHistorical && Number(record._rowNumber || 0) > Number(current._rowNumber || 0))) {
+      out[key] = record;
+    }
   });
   return out;
 }

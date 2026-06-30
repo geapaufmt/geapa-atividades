@@ -436,6 +436,18 @@ function atividadesV2_migrarArquivosApresentacoesParaMateriaisDev() {
   }, { entrypoint: 'atividadesV2_migrarArquivosApresentacoesParaMateriaisDev' });
 }
 
+function atividades_repopularAtividadesArquivosHistoricoDryRun() {
+  return atividades_runWithOperationalGuard_('CONFERENCIA_V2', null, function() {
+    return atividades_repopularAtividadesArquivosHistorico_({ dryRun: true });
+  }, { entrypoint: 'atividades_repopularAtividadesArquivosHistoricoDryRun' });
+}
+
+function atividades_repopularAtividadesArquivosHistorico() {
+  return atividades_runWithOperationalGuard_('ATUALIZACAO_PORTAL_V2', null, function() {
+    return atividades_repopularAtividadesArquivosHistorico_({ dryRun: false });
+  }, { entrypoint: 'atividades_repopularAtividadesArquivosHistorico' });
+}
+
 function atividadesV2_garantirPastaAtividadeDev(idAtividade, options) {
   return atividades_runWithOperationalGuard_('ATUALIZACAO_PORTAL_V2', null, function() {
     options = options || {};
