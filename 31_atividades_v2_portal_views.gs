@@ -121,6 +121,22 @@ function atividadesV2_conferirConsistencia_(options) {
     }
   });
 
+  var apresentacoesById = atividadesV2_indexByField_(data.apresentacoes, 'ID_APRESENTACAO');
+  (data.arquivos || []).forEach(function(record) {
+    var idAtividade = String(record.ID_ATIVIDADE || '').trim();
+    var idApresentacao = String(record.ID_APRESENTACAO || '').trim();
+    var tipoArquivo = atividades_normalizeTextUpper_(record.TIPO_ARQUIVO_ATIVIDADE);
+    if (!idAtividade || !atividadesById[idAtividade]) {
+      atividadesV2_addConsistencyIssue_(issues, 'ERRO', 'ARQUIVO_SEM_ATIVIDADE', 'Arquivo vinculado a atividade inexistente.', record);
+    }
+    if (idApresentacao && !apresentacoesById[idApresentacao]) {
+      atividadesV2_addConsistencyIssue_(issues, 'ERRO', 'ARQUIVO_SEM_APRESENTACAO', 'Arquivo vinculado a apresentacao inexistente.', record);
+    }
+    if (['SLIDE_APRESENTACAO', 'FOTO_REUNIAO'].indexOf(tipoArquivo) < 0) {
+      atividadesV2_addConsistencyIssue_(issues, 'AVISO', 'TIPO_ARQUIVO_INVALIDO', 'Tipo de arquivo de atividade nao reconhecido.', record);
+    }
+  });
+
   data.envolvidos.forEach(function(record) {
     var idAtividade = String(record.ID_ATIVIDADE || '').trim();
     if (idAtividade && !atividadesById[idAtividade]) atividadesV2_addConsistencyIssue_(issues, 'ERRO', 'ENVOLVIDO_ATIVIDADE_INEXISTENTE', 'Envolvido vinculado a atividade inexistente.', record);
@@ -404,6 +420,7 @@ function atividadesV2_getProtectedOperationalSheetNames_() {
   return [
     ATIVIDADES_V2_SHEETS.ATIVIDADES,
     ATIVIDADES_V2_SHEETS.APRESENTACOES,
+    ATIVIDADES_V2_SHEETS.ARQUIVOS,
     ATIVIDADES_V2_SHEETS.ENVOLVIDOS,
     ATIVIDADES_V2_SHEETS.CONFIG,
     ATIVIDADES_V2_SHEETS.PRESENCAS_REGISTROS,
@@ -415,6 +432,7 @@ function atividadesV2_getPortalViewSourceSheetNames_() {
   return [
     ATIVIDADES_V2_SHEETS.ATIVIDADES,
     ATIVIDADES_V2_SHEETS.APRESENTACOES,
+    ATIVIDADES_V2_SHEETS.ARQUIVOS,
     ATIVIDADES_V2_SHEETS.ENVOLVIDOS,
     ATIVIDADES_V2_SHEETS.PRESENCAS_REGISTROS,
     ATIVIDADES_V2_SHEETS.JUSTIFICATIVAS
@@ -1036,6 +1054,8 @@ function atividadesV2_readPortalViewsSourceData_(ss) {
   return {
     atividades: atividadesV2_readSheetObjects_(atividadesV2_getTargetSheet_(ss, ATIVIDADES_V2_SHEETS.ATIVIDADES)),
     apresentacoes: atividadesV2_readSheetObjects_(atividadesV2_getTargetSheet_(ss, ATIVIDADES_V2_SHEETS.APRESENTACOES)),
+    arquivos: typeof atividadesV2_readArquivosAtividadeOptional_ === 'function' ? atividadesV2_readArquivosAtividadeOptional_(ss) : [],
+    configs: atividadesV2_readSheetObjects_(atividadesV2_getTargetSheet_(ss, ATIVIDADES_V2_SHEETS.CONFIG)),
     envolvidos: atividadesV2_readSheetObjects_(atividadesV2_getTargetSheet_(ss, ATIVIDADES_V2_SHEETS.ENVOLVIDOS)),
     presencas: atividadesV2_readSheetObjects_(atividadesV2_getTargetSheet_(ss, ATIVIDADES_V2_SHEETS.PRESENCAS_REGISTROS)),
     justificativas: atividadesV2_readSheetObjects_(atividadesV2_getTargetSheet_(ss, ATIVIDADES_V2_SHEETS.JUSTIFICATIVAS)),
@@ -1149,6 +1169,9 @@ function atividadesV2_buildFrequencyPortalRow_(bucket, now) {
 function atividadesV2_buildPendenciasDiretoriaRows_(data, now) {
   var rows = [];
   var atividadesById = atividadesV2_indexByField_(data.atividades, 'ID_ATIVIDADE');
+  var arquivosIndex = typeof atividadesV2_indexLatestArquivos_ === 'function'
+    ? atividadesV2_indexLatestArquivos_(data.arquivos || [])
+    : {};
   data.atividades.forEach(function(record) {
     if (atividades_normalizeTextUpper_(record.ATIVO || 'SIM') === 'NAO') return;
     atividadesV2_addDeadlinePendencia_(rows, record, 'ATA', record.DATA_LIMITE_ATA, record.LINK_ATA, now);
@@ -1168,7 +1191,13 @@ function atividadesV2_buildPendenciasDiretoriaRows_(data, now) {
       }), '', 'Informar apresentador da apresentacao.', now));
       return;
     }
-    atividadesV2_addPresentationWorkflowPendencias_(rows, atividade, record, now);
+    var photo = typeof atividadesV2_getLatestArquivoFromIndex_ === 'function'
+      ? atividadesV2_getLatestArquivoFromIndex_(arquivosIndex, atividade.ID_ATIVIDADE, record.ID_APRESENTACAO, ATIVIDADES_V2_TIPO_ARQUIVO_FOTO_)
+      : null;
+    var config = typeof atividadesV2_findConfigForActivityFromRows_ === 'function'
+      ? atividadesV2_findConfigForActivityFromRows_(data.configs || [], atividade)
+      : {};
+    atividadesV2_addPresentationWorkflowPendencias_(rows, atividade, record, now, photo, config);
   });
   atividadesV2_addJustificativasWorkflowPendencias_(rows, data.justificativas, now);
   return rows.filter(function(row) { return !!row.ID_PENDENCIA; });
@@ -1220,14 +1249,14 @@ function atividadesV2_buildPendenciaJustificativaRow_(tipo, gravidade, record, p
   return row;
 }
 
-function atividadesV2_addPresentationWorkflowPendencias_(rows, atividade, apresentacao, now) {
+function atividadesV2_addPresentationWorkflowPendencias_(rows, atividade, apresentacao, now, fotoReuniao, config) {
   if (!atividade || !String(atividade.ID_ATIVIDADE || '').trim()) return;
   if (atividades_normalizeTextUpper_(apresentacao.ATIVO || 'SIM') === 'NAO') return;
+  if (['CANCELADA', 'CANCELADO', 'ARQUIVADA', 'ARQUIVADO'].indexOf(atividades_normalizeTextUpper_(atividade.STATUS_OPERACIONAL)) >= 0) return;
 
   var titleStatus = atividades_normalizeTextUpper_(apresentacao.STATUS_TITULO_EIXO || atividade.STATUS_EIXO_TEMATICO || 'PENDENTE');
   var materialStatus = atividades_normalizeTextUpper_(apresentacao.STATUS_ENVIO_MATERIAL || 'PENDENTE');
   var presentationStatus = atividades_normalizeTextUpper_(apresentacao.STATUS_APRESENTACAO);
-  if (titleStatus === 'REPROVADO') return;
   var syncHistorico = atividadesV2_isTruthyFlag_(apresentacao.SYNC_HISTORICO_PUBLICO);
   var hasTitleAxis = !!String(atividade.TITULO_PUBLICO || atividade.TITULO || '').trim() &&
     !!String(atividade.EIXO_TEMATICO_PRINCIPAL || '').trim();
@@ -1240,20 +1269,32 @@ function atividadesV2_addPresentationWorkflowPendencias_(rows, atividade, aprese
     rows.push(atividadesV2_buildPendenciaApresentacaoRow_('TITULO_EIXO_PENDENTE', 'MEDIA', atividade, apresentacao, '', 'Aguardar ou solicitar titulo/eixo da apresentacao.', now));
   } else if (['ENVIADO', 'EM_ANALISE'].indexOf(titleStatus) >= 0) {
     rows.push(atividadesV2_buildPendenciaApresentacaoRow_('TITULO_EIXO_AGUARDANDO_ANALISE', 'MEDIA', atividade, apresentacao, '', 'Revisar titulo/eixo informado pelo apresentador.', now));
-  } else if (titleStatus === 'AJUSTE_SOLICITADO') {
+  } else if (['AJUSTE_SOLICITADO', 'REPROVADO'].indexOf(titleStatus) >= 0) {
     rows.push(atividadesV2_buildPendenciaApresentacaoRow_('TITULO_EIXO_AJUSTE_SOLICITADO', 'BAIXA', atividade, apresentacao, '', 'Acompanhar ajuste de titulo/eixo solicitado ao apresentador.', now));
   }
 
-  if (materialResolvido) {
-    return;
+  if (!materialResolvido) {
+    if (!hasMaterial || materialStatus === 'PENDENTE') {
+      rows.push(atividadesV2_buildPendenciaApresentacaoRow_('MATERIAL_PENDENTE', 'MEDIA', atividade, apresentacao, '', 'Aguardar ou solicitar envio do slide/material da apresentacao.', now, fotoReuniao));
+    } else if (['REENVIADO', 'EM_ANALISE'].indexOf(materialStatus) >= 0 || (materialStatus === 'RECEBIDO' && requiresExplicitMaterialApproval)) {
+      rows.push(atividadesV2_buildPendenciaApresentacaoRow_('MATERIAL_AGUARDANDO_ANALISE', 'MEDIA', atividade, apresentacao, '', 'Revisar slide/material enviado pelo apresentador.', now, fotoReuniao));
+    } else if (materialStatus === 'AJUSTE_SOLICITADO') {
+      rows.push(atividadesV2_buildPendenciaApresentacaoRow_('MATERIAL_AJUSTE_SOLICITADO', 'BAIXA', atividade, apresentacao, '', 'Acompanhar reenvio do slide/material ajustado.', now, fotoReuniao));
+    }
   }
 
-  if (!hasMaterial || materialStatus === 'PENDENTE') {
-    rows.push(atividadesV2_buildPendenciaApresentacaoRow_('MATERIAL_PENDENTE', 'MEDIA', atividade, apresentacao, '', 'Aguardar ou solicitar envio do material da apresentacao.', now));
-  } else if (['REENVIADO', 'EM_ANALISE'].indexOf(materialStatus) >= 0 || (materialStatus === 'RECEBIDO' && requiresExplicitMaterialApproval)) {
-    rows.push(atividadesV2_buildPendenciaApresentacaoRow_('MATERIAL_AGUARDANDO_ANALISE', 'MEDIA', atividade, apresentacao, '', 'Revisar material enviado pelo apresentador.', now));
-  } else if (materialStatus === 'AJUSTE_SOLICITADO') {
-    rows.push(atividadesV2_buildPendenciaApresentacaoRow_('MATERIAL_AJUSTE_SOLICITADO', 'BAIXA', atividade, apresentacao, '', 'Acompanhar reenvio do material ajustado.', now));
+  var photoRules = typeof atividadesV2_resolveFotoReuniaoRules_ === 'function'
+    ? atividadesV2_resolveFotoReuniaoRules_(atividade, config || {})
+    : { exigeFoto: false, geraPendencia: false };
+  if (!photoRules.exigeFoto || !photoRules.geraPendencia) return;
+  var photoStatus = atividades_normalizeTextUpper_(fotoReuniao && fotoReuniao.STATUS_ARQUIVO || 'PENDENTE');
+  if (['RECEBIDO', 'APROVADO', 'HISTORICO', 'DISPENSADO'].indexOf(photoStatus) >= 0) return;
+  if (photoStatus === 'AJUSTE_SOLICITADO') {
+    rows.push(atividadesV2_buildPendenciaApresentacaoRow_('FOTO_REUNIAO_AJUSTE_SOLICITADO', 'BAIXA', atividade, apresentacao, '', 'Acompanhar reenvio da foto da reuniao.', now, fotoReuniao));
+  } else if (['REENVIADO', 'EM_ANALISE'].indexOf(photoStatus) >= 0) {
+    rows.push(atividadesV2_buildPendenciaApresentacaoRow_('FOTO_REUNIAO_AGUARDANDO_ANALISE', 'MEDIA', atividade, apresentacao, '', 'Revisar foto da reuniao enviada.', now, fotoReuniao));
+  } else {
+    rows.push(atividadesV2_buildPendenciaApresentacaoRow_('FOTO_REUNIAO_PENDENTE', 'MEDIA', atividade, apresentacao, '', 'Aguardar ou registrar foto da reuniao.', now, fotoReuniao));
   }
 }
 
@@ -1266,7 +1307,7 @@ function atividadesV2_requiresExplicitMaterialApproval_(atividade, apresentacao)
   );
 }
 
-function atividadesV2_buildPendenciaApresentacaoRow_(tipo, gravidade, atividade, apresentacao, prazo, acao, now) {
+function atividadesV2_buildPendenciaApresentacaoRow_(tipo, gravidade, atividade, apresentacao, prazo, acao, now, fotoReuniao) {
   var semestreFields = atividadesV2_getSemestrePortalFields_(atividade);
   var row = atividadesV2_buildPendenciaRow_(tipo, gravidade, Object.assign({}, atividade, {
     ID_APRESENTACAO: apresentacao.ID_APRESENTACAO,
@@ -1277,14 +1318,23 @@ function atividadesV2_buildPendenciaApresentacaoRow_(tipo, gravidade, atividade,
     STATUS_ENVIO_MATERIAL: apresentacao.STATUS_ENVIO_MATERIAL,
     STATUS_APRESENTACAO: apresentacao.STATUS_APRESENTACAO,
     NOME_ARQUIVO_MATERIAL: apresentacao.NOME_ARQUIVO_MATERIAL,
-    LINK_MATERIAL_APRESENTACAO: apresentacao.LINK_MATERIAL_APRESENTACAO
+    LINK_MATERIAL_APRESENTACAO: apresentacao.LINK_MATERIAL_APRESENTACAO,
+    STATUS_FOTO_REUNIAO: fotoReuniao && fotoReuniao.STATUS_ARQUIVO || '',
+    ID_ARQUIVO_FOTO_REUNIAO: fotoReuniao && fotoReuniao.ID_ARQUIVO_ATIVIDADE || '',
+    NOME_ARQUIVO_FOTO_REUNIAO: fotoReuniao && fotoReuniao.NOME_ARQUIVO || '',
+    LINK_FOTO_REUNIAO: fotoReuniao && fotoReuniao.LINK_ARQUIVO || ''
   }), prazo, acao, now);
   row.ID_PENDENCIA = atividadesV2_buildDeterministicId_('PEND', [tipo, atividade.ID_ATIVIDADE, apresentacao.ID_APRESENTACAO]);
   row.ID_APRESENTACAO = String(apresentacao.ID_APRESENTACAO || '').trim();
+  row.STATUS_FOTO_REUNIAO = String(fotoReuniao && fotoReuniao.STATUS_ARQUIVO || '').trim();
+  row.ID_ARQUIVO_FOTO_REUNIAO = String(fotoReuniao && fotoReuniao.ID_ARQUIVO_ATIVIDADE || '').trim();
+  row.NOME_ARQUIVO_FOTO_REUNIAO = String(fotoReuniao && fotoReuniao.NOME_ARQUIVO || '').trim();
+  row.LINK_FOTO_REUNIAO = String(fotoReuniao && fotoReuniao.LINK_ARQUIVO || '').trim();
   row.RESPONSAVEL_SUGERIDO = atividades_sanitizePortalText_(atividade.NOME_PESSOA_PRINCIPAL_PUBLICO || apresentacao.NOME_MEMBRO || atividade.RESPONSAVEL_INTERNO, 180);
   row.DESCRICAO_PENDENCIA = atividades_sanitizePortalText_(
     acao + ' Status titulo/eixo: ' + String(apresentacao.STATUS_TITULO_EIXO || atividade.STATUS_EIXO_TEMATICO || 'PENDENTE') +
-    '. Status material: ' + String(apresentacao.STATUS_ENVIO_MATERIAL || 'PENDENTE') + '.',
+    '. Status slide/material: ' + String(apresentacao.STATUS_ENVIO_MATERIAL || 'PENDENTE') +
+    '. Status foto: ' + String(fotoReuniao && fotoReuniao.STATUS_ARQUIVO || 'PENDENTE') + '.',
     500
   );
   row.ACAO_RECOMENDADA = acao;

@@ -731,6 +731,11 @@ Fronteira com Gestao, Atas e Deliberacoes:
 
 ## Contrato de leitura para o Portal GEAPA
 
+Apresentacoes de membro usam entregaveis separados para titulo/eixos,
+slide/material e foto da reuniao. O historico versionado de arquivos fica em
+`Atividades_Arquivos`; consulte
+[`docs/atividades-v2-entregaveis-apresentacao.md`](docs/atividades-v2-entregaveis-apresentacao.md).
+
 O modulo expoe uma camada publica somente leitura para o Portal GEAPA:
 
 - `atividades_listarParaPortal(contexto)`;

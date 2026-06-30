@@ -183,14 +183,23 @@ function atividadesV2_registrarMaterialApresentacao_(payload, contexto) {
     if (!atividade) throw new Error('ATIVIDADE_NAO_ENCONTRADA');
     atividadesV2_assertPodeRegistrarMaterial_(contexto, atividade, apresentacao);
     atividadesV2_assertMaterialStatusAllowsWrite_(contexto, apresentacao);
+    var materialConfig = typeof atividadesV2_portalGetActivityConfig_ === 'function'
+      ? atividadesV2_portalGetActivityConfig_(ss, atividade)
+      : {};
+    if (hasBase64 && atividades_normalizeTextUpper_(materialConfig.PERMITE_UPLOAD_MATERIAL || 'SIM') === 'NAO') {
+      throw new Error('UPLOAD_MATERIAL_NAO_PERMITIDO: o modelo nao permite upload de slide/material.');
+    }
+    if (fileId && atividades_normalizeTextUpper_(materialConfig.PERMITE_LINK_MATERIAL || 'SIM') === 'NAO') {
+      throw new Error('LINK_MATERIAL_NAO_PERMITIDO: o modelo nao permite arquivo informado por link/ID.');
+    }
 
     var folderInfo = atividadesV2_garantirPastaAtividade_(idAtividade, { spreadsheet: ss });
     var folder = DriveApp.getFolderById(folderInfo.folderId);
     var sourceFile = fileId ? DriveApp.getFileById(fileId) : null;
     var originalName = payload.nomeArquivoOriginal || payload.nomeArquivo || (sourceFile ? sourceFile.getName() : 'material.pdf');
     var mimeType = payload.mimeType || (sourceFile ? sourceFile.getMimeType() : '');
-    atividadesV2_assertMaterialFileAllowed_(originalName, mimeType);
-    atividadesV2_assertMaterialFileSizeAllowed_(sourceFile, payload);
+    atividadesV2_assertMaterialFileAllowed_(originalName, mimeType, materialConfig);
+    atividadesV2_assertMaterialFileSizeAllowed_(sourceFile, payload, materialConfig);
     var nomeBase = atividadesV2_buildNomeMaterialApresentacao_(atividade, apresentacao, {
       name: originalName
     });
@@ -227,6 +236,9 @@ function atividadesV2_registrarMaterialApresentacao_(payload, contexto) {
     };
 
     atividadesV2_updateRowByHeaders_(apresentacoesSheet, apresentacao._rowNumber, updates);
+    var arquivoRecord = typeof atividadesV2_registrarSlideEmArquivos_ === 'function'
+      ? atividadesV2_registrarSlideEmArquivos_(ss, atividade, apresentacao, targetFile, statusMaterial, contexto, nameVersion.versao)
+      : null;
     if (typeof atividadesV2_limparCachePortalDev_ === 'function') atividadesV2_limparCachePortalDev_();
 
     atividadesV2_appendV2Log_(ss, {
@@ -235,8 +247,13 @@ function atividadesV2_registrarMaterialApresentacao_(payload, contexto) {
       NIVEL: 'INFO',
       STATUS: 'OK',
       ID_ATIVIDADE: idAtividade,
-      MENSAGEM: 'Material de apresentacao registrado na base V2 DEV.',
-      DETALHES_JSON: JSON.stringify({ idAtividade: idAtividade, idApresentacao: idApresentacao, versaoMaterial: nameVersion.versao })
+      MENSAGEM: 'Slide/material de apresentacao registrado na base V2 DEV.',
+      DETALHES_JSON: JSON.stringify({
+        idAtividade: idAtividade,
+        idApresentacao: idApresentacao,
+        versaoMaterial: nameVersion.versao,
+        idArquivoAtividade: arquivoRecord && arquivoRecord.ID_ARQUIVO_ATIVIDADE || ''
+      })
     });
 
     return {
@@ -248,6 +265,8 @@ function atividadesV2_registrarMaterialApresentacao_(payload, contexto) {
       nomeArquivoMaterial: targetFile.getName(),
       linkMaterialApresentacao: targetFile.getUrl(),
       versaoMaterial: nameVersion.versao,
+      tipoArquivoAtividade: 'SLIDE_APRESENTACAO',
+      idArquivoAtividade: arquivoRecord && arquivoRecord.ID_ARQUIVO_ATIVIDADE || '',
       idPessoa: apresentacao.ID_PESSOA || atividade.ID_PESSOA_PRINCIPAL || '',
       email: apresentacao.EMAIL_MEMBRO || atividade.EMAIL_PESSOA_PRINCIPAL || '',
       rga: apresentacao.RGA || atividade.RGA_PESSOA_PRINCIPAL || ''
@@ -548,10 +567,13 @@ function atividadesV2_assertMaterialStatusAllowsWrite_(contexto, apresentacao) {
   }
 }
 
-function atividadesV2_assertMaterialFileAllowed_(fileName, mimeType) {
+function atividadesV2_assertMaterialFileAllowed_(fileName, mimeType, config) {
   var name = String(fileName || '').trim();
   var ext = atividadesV2_getFileExtension_(name);
-  var allowedExt = ['.pdf', '.ppt', '.pptx', '.odp'];
+  var configured = String(config && config.TIPOS_ARQUIVO_MATERIAL_PERMITIDOS || 'PDF,PPT,PPTX,ODP');
+  var allowedExt = configured.split(',').map(function(value) {
+    return '.' + String(value || '').trim().toLowerCase().replace(/^\./, '');
+  }).filter(function(value) { return value !== '.'; });
   var allowedMime = [
     'application/pdf',
     'application/vnd.ms-powerpoint',
@@ -563,8 +585,9 @@ function atividadesV2_assertMaterialFileAllowed_(fileName, mimeType) {
   }
 }
 
-function atividadesV2_assertMaterialFileSizeAllowed_(sourceFile, payload) {
-  var maxBytes = Number(payload && payload.maxBytes || ATIVIDADES_V2_MATERIAL_MAX_BYTES_DEFAULT);
+function atividadesV2_assertMaterialFileSizeAllowed_(sourceFile, payload, config) {
+  var configuredMb = Number(config && config.TAMANHO_MAX_MATERIAL_MB || 0);
+  var maxBytes = configuredMb > 0 ? configuredMb * 1024 * 1024 : ATIVIDADES_V2_MATERIAL_MAX_BYTES_DEFAULT;
   var size = sourceFile
     ? sourceFile.getSize()
     : Math.floor(String(payload && (payload.conteudoBase64 || payload.base64) || '').replace(/^data:[^;]+;base64,/, '').length * 0.75);

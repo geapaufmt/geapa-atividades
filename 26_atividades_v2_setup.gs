@@ -2633,6 +2633,12 @@ function atividadesV2_buildValidationRules_(sheetName) {
     'EXIBE_NO_PORTAL',
     'GERA_CARD_AGENDA',
     'EXIBIR_NO_PORTAL',
+    'EXIGE_FOTO_REUNIAO',
+    'GERA_PENDENCIA_FOTO_REUNIAO',
+    'PERMITE_UPLOAD_FOTO_REUNIAO',
+    'PERMITE_LINK_FOTO_REUNIAO',
+    'PERMITE_MEMBRO_APRESENTADOR_ENVIAR_FOTO_REUNIAO',
+    'PERMITE_DISPENSAR_FOTO_REUNIAO',
     'PODE_VER_DETALHES'
   ].forEach(function(header) {
     atividadesV2_addRule_(rules, header, enums.SIM_NAO, 'Valores sugeridos: SIM ou NAO.');
@@ -2654,6 +2660,9 @@ function atividadesV2_buildValidationRules_(sheetName) {
   atividadesV2_addRule_(rules, 'VISIBILIDADE_PORTAL_PADRAO', enums.VISIBILIDADE_PORTAL, 'Visibilidade padrao no Portal GEAPA.');
   atividadesV2_addRule_(rules, 'STATUS_ANALISE', enums.STATUS_ANALISE, 'Status da analise administrativa da justificativa.');
   atividadesV2_addRule_(rules, 'MOTIVO_DECLARADO', enums.MOTIVO_JUSTIFICATIVA, 'Motivo padronizado da justificativa pelo Portal.');
+  atividadesV2_addRule_(rules, 'TIPO_ARQUIVO_ATIVIDADE', enums.TIPO_ARQUIVO_ATIVIDADE, 'Tipo canonico do arquivo vinculado.');
+  atividadesV2_addRule_(rules, 'ESCOPO_ARQUIVO', enums.ESCOPO_ARQUIVO, 'Escopo do arquivo: atividade ou apresentacao.');
+  atividadesV2_addRule_(rules, 'STATUS_ARQUIVO', enums.STATUS_ARQUIVO, 'Estado operacional do arquivo vinculado.');
 
   return rules;
 }

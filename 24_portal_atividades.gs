@@ -394,14 +394,28 @@ function atividadesV2_readOwnPresentationRecordsDev_(ss, ctx, perf) {
       atividades_normalizeTextUpper_(record.ATIVO || 'SIM') !== 'NAO';
   });
   if (perf) portalPerfMark_(perf, 'ler_aba_apresentacoes', { linhas: apresentacoes.length });
+  var arquivos = typeof atividadesV2_readArquivosAtividadeOptional_ === 'function'
+    ? atividadesV2_readArquivosAtividadeOptional_(ss)
+    : [];
+  var arquivosIndex = typeof atividadesV2_indexLatestArquivos_ === 'function'
+    ? atividadesV2_indexLatestArquivos_(arquivos)
+    : {};
+  var configs = atividadesV2_readSheetObjects_(atividadesV2_getTargetSheet_(ss, ATIVIDADES_V2_SHEETS.CONFIG));
+  if (perf) portalPerfMark_(perf, 'ler_aba_arquivos_config', { arquivos: arquivos.length, configs: configs.length });
 
   var own = [];
   apresentacoes.forEach(function(apresentacao) {
     var atividade = atividadesById[String(apresentacao.ID_ATIVIDADE || '').trim()];
     if (!atividade) return;
     if (!atividadesV2_portalBasePresentationBelongsToContext_(atividade, apresentacao, ctx)) return;
+    var photo = typeof atividadesV2_getLatestArquivoFromIndex_ === 'function'
+      ? atividadesV2_getLatestArquivoFromIndex_(arquivosIndex, atividade.ID_ATIVIDADE, apresentacao.ID_APRESENTACAO, ATIVIDADES_V2_TIPO_ARQUIVO_FOTO_)
+      : null;
+    var config = typeof atividadesV2_findConfigForActivityFromRows_ === 'function'
+      ? atividadesV2_findConfigForActivityFromRows_(configs, atividade)
+      : {};
     own.push(atividadesV2_portalOnlyMemberPresentationActions_(
-      atividadesV2_portalMapBaseApresentacaoPublica_(apresentacao, atividade, ctx)
+      atividadesV2_portalMapBaseApresentacaoPublica_(apresentacao, atividade, ctx, photo, config)
     ));
   });
 
@@ -705,6 +719,9 @@ function atividadesV2_portalMapApresentacaoPublica_(apresentacao, atividade, con
     statusApresentacao: String(apresentacao.statusApresentacao || '').trim(),
     statusTituloEixo: String(apresentacao.statusTituloEixo || '').trim(),
     statusMaterial: String(apresentacao.statusMaterial || '').trim(),
+    statusFotoReuniao: String(apresentacao.statusFotoReuniao || '').trim(),
+    fotoReuniaoObrigatoria: apresentacao.fotoReuniaoObrigatoria === true,
+    permiteMembroEnviarFotoReuniao: apresentacao.permiteMembroEnviarFotoReuniao === true,
     bloqueadoParaEdicao: atividadesV2_isTruthyFlag_(apresentacao.bloqueadoParaEdicao),
     idPastaDrive: idPastaDrive,
     linkPastaDrive: atividades_sanitizePortalUrl_(atividade.LINK_PASTA_DRIVE) || atividadesV2_buildDriveFolderUrl_(idPastaDrive),
@@ -712,6 +729,9 @@ function atividadesV2_portalMapApresentacaoPublica_(apresentacao, atividade, con
     nomeArquivoMaterial: atividades_sanitizePortalText_(apresentacao.nomeArquivoMaterial, 240),
     linkMaterialPublico: atividades_sanitizePortalUrl_(apresentacao.linkMaterialPublico) || atividadesV2_buildDriveFileUrl_(idArquivoMaterial),
     versaoMaterial: String(apresentacao.versaoMaterial || '').trim(),
+    idArquivoFotoReuniao: String(apresentacao.idArquivoFotoReuniao || '').trim(),
+    nomeArquivoFotoReuniao: atividades_sanitizePortalText_(apresentacao.nomeArquivoFotoReuniao, 240),
+    linkFotoReuniao: atividades_sanitizePortalUrl_(apresentacao.linkFotoReuniao),
     mensagemTituloEixo: atividades_normalizeTextUpper_(apresentacao.statusTituloEixo) === 'REPROVADO'
       ? 'Proposta de titulo/eixos reprovada. Informe uma nova proposta diferente da anterior.'
       : '',
@@ -720,7 +740,14 @@ function atividadesV2_portalMapApresentacaoPublica_(apresentacao, atividade, con
   return Object.assign(mapped, atividadesV2_portalPresentationActionFlags_(mapped, contexto));
 }
 
-function atividadesV2_portalMapBaseApresentacaoPublica_(apresentacao, atividade, contexto) {
+function atividadesV2_portalMapBaseApresentacaoPublica_(apresentacao, atividade, contexto, fotoReuniao, config) {
+  var photoRules = typeof atividadesV2_resolveFotoReuniaoRules_ === 'function'
+    ? atividadesV2_resolveFotoReuniaoRules_(atividade, config || {})
+    : { exigeFoto: false, permiteMembro: false };
+  var historicalPhotoStatus = atividades_normalizeTextUpper_(apresentacao.STATUS_APRESENTACAO) === 'REALIZADA' &&
+    atividadesV2_isTruthyFlag_(apresentacao.SYNC_HISTORICO_PUBLICO) && !fotoReuniao
+    ? 'HISTORICO'
+    : '';
   return atividadesV2_portalMapApresentacaoPublica_({
     idPessoa: apresentacao.ID_PESSOA || atividade.ID_PESSOA_PRINCIPAL,
     rga: apresentacao.RGA || atividade.RGA_PESSOA_PRINCIPAL,
@@ -734,11 +761,17 @@ function atividadesV2_portalMapBaseApresentacaoPublica_(apresentacao, atividade,
     statusApresentacao: apresentacao.STATUS_APRESENTACAO,
     statusTituloEixo: apresentacao.STATUS_TITULO_EIXO || atividade.STATUS_EIXO_TEMATICO,
     statusMaterial: apresentacao.STATUS_ENVIO_MATERIAL,
+    statusFotoReuniao: fotoReuniao && fotoReuniao.STATUS_ARQUIVO || historicalPhotoStatus || (photoRules.exigeFoto ? 'PENDENTE' : 'NAO_SE_APLICA'),
+    fotoReuniaoObrigatoria: photoRules.exigeFoto,
+    permiteMembroEnviarFotoReuniao: photoRules.permiteMembro,
     bloqueadoParaEdicao: apresentacao.BLOQUEADO_PARA_EDICAO || atividade.BLOQUEADO_PARA_EDICAO,
     idArquivoMaterial: apresentacao.ID_ARQUIVO_MATERIAL,
     nomeArquivoMaterial: apresentacao.NOME_ARQUIVO_MATERIAL,
     linkMaterialPublico: apresentacao.LINK_MATERIAL_APRESENTACAO,
-    versaoMaterial: apresentacao.VERSAO_MATERIAL
+    versaoMaterial: apresentacao.VERSAO_MATERIAL,
+    idArquivoFotoReuniao: fotoReuniao && fotoReuniao.ID_ARQUIVO_DRIVE || '',
+    nomeArquivoFotoReuniao: fotoReuniao && fotoReuniao.NOME_ARQUIVO || '',
+    linkFotoReuniao: fotoReuniao && fotoReuniao.LINK_ARQUIVO || ''
   }, atividade, contexto);
 }
 
@@ -747,8 +780,10 @@ function atividadesV2_portalPresentationActionFlags_(apresentacao, contexto) {
   var statusTitulo = atividades_normalizeTextUpper_(apresentacao.statusTituloEixo);
   var statusMaterial = atividades_normalizeTextUpper_(apresentacao.statusMaterial);
   var statusApresentacao = atividades_normalizeTextUpper_(apresentacao.statusApresentacao);
+  var statusFoto = atividades_normalizeTextUpper_(apresentacao.statusFotoReuniao);
   var hasMaterial = !!String(apresentacao.idArquivoMaterial || apresentacao.linkMaterialPublico || '').trim();
   var hasFolder = !!String(apresentacao.linkPastaDrive || apresentacao.idPastaDrive || '').trim();
+  var hasPhoto = !!String(apresentacao.idArquivoFotoReuniao || apresentacao.linkFotoReuniao || '').trim();
   var bloqueado = atividadesV2_isTruthyFlag_(apresentacao.bloqueadoParaEdicao);
   var isRealizada = statusApresentacao === 'REALIZADA';
   var isClosed = isRealizada;
@@ -759,7 +794,10 @@ function atividadesV2_portalPresentationActionFlags_(apresentacao, contexto) {
     podeEnviarMaterial: !bloqueado && !isClosed && !hasMaterial && ['PENDENTE', 'AJUSTE_SOLICITADO'].indexOf(statusMaterial || 'PENDENTE') >= 0,
     podeReenviarMaterial: !bloqueado && !isClosed && hasMaterial && statusMaterial === 'AJUSTE_SOLICITADO',
     podeAbrirMaterial: !!String(apresentacao.linkMaterialPublico || apresentacao.idArquivoMaterial || '').trim(),
-    podeAbrirPastaAtividade: hasFolder
+    podeAbrirPastaAtividade: hasFolder,
+    podeEnviarFotoReuniao: apresentacao.permiteMembroEnviarFotoReuniao === true && !bloqueado && !isClosed && !hasPhoto && ['PENDENTE', 'AJUSTE_SOLICITADO'].indexOf(statusFoto || 'PENDENTE') >= 0,
+    podeReenviarFotoReuniao: apresentacao.permiteMembroEnviarFotoReuniao === true && !bloqueado && !isClosed && hasPhoto && statusFoto === 'AJUSTE_SOLICITADO',
+    podeAbrirFotoReuniao: hasPhoto
   };
   var canReviewTitle = privileged && ['ENVIADO', 'RECEBIDO', 'EM_ANALISE'].indexOf(statusTitulo) >= 0;
   var canReviewMaterial = privileged && ['RECEBIDO', 'REENVIADO', 'EM_ANALISE'].indexOf(statusMaterial) >= 0;
@@ -770,7 +808,11 @@ function atividadesV2_portalPresentationActionFlags_(apresentacao, contexto) {
     podeReprovarTituloEixo: privileged && ['ENVIADO', 'RECEBIDO', 'EM_ANALISE'].indexOf(statusTitulo) >= 0,
     podeAprovarMaterial: canReviewMaterial,
     podeSolicitarAjusteMaterial: canReviewMaterial,
-    podeDispensarMaterial: privileged && ['PENDENTE', 'AJUSTE_SOLICITADO'].indexOf(statusMaterial || 'PENDENTE') >= 0
+    podeDispensarMaterial: privileged && ['PENDENTE', 'AJUSTE_SOLICITADO'].indexOf(statusMaterial || 'PENDENTE') >= 0,
+    podeEnviarFotoReuniao: privileged && !bloqueado && !isClosed && ['PENDENTE', 'AJUSTE_SOLICITADO'].indexOf(statusFoto || 'PENDENTE') >= 0,
+    podeAprovarFotoReuniao: privileged && ['RECEBIDO', 'REENVIADO', 'EM_ANALISE'].indexOf(statusFoto) >= 0,
+    podeSolicitarAjusteFotoReuniao: privileged && ['RECEBIDO', 'REENVIADO', 'EM_ANALISE'].indexOf(statusFoto) >= 0,
+    podeDispensarFotoReuniao: privileged && apresentacao.fotoReuniaoObrigatoria === true && ['PENDENTE', 'AJUSTE_SOLICITADO'].indexOf(statusFoto || 'PENDENTE') >= 0
   };
   return {
     acoesMembro: acoesMembro,
@@ -795,7 +837,11 @@ function atividadesV2_portalOnlyMemberPresentationActions_(item) {
     podeSolicitarAjusteTituloEixo: false,
     podeAprovarMaterial: false,
     podeSolicitarAjusteMaterial: false,
-    podeDispensarMaterial: false
+    podeDispensarMaterial: false,
+    podeEnviarFotoReuniao: false,
+    podeAprovarFotoReuniao: false,
+    podeSolicitarAjusteFotoReuniao: false,
+    podeDispensarFotoReuniao: false
   };
   item.acoesGestao = emptyGestao;
   item.podeAprovarTituloEixo = false;
@@ -926,10 +972,14 @@ function atividadesV2_portalMapPendenciaDiretoria_(record) {
     statusApresentacao: String(record.STATUS_APRESENTACAO || '').trim(),
     statusTituloEixo: String(record.STATUS_TITULO_EIXO || '').trim(),
     statusMaterial: String(record.STATUS_ENVIO_MATERIAL || '').trim(),
+    statusFotoReuniao: String(record.STATUS_FOTO_REUNIAO || '').trim(),
     statusAnaliseJustificativa: String(record.STATUS_ANALISE_JUSTIFICATIVA || '').trim(),
     statusPrazoJustificativa: String(record.STATUS_PRAZO_JUSTIFICATIVA || '').trim(),
     nomeArquivoMaterial: atividades_sanitizePortalText_(record.NOME_ARQUIVO_MATERIAL, 240),
     linkMaterialPublico: atividades_sanitizePortalUrl_(record.LINK_MATERIAL_APRESENTACAO),
+    idArquivoFotoReuniao: String(record.ID_ARQUIVO_FOTO_REUNIAO || '').trim(),
+    nomeArquivoFotoReuniao: atividades_sanitizePortalText_(record.NOME_ARQUIVO_FOTO_REUNIAO, 240),
+    linkFotoReuniao: atividades_sanitizePortalUrl_(record.LINK_FOTO_REUNIAO),
     descricaoPendencia: atividades_sanitizePortalText_(record.DESCRICAO_PENDENCIA, 500),
     descricaoPublica: atividades_sanitizePortalText_(record.DESCRICAO_PENDENCIA, 500),
     acaoRecomendada: atividades_sanitizePortalText_(record.ACAO_RECOMENDADA, 300),
@@ -949,6 +999,7 @@ function atividadesV2_buildPendenciaGestaoActions_(record) {
   var tipo = atividades_normalizeTextUpper_(record.TIPO_PENDENCIA);
   var statusTitulo = atividades_normalizeTextUpper_(record.STATUS_TITULO_EIXO);
   var statusMaterial = atividades_normalizeTextUpper_(record.STATUS_ENVIO_MATERIAL);
+  var statusFoto = atividades_normalizeTextUpper_(record.STATUS_FOTO_REUNIAO);
   var canReviewTitle = ['TITULO_EIXO_AGUARDANDO_ANALISE'].indexOf(tipo) >= 0 &&
     ['ENVIADO', 'RECEBIDO', 'EM_ANALISE'].indexOf(statusTitulo) >= 0;
   var canReviewMaterial = ['MATERIAL_AGUARDANDO_ANALISE'].indexOf(tipo) >= 0 &&
@@ -961,7 +1012,11 @@ function atividadesV2_buildPendenciaGestaoActions_(record) {
     podeAprovarMaterial: canReviewMaterial,
     podeSolicitarAjusteMaterial: canReviewMaterial,
     podeDispensarMaterial: ['MATERIAL_PENDENTE', 'MATERIAL_AJUSTE_SOLICITADO'].indexOf(tipo) >= 0 &&
-      ['PENDENTE', 'AJUSTE_SOLICITADO'].indexOf(statusMaterial || 'PENDENTE') >= 0
+      ['PENDENTE', 'AJUSTE_SOLICITADO'].indexOf(statusMaterial || 'PENDENTE') >= 0,
+    podeEnviarFotoReuniao: ['FOTO_REUNIAO_PENDENTE', 'FOTO_REUNIAO_AJUSTE_SOLICITADO'].indexOf(tipo) >= 0,
+    podeAprovarFotoReuniao: tipo === 'FOTO_REUNIAO_AGUARDANDO_ANALISE' && ['RECEBIDO', 'REENVIADO', 'EM_ANALISE'].indexOf(statusFoto) >= 0,
+    podeSolicitarAjusteFotoReuniao: tipo === 'FOTO_REUNIAO_AGUARDANDO_ANALISE' && ['RECEBIDO', 'REENVIADO', 'EM_ANALISE'].indexOf(statusFoto) >= 0,
+    podeDispensarFotoReuniao: ['FOTO_REUNIAO_PENDENTE', 'FOTO_REUNIAO_AJUSTE_SOLICITADO'].indexOf(tipo) >= 0
   };
 }
 

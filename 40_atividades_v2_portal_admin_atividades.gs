@@ -41,9 +41,13 @@ function atividadesV2_portalListarAtividadesAdmin_(filtros, contexto) {
       atividadesV2_getTargetSheet_(ss, ATIVIDADES_V2_SHEETS.APRESENTACOES)
     );
     var pendingByActivity = atividadesV2_adminIndexPresentationPending_(presentations);
+    var arquivosIndex = typeof atividadesV2_indexLatestArquivos_ === 'function'
+      ? atividadesV2_indexLatestArquivos_(atividadesV2_readArquivosAtividadeOptional_(ss))
+      : {};
+    var configs = atividades_modelosCriacaoReadConfigRows_(ss);
     var normalizedFilters = atividadesV2_adminNormalizeFilters_(filtros || {});
     var records = activities.map(function(row) {
-      return atividadesV2_adminBuildListItem_(row, pendingByActivity[String(row.ID_ATIVIDADE || '').trim()] || []);
+      return atividadesV2_adminBuildListItem_(row, pendingByActivity[String(row.ID_ATIVIDADE || '').trim()] || [], arquivosIndex, atividadesV2_findConfigForActivityFromRows_(configs, row));
     }).filter(function(item) {
       return item.idAtividade && atividadesV2_adminMatchesFilters_(item, normalizedFilters);
     }).sort(atividadesV2_adminSortActivities_);
@@ -87,15 +91,21 @@ function atividadesV2_portalGetDetalheAtividadeAdmin_(idAtividade, contexto) {
     ).filter(function(row) { return String(row.ID_ATIVIDADE || '').trim() === id; });
     var configRows = atividades_modelosCriacaoReadConfigRows_(ss);
     var model = atividades_modelosCriacaoFindConfig_(configRows, activity.ID_CONFIG_MODELO);
+    var arquivosIndex = typeof atividadesV2_indexLatestArquivos_ === 'function'
+      ? atividadesV2_indexLatestArquivos_(atividadesV2_readArquivosAtividadeOptional_(ss))
+      : {};
 
     return {
       ok: true,
       data: {
         atividade: atividadesV2_adminBuildDetailActivity_(activity, model),
         modeloAplicado: model ? atividades_modelosCriacaoToSafeModel_(model) : null,
-        apresentacoes: presentations.map(atividadesV2_adminBuildPresentation_),
+        apresentacoes: presentations.map(function(presentation) {
+          var photo = atividadesV2_getLatestArquivoFromIndex_(arquivosIndex, id, presentation.ID_APRESENTACAO, ATIVIDADES_V2_TIPO_ARQUIVO_FOTO_);
+          return atividadesV2_adminBuildPresentation_(presentation, photo);
+        }),
         envolvidos: involved.map(atividadesV2_adminBuildInvolved_),
-        pendencias: atividadesV2_adminBuildPending_(activity, presentations),
+        pendencias: atividadesV2_adminBuildPending_(activity, presentations, arquivosIndex, model || {}),
         ultimasAcoes: atividadesV2_adminReadLastActions_(ss, id),
         camposEditaveis: atividadesV2_adminEditableFieldNames_(activity, model),
         camposBloqueados: ATIVIDADES_V2_ADMIN_SENSITIVE_FIELDS_.slice(),
@@ -314,8 +324,8 @@ function atividadesV2_adminFindForbiddenFields_(payload) {
   return forbidden;
 }
 
-function atividadesV2_adminBuildListItem_(row, presentationPending) {
-  var pending = atividadesV2_adminBuildPending_(row, Array.isArray(presentationPending) ? presentationPending : []);
+function atividadesV2_adminBuildListItem_(row, presentationPending, arquivosIndex, config) {
+  var pending = atividadesV2_adminBuildPending_(row, Array.isArray(presentationPending) ? presentationPending : [], arquivosIndex || {}, config || {});
   return {
     idAtividade: String(row.ID_ATIVIDADE || '').trim(),
     ciclo: String(row.CICLO || '').trim(),
@@ -332,6 +342,7 @@ function atividadesV2_adminBuildListItem_(row, presentationPending) {
     visibilidadePortal: String(row.VISIBILIDADE_PORTAL || '').trim(),
     statusEixoTematico: String(row.STATUS_EIXO_TEMATICO || '').trim(),
     pendenciaMaterial: pending.some(function(item) { return item.tipo === 'MATERIAL'; }),
+    pendenciaFotoReuniao: pending.some(function(item) { return item.tipo === 'FOTO_REUNIAO'; }),
     pendencias: pending.map(function(item) { return item.tipo; }),
     ativo: atividades_normalizeTextUpper_(row.ATIVO || 'SIM') !== 'NAO',
     idConfigModelo: String(row.ID_CONFIG_MODELO || '').trim(),
@@ -361,13 +372,17 @@ function atividadesV2_adminBuildDetailActivity_(row, model) {
   return safe;
 }
 
-function atividadesV2_adminBuildPresentation_(row) {
+function atividadesV2_adminBuildPresentation_(row, fotoReuniao) {
   return {
     idApresentacao: String(row.ID_APRESENTACAO || '').trim(),
     statusApresentacao: String(row.STATUS_APRESENTACAO || '').trim(),
     statusTituloEixo: String(row.STATUS_TITULO_EIXO || '').trim(),
     statusMaterial: String(row.STATUS_ENVIO_MATERIAL || '').trim(),
     nomeArquivoMaterial: String(row.NOME_ARQUIVO_MATERIAL || '').trim(),
+    linkMaterial: atividades_sanitizePortalUrl_(row.LINK_MATERIAL_APRESENTACAO),
+    statusFotoReuniao: String(fotoReuniao && fotoReuniao.STATUS_ARQUIVO || '').trim(),
+    nomeArquivoFotoReuniao: String(fotoReuniao && fotoReuniao.NOME_ARQUIVO || '').trim(),
+    linkFotoReuniao: atividades_sanitizePortalUrl_(fotoReuniao && fotoReuniao.LINK_ARQUIVO),
     ativo: atividades_normalizeTextUpper_(row.ATIVO || 'SIM') !== 'NAO'
   };
 }
@@ -383,7 +398,12 @@ function atividadesV2_adminBuildInvolved_(row) {
   };
 }
 
-function atividadesV2_adminBuildPending_(activity, presentations) {
+function atividadesV2_adminBuildPending_(activity, presentations, arquivosIndex, config) {
+  var operationalStatus = atividades_normalizeTextUpper_(activity.STATUS_OPERACIONAL);
+  if (['CANCELADA', 'CANCELADO', 'ARQUIVADA', 'ARQUIVADO'].indexOf(operationalStatus) >= 0) {
+    return [];
+  }
+
   var pending = [];
   var axisStatus = atividades_normalizeTextUpper_(activity.STATUS_EIXO_TEMATICO);
   if (['', 'PENDENTE', 'REPROVADO', 'ENVIADO'].indexOf(axisStatus) >= 0 && atividades_normalizeTextUpper_(activity.SUBTIPO_ATIVIDADE) === 'APRESENTACAO_MEMBRO') {
@@ -392,6 +412,16 @@ function atividadesV2_adminBuildPending_(activity, presentations) {
   (presentations || []).forEach(function(row) {
     var material = atividades_normalizeTextUpper_(row.STATUS_ENVIO_MATERIAL);
     if (['RECEBIDO', 'APROVADO', 'PUBLICADO', 'NAO_SE_APLICA'].indexOf(material) < 0) pending.push({ tipo: 'MATERIAL', status: material || 'PENDENTE' });
+    var rules = typeof atividadesV2_resolveFotoReuniaoRules_ === 'function'
+      ? atividadesV2_resolveFotoReuniaoRules_(activity, config || {})
+      : { exigeFoto: false };
+    if (rules.exigeFoto) {
+      var photo = typeof atividadesV2_getLatestArquivoFromIndex_ === 'function'
+        ? atividadesV2_getLatestArquivoFromIndex_(arquivosIndex || {}, activity.ID_ATIVIDADE, row.ID_APRESENTACAO, ATIVIDADES_V2_TIPO_ARQUIVO_FOTO_)
+        : null;
+      var photoStatus = atividades_normalizeTextUpper_(photo && photo.STATUS_ARQUIVO || 'PENDENTE');
+      if (['RECEBIDO', 'APROVADO', 'HISTORICO', 'DISPENSADO'].indexOf(photoStatus) < 0) pending.push({ tipo: 'FOTO_REUNIAO', status: photoStatus });
+    }
   });
   var unique = {};
   return pending.filter(function(item) { var key = item.tipo + ':' + item.status; if (unique[key]) return false; unique[key] = true; return true; });

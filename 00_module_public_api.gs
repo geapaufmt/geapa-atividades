@@ -459,6 +459,12 @@ function atividadesV2_portalRegistrarMaterialApresentacao(payload, contexto) {
   }, { entrypoint: 'atividadesV2_portalRegistrarMaterialApresentacao' });
 }
 
+function atividadesV2_portalRegistrarFotoReuniao(payload, contexto) {
+  return atividades_runWithOperationalGuard_('ATUALIZACAO_PORTAL_V2', null, function() {
+    return atividadesV2_portalRegistrarFotoReuniao_(payload || {}, contexto || {});
+  }, { entrypoint: 'atividadesV2_portalRegistrarFotoReuniao' });
+}
+
 function atividadesV2_portalListarEixosTematicos(contexto) {
   return atividades_runWithOperationalGuard_('CONFERENCIA_V2', null, function() {
     return atividadesV2_portalListarEixosTematicos_(contexto || {});
@@ -493,6 +499,18 @@ function atividadesV2_portalRevisarMaterialApresentacao(payload, contexto) {
   return atividades_runWithOperationalGuard_('ATUALIZACAO_PORTAL_V2', null, function() {
     return atividadesV2_portalRevisarMaterialApresentacao_(payload || {}, contexto || {});
   }, { entrypoint: 'atividadesV2_portalRevisarMaterialApresentacao' });
+}
+
+function atividadesV2_portalRevisarFotoReuniao(payload, contexto) {
+  return atividades_runWithOperationalGuard_('ATUALIZACAO_PORTAL_V2', null, function() {
+    return atividadesV2_portalRevisarFotoReuniao_(payload || {}, contexto || {});
+  }, { entrypoint: 'atividadesV2_portalRevisarFotoReuniao' });
+}
+
+function atividadesV2_runTesteEntregaveisApresentacaoDev() {
+  return atividades_runWithOperationalGuard_('CONFERENCIA_V2', null, function() {
+    return atividadesV2_runTesteEntregaveisApresentacaoDev_();
+  }, { entrypoint: 'atividadesV2_runTesteEntregaveisApresentacaoDev' });
 }
 
 function atividadesV2_portalEnviarJustificativa(payload, contexto) {

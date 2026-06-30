@@ -145,6 +145,17 @@ function atividadesV2_portalRevisarTituloEixoApresentacao_(payload, contexto) {
           atividadesV2_buildReviewObservation_(action.payload)
         )
       });
+      if (typeof atividadesV2_syncLatestArquivoStatus_ === 'function') {
+        atividadesV2_syncLatestArquivoStatus_(
+          ss,
+          bundle.atividade.ID_ATIVIDADE,
+          bundle.apresentacao.ID_APRESENTACAO,
+          ATIVIDADES_V2_TIPO_ARQUIVO_SLIDE_,
+          status,
+          action.contexto,
+          atividadesV2_buildReviewObservation_(action.payload)
+        );
+      }
 
       return {
         idAtividade: bundle.atividade.ID_ATIVIDADE,
@@ -317,7 +328,7 @@ function atividadesV2_portalRegistrarMaterialApresentacao_(payload, contexto) {
     atividadesV2_invalidatePresentationPortalCaches_(result.contexto, materialResult);
     return {
       ok: true,
-      message: 'Material registrado com sucesso na base DEV.',
+      message: 'Slide/material registrado com sucesso na base DEV.',
       data: materialResult
     };
   } catch (err) {
@@ -384,11 +395,22 @@ function atividadesV2_atualizarStatusRealizacaoApresentacoesDev_(options) {
     var atividades = atividadesV2_readSheetObjects_(atividadesSheet);
     var atividadesById = atividadesV2_indexByField_(atividades, 'ID_ATIVIDADE');
     var apresentacoes = atividadesV2_readSheetObjects_(apresentacoesSheet);
+    var arquivosIndex = typeof atividadesV2_indexLatestArquivos_ === 'function'
+      ? atividadesV2_indexLatestArquivos_(atividadesV2_readArquivosAtividadeOptional_(ss))
+      : {};
+    var configs = atividadesV2_readSheetObjects_(atividadesV2_getTargetSheet_(ss, ATIVIDADES_V2_SHEETS.CONFIG));
     var now = options.now ? atividades_parseDateOrNull_(options.now) || new Date() : new Date();
     var user = atividadesV2_safeUserToken_(options.atualizadoPor || 'SISTEMA_ATIVIDADES_V2');
 
     apresentacoes.forEach(function(apresentacao) {
-      var evaluation = atividadesV2_evaluateRealizacaoPresentationCandidate_(atividadesById, apresentacao, options, now);
+      var activity = atividadesById[String(apresentacao.ID_ATIVIDADE || '').trim()] || {};
+      var photo = typeof atividadesV2_getLatestArquivoFromIndex_ === 'function'
+        ? atividadesV2_getLatestArquivoFromIndex_(arquivosIndex, activity.ID_ATIVIDADE, apresentacao.ID_APRESENTACAO, ATIVIDADES_V2_TIPO_ARQUIVO_FOTO_)
+        : null;
+      var config = typeof atividadesV2_findConfigForActivityFromRows_ === 'function'
+        ? atividadesV2_findConfigForActivityFromRows_(configs, activity)
+        : {};
+      var evaluation = atividadesV2_evaluateRealizacaoPresentationCandidate_(atividadesById, apresentacao, options, now, photo, config);
       if (!evaluation.candidate) {
         if (evaluation.aviso) report.avisos.push(evaluation.aviso);
         return;
@@ -439,7 +461,7 @@ function atividadesV2_atualizarStatusRealizacaoApresentacoesDev_(options) {
   }
 }
 
-function atividadesV2_evaluateRealizacaoPresentationCandidate_(atividadesById, apresentacao, options, now) {
+function atividadesV2_evaluateRealizacaoPresentationCandidate_(atividadesById, apresentacao, options, now, fotoReuniao, config) {
   var idAtividade = String(apresentacao.ID_ATIVIDADE || '').trim();
   var idApresentacao = String(apresentacao.ID_APRESENTACAO || '').trim();
   if (options.idAtividade && String(options.idAtividade).trim() !== idAtividade) return { candidate: false };
@@ -469,6 +491,14 @@ function atividadesV2_evaluateRealizacaoPresentationCandidate_(atividadesById, a
   var materialStatus = atividades_normalizeTextUpper_(apresentacao.STATUS_ENVIO_MATERIAL || '');
   if (['RECEBIDO', 'APROVADO', 'HISTORICO', 'DISPENSADO'].indexOf(materialStatus) === -1) return { candidate: false };
 
+  var photoRules = typeof atividadesV2_resolveFotoReuniaoRules_ === 'function'
+    ? atividadesV2_resolveFotoReuniaoRules_(atividade, config || {})
+    : { exigeFoto: true };
+  var photoStatus = atividades_normalizeTextUpper_(fotoReuniao && fotoReuniao.STATUS_ARQUIVO);
+  if (photoRules.exigeFoto && ['RECEBIDO', 'APROVADO', 'HISTORICO', 'DISPENSADO'].indexOf(photoStatus) === -1) {
+    return { candidate: false };
+  }
+
   return {
     candidate: true,
     atividade: atividade,
@@ -479,7 +509,8 @@ function atividadesV2_evaluateRealizacaoPresentationCandidate_(atividadesById, a
       statusApresentacaoAntes: statusApresentacao,
       statusOperacionalDepois: 'REALIZADA',
       statusApresentacaoDepois: 'REALIZADA',
-      motivo: 'Data/horario da apresentacao ja passou, titulo/eixos validados e material resolvido.'
+      statusFotoReuniao: photoStatus || 'NAO_SE_APLICA',
+      motivo: 'Data/horario ja passou e titulo/eixos, slide/material e foto da reuniao estao resolvidos.'
     }
   };
 }
@@ -552,10 +583,13 @@ function atividadesV2_createPresentationPendencyCard_(item) {
     statusApresentacao: item.statusApresentacao || '',
     statusTituloEixo: item.statusTituloEixo || '',
     statusMaterial: item.statusMaterial || '',
+    statusFotoReuniao: item.statusFotoReuniao || '',
     statusTituloEixoRotulo: '',
     statusMaterialRotulo: '',
     nomeArquivoMaterial: item.nomeArquivoMaterial || '',
     linkMaterialPublico: item.linkMaterialPublico || '',
+    nomeArquivoFotoReuniao: item.nomeArquivoFotoReuniao || '',
+    linkFotoReuniao: item.linkFotoReuniao || '',
     prazo: item.prazo || '',
     diasEmAberto: item.diasEmAberto || '',
     dataFormatada: '',
@@ -577,6 +611,12 @@ function atividadesV2_createPresentationPendencyCard_(item) {
       linkMaterialPublico: item.linkMaterialPublico || '',
       acoesGestao: atividadesV2_emptyMaterialManagementActions_()
     },
+    blocoFotoReuniao: {
+      status: item.statusFotoReuniao || '',
+      nomeArquivo: item.nomeArquivoFotoReuniao || '',
+      linkArquivo: item.linkFotoReuniao || '',
+      acoesGestao: atividadesV2_emptyFotoManagementActions_()
+    },
     acoesGestao: {
       podeAprovarTituloEixo: false,
       podeEditarEAprovarTituloEixo: false,
@@ -584,7 +624,11 @@ function atividadesV2_createPresentationPendencyCard_(item) {
       podeReprovarTituloEixo: false,
       podeAprovarMaterial: false,
       podeSolicitarAjusteMaterial: false,
-      podeDispensarMaterial: false
+      podeDispensarMaterial: false,
+      podeEnviarFotoReuniao: false,
+      podeAprovarFotoReuniao: false,
+      podeSolicitarAjusteFotoReuniao: false,
+      podeDispensarFotoReuniao: false
     }
   };
 }
@@ -603,6 +647,12 @@ function atividadesV2_mergePresentationPendencyIntoCard_(card, item) {
   if (tipo.indexOf('MATERIAL_') === 0) {
     card.blocoMaterial.acoesGestao = atividadesV2_mergeActions_(card.blocoMaterial.acoesGestao, actions);
   }
+  if (tipo.indexOf('FOTO_REUNIAO_') === 0) {
+    card.statusFotoReuniao = item.statusFotoReuniao || card.statusFotoReuniao;
+    card.nomeArquivoFotoReuniao = item.nomeArquivoFotoReuniao || card.nomeArquivoFotoReuniao;
+    card.linkFotoReuniao = item.linkFotoReuniao || card.linkFotoReuniao;
+    card.blocoFotoReuniao.acoesGestao = atividadesV2_mergeActions_(card.blocoFotoReuniao.acoesGestao, actions);
+  }
   card.acoesGestao = atividadesV2_mergeActions_(card.acoesGestao, actions);
   card.acoesGestao.podeEditarEAprovarTituloEixo = card.blocoTituloEixos.acoesGestao.podeEditarEAprovarTituloEixo;
   card.acoesGestao.podeReprovarTituloEixo = card.blocoTituloEixos.acoesGestao.podeReprovarTituloEixo;
@@ -619,6 +669,7 @@ function atividadesV2_finalizePresentationPendencyCard_(card) {
   card.eixosResumo = atividadesV2_buildPresentationAxesSummary_(card.eixoTematicoPrincipal, card.eixoTematicoSecundario);
   card.statusTituloEixoRotulo = atividadesV2_prettyStatusLabel_(card.statusTituloEixo || 'PENDENTE');
   card.statusMaterialRotulo = atividadesV2_prettyStatusLabel_(card.statusMaterial || 'PENDENTE');
+  card.statusFotoReuniaoRotulo = atividadesV2_prettyStatusLabel_(card.statusFotoReuniao || 'PENDENTE');
   card.badges = atividadesV2_buildPresentationPendencyBadges_(card);
   card.badgesRotulos = card.badges.map(function(badge) { return badge.label; });
   card.pendenciasResumo = atividadesV2_buildPresentationPendencySummary_(card);
@@ -654,7 +705,10 @@ function atividadesV2_pendencyTypeBadge_(tipo) {
     TITULO_EIXO_AJUSTE_SOLICITADO: 'TITULO/EIXOS COM AJUSTE SOLICITADO',
     MATERIAL_PENDENTE: 'MATERIAL PENDENTE',
     MATERIAL_AGUARDANDO_ANALISE: 'MATERIAL AGUARDANDO ANALISE',
-    MATERIAL_AJUSTE_SOLICITADO: 'MATERIAL COM AJUSTE SOLICITADO'
+    MATERIAL_AJUSTE_SOLICITADO: 'MATERIAL COM AJUSTE SOLICITADO',
+    FOTO_REUNIAO_PENDENTE: 'FOTO DA REUNIAO PENDENTE',
+    FOTO_REUNIAO_AGUARDANDO_ANALISE: 'FOTO AGUARDANDO ANALISE',
+    FOTO_REUNIAO_AJUSTE_SOLICITADO: 'FOTO COM AJUSTE SOLICITADO'
   };
   if (!labels[normalized]) return null;
   return { id: normalized, label: labels[normalized], nivel: atividadesV2_pendencyTypeLevel_(normalized) };
@@ -673,9 +727,12 @@ function atividadesV2_buildPresentationPendencySummary_(card) {
     TITULO_EIXO_PENDENTE: 'Aguardando envio do titulo/eixos pelo apresentador.',
     TITULO_EIXO_AGUARDANDO_ANALISE: 'Revisar titulo/eixos enviados.',
     TITULO_EIXO_AJUSTE_SOLICITADO: 'Aguardando ajuste do titulo/eixos pelo apresentador.',
-    MATERIAL_PENDENTE: 'Material ainda nao enviado.',
-    MATERIAL_AGUARDANDO_ANALISE: 'Revisar material enviado.',
-    MATERIAL_AJUSTE_SOLICITADO: 'Aguardando reenvio do material ajustado.'
+    MATERIAL_PENDENTE: 'Slide/material ainda nao enviado.',
+    MATERIAL_AGUARDANDO_ANALISE: 'Revisar slide/material enviado.',
+    MATERIAL_AJUSTE_SOLICITADO: 'Aguardando reenvio do slide/material ajustado.',
+    FOTO_REUNIAO_PENDENTE: 'Foto da reuniao ainda nao enviada.',
+    FOTO_REUNIAO_AGUARDANDO_ANALISE: 'Revisar foto da reuniao enviada.',
+    FOTO_REUNIAO_AJUSTE_SOLICITADO: 'Aguardando nova foto da reuniao.'
   };
   var out = [];
   card.tiposPendencia.forEach(function(tipo) {
@@ -693,7 +750,11 @@ function atividadesV2_buildPresentationAvailableActions_(actions) {
     ['podeReprovarTituloEixo', 'reprovarTituloEixo', 'Rejeitar proposta de tema'],
     ['podeAprovarMaterial', 'aprovarMaterial', 'Aprovar material'],
     ['podeSolicitarAjusteMaterial', 'solicitarAjusteMaterial', 'Solicitar ajuste de material'],
-    ['podeDispensarMaterial', 'dispensarMaterial', 'Dispensar material']
+    ['podeDispensarMaterial', 'dispensarMaterial', 'Dispensar material'],
+    ['podeEnviarFotoReuniao', 'enviarFotoReuniao', 'Enviar foto da reuniao'],
+    ['podeAprovarFotoReuniao', 'aprovarFotoReuniao', 'Aprovar foto da reuniao'],
+    ['podeSolicitarAjusteFotoReuniao', 'solicitarAjusteFotoReuniao', 'Solicitar ajuste da foto'],
+    ['podeDispensarFotoReuniao', 'dispensarFotoReuniao', 'Dispensar foto da reuniao']
   ];
   return definitions.filter(function(def) {
     return actions && actions[def[0]] === true;
@@ -710,7 +771,8 @@ function atividadesV2_buildPresentationTechnicalDetails_(card) {
       descricaoPendencia: String(item.descricaoPendencia || item.descricaoPublica || '').trim(),
       acaoRecomendada: String(item.acaoRecomendada || '').trim(),
       statusTituloEixo: String(item.statusTituloEixo || card.statusTituloEixo || '').trim(),
-      statusMaterial: String(item.statusMaterial || card.statusMaterial || '').trim()
+      statusMaterial: String(item.statusMaterial || card.statusMaterial || '').trim(),
+      statusFotoReuniao: String(item.statusFotoReuniao || card.statusFotoReuniao || '').trim()
     };
   });
 }
@@ -813,6 +875,15 @@ function atividadesV2_emptyMaterialManagementActions_() {
   };
 }
 
+function atividadesV2_emptyFotoManagementActions_() {
+  return {
+    podeEnviarFotoReuniao: false,
+    podeAprovarFotoReuniao: false,
+    podeSolicitarAjusteFotoReuniao: false,
+    podeDispensarFotoReuniao: false
+  };
+}
+
 function atividadesV2_mergeActions_(base, next) {
   var out = Object.assign({}, base || {});
   Object.keys(next || {}).forEach(function(key) {
@@ -837,7 +908,10 @@ function atividadesV2_isPresentationPendingType_(tipo) {
     'TITULO_EIXO_AJUSTE_SOLICITADO',
     'MATERIAL_PENDENTE',
     'MATERIAL_AGUARDANDO_ANALISE',
-    'MATERIAL_AJUSTE_SOLICITADO'
+    'MATERIAL_AJUSTE_SOLICITADO',
+    'FOTO_REUNIAO_PENDENTE',
+    'FOTO_REUNIAO_AGUARDANDO_ANALISE',
+    'FOTO_REUNIAO_AJUSTE_SOLICITADO'
   ].indexOf(atividades_normalizeTextUpper_(tipo)) >= 0;
 }
 
@@ -892,9 +966,13 @@ function atividadesV2_runTestePortalApresentacoesAcoesDev_() {
   var diagnostico = atividadesV2_diagnosticarFluxoApresentacoesPortalDev_();
   var eixos = atividadesV2_portalListarEixosTematicos_({ perfil: 'MEMBRO' });
   var pendencias = atividadesV2_atualizarPendenciasDiretoria_({ dryRun: true });
+  var entregaveis = typeof atividadesV2_runTesteEntregaveisApresentacaoDev_ === 'function'
+    ? atividadesV2_runTesteEntregaveisApresentacaoDev_()
+    : { ok: false, aviso: 'Teste de entregaveis indisponivel.' };
   return {
-    ok: !!(diagnostico.ok && eixos.ok && pendencias.ok),
+    ok: !!(diagnostico.ok && eixos.ok && pendencias.ok && entregaveis.ok),
     diagnostico: diagnostico,
+    entregaveis: entregaveis,
     totalEixosAtivos: eixos.data.eixos.length,
     totalPendenciasDryRun: pendencias.totalPendencias || pendencias.totalLinhasGeradas || 0
   };
@@ -1010,7 +1088,7 @@ function atividadesV2_buildPortalActionRow_(acao, status, resultado, erro) {
     STATUS_PROCESSAMENTO: status,
     RESULTADO_JSON: resultado ? atividadesV2_safeLogData_({
       ok: true,
-      status: resultado.statusTituloEixo || resultado.statusMaterial || '',
+      status: resultado.statusTituloEixo || resultado.statusMaterial || resultado.statusFotoReuniao || resultado.statusArquivo || '',
       valoresAnteriores: resultado.valoresAnteriores || undefined
     }) : '',
     ERRO_CODIGO: erro && erro.code || '',
@@ -1211,7 +1289,7 @@ function atividadesV2_sanitizePresentationActionPayload_(payload) {
     idApresentacao: src.idApresentacao || src.ID_APRESENTACAO || '',
     decisao: src.decisao || '',
     tituloInformado: atividades_sanitizePortalText_(src.tituloApresentacao || src.titulo, 120),
-    temArquivo: !!(src.fileId || src.conteudoBase64),
+    temArquivo: !!(src.fileId || src.conteudoBase64 || src.linkArquivo || src.linkFoto || src.linkDrive),
     observacoes: atividades_sanitizePortalText_(src.observacoes || src.observacaoPublica, 160)
   };
 }
