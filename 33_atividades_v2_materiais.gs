@@ -267,6 +267,7 @@ function atividadesV2_registrarMaterialApresentacao_(payload, contexto) {
       versaoMaterial: nameVersion.versao,
       tipoArquivoAtividade: 'SLIDE_APRESENTACAO',
       idArquivoAtividade: arquivoRecord && arquivoRecord.ID_ARQUIVO_ATIVIDADE || '',
+      statusMaterial: statusMaterial,
       idPessoa: apresentacao.ID_PESSOA || atividade.ID_PESSOA_PRINCIPAL || '',
       email: apresentacao.EMAIL_MEMBRO || atividade.EMAIL_PESSOA_PRINCIPAL || '',
       rga: apresentacao.RGA || atividade.RGA_PESSOA_PRINCIPAL || ''

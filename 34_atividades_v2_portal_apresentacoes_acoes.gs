@@ -326,6 +326,17 @@ function atividadesV2_portalRegistrarMaterialApresentacao_(payload, contexto) {
     });
     atividadesV2_refreshPresentationPortalViews_();
     atividadesV2_invalidatePresentationPortalCaches_(result.contexto, materialResult);
+    atividadesV2_mailAttachQueueResult_(
+      materialResult,
+      atividadesV2_mailQueuePortalAction_(
+        atividades_normalizeTextUpper_(materialResult.statusMaterial) === 'REENVIADO'
+          ? 'APRESENTACAO_MATERIAL_REENVIADO'
+          : actionType,
+        payload || {},
+        result.contexto,
+        materialResult
+      )
+    );
     return {
       ok: true,
       message: 'Slide/material registrado com sucesso na base DEV.',
@@ -988,6 +999,10 @@ function atividadesV2_portalRunPresentationAction_(tipoAcao, payload, contexto, 
     });
     atividadesV2_refreshPresentationPortalViews_();
     atividadesV2_invalidatePresentationPortalCaches_(action.contexto, result);
+    atividadesV2_mailAttachQueueResult_(
+      result,
+      atividadesV2_mailQueuePortalAction_(tipoAcao, action.payload, action.contexto, result)
+    );
     return {
       ok: true,
       message: 'Acao de apresentacao registrada com sucesso na base DEV.',

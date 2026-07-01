@@ -525,6 +525,18 @@ function atividadesV2_runTesteEntregaveisApresentacaoDev() {
   }, { entrypoint: 'atividadesV2_runTesteEntregaveisApresentacaoDev' });
 }
 
+function atividadesV2_diagnosticarMailHubIntegracao() {
+  return atividades_runWithOperationalGuard_('CONFERENCIA_V2', null, function() {
+    return atividadesV2_diagnosticarMailHubIntegracao_();
+  }, { entrypoint: 'atividadesV2_diagnosticarMailHubIntegracao' });
+}
+
+function atividadesV2_processarFilaEmailsCore() {
+  return atividades_runWithOperationalGuard_('ATUALIZACAO_PORTAL_V2', null, function() {
+    return atividadesV2_processarFilaEmailsCore_();
+  }, { entrypoint: 'atividadesV2_processarFilaEmailsCore', executionType: 'MANUAL' });
+}
+
 function atividadesV2_portalEnviarJustificativa(payload, contexto) {
   return atividades_runWithOperationalGuard_('ATUALIZACAO_PORTAL_V2', null, function() {
     return atividadesV2_portalEnviarJustificativa_(payload || {}, contexto || {});

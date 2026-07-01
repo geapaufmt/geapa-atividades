@@ -1172,6 +1172,10 @@ function atividadesV2_portalRunJustificativaAction_(tipoAcao, payload, contexto,
     });
     atividadesV2_refreshJustificativasPortalViews_();
     atividadesV2_invalidateJustificativasPortalCaches_(action.contexto, result);
+    atividadesV2_mailAttachQueueResult_(
+      result,
+      atividadesV2_mailQueuePortalAction_(tipoAcao, action.payload, action.contexto, result)
+    );
     return {
       ok: true,
       message: 'Justificativa processada com sucesso na base DEV.',

@@ -736,6 +736,11 @@ slide/material e foto da reuniao. O historico versionado de arquivos fica em
 `Atividades_Arquivos`; consulte
 [`docs/atividades-v2-entregaveis-apresentacao.md`](docs/atividades-v2-entregaveis-apresentacao.md).
 
+As acoes de apresentacoes e justificativas do Portal enfileiram comunicacoes na
+central `MAIL_SAIDA` do GEAPA_CORE, sem envio direto durante a requisicao e sem
+outbox paralela no modulo. Consulte
+[`docs/atividades-v2-mail-hub.md`](docs/atividades-v2-mail-hub.md).
+
 O modulo expoe uma camada publica somente leitura para o Portal GEAPA:
 
 - `atividades_listarParaPortal(contexto)`;
