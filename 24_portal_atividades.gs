@@ -1356,19 +1356,41 @@ function atividades_readPortalActivityRecordsV2Dev_(spreadsheet, perf) {
   return records;
 }
 
-function atividades_readPortalActivityDetailRecordsV2Dev_() {
-  var viewRecords = atividades_tryReadPortalActivityDetailViewV2Dev_();
-  if (viewRecords) return viewRecords;
+function atividades_readPortalActivityDetailRecordsV2Dev_(spreadsheet, perf) {
+  return atividades_readPortalActivityDetailSourceV2Dev_(spreadsheet, perf).records;
+}
+
+function atividades_readPortalActivityDetailSourceV2Dev_(spreadsheet, perf) {
+  var ss = spreadsheet || atividadesV2_getDatabaseSpreadsheetDev_();
+  var viewRecords = atividades_tryReadPortalActivityDetailViewV2Dev_(ss, perf);
+
+  if (viewRecords && viewRecords.length) {
+    return {
+      records: viewRecords,
+      origem: 'PORTAL_ATIVIDADES_DETALHES',
+      fallback: false
+    };
+  }
 
   atividadesV2_logSetup_('WARN', 'PORTAL_ATIVIDADES_DETALHES vazia ou ausente; usando fallback da aba Atividades.', {});
-  var ss = atividadesV2_getDatabaseSpreadsheetDev_();
-  var sheet = ss.getSheetByName(ATIVIDADES_V2_SHEETS.ATIVIDADES);
+  if (perf) {
+    portalPerfMark_(perf, 'fallback_detalhes_operacional', {
+      motivo: viewRecords ? 'view_vazia' : 'view_ausente'
+    });
+  }
 
+  var sheet = ss.getSheetByName(ATIVIDADES_V2_SHEETS.ATIVIDADES);
   if (!sheet) {
     throw new Error('Aba Atividades nao encontrada na base v2 DEV.');
   }
 
-  return GEAPA_CORE.coreReadSheetRecords(sheet, { headerRow: 1 });
+  var records = GEAPA_CORE.coreReadSheetRecords(sheet, { headerRow: 1 });
+  if (perf) portalPerfMark_(perf, 'ler_aba_atividades_fallback', { linhas: records.length });
+  return {
+    records: records,
+    origem: 'Atividades',
+    fallback: true
+  };
 }
 
 function atividades_readPortalActivityDetailViewRecordsV2Dev_(spreadsheet, perf) {
@@ -1463,6 +1485,7 @@ function atividadesV2_portalGetCalendario_(contexto) {
         meta: atividadesV2_buildPortalCalendarioMeta_(portalConfig),
         cacheHit: true,
         origem: 'geapa-atividades-cache',
+        payloadBytes: portalApproxPayloadBytes_(cached),
         tempoTotalMs: cachedPerf.totalMs
       }, cachedPerf);
     }
@@ -1515,7 +1538,8 @@ function atividadesV2_portalGetCalendario_(contexto) {
       data: data,
       meta: atividadesV2_buildPortalCalendarioMeta_(portalConfig),
       cacheHit: false,
-      origem: 'geapa-atividades',
+      origem: 'PORTAL_ATIVIDADES_CALENDARIO',
+      payloadBytes: payloadBytes,
       tempoTotalMs: perfResult.totalMs
     }, perfResult);
   } catch (err) {
@@ -1561,12 +1585,18 @@ function atividades_buscarDetalheParaPortal_(idAtividade, contexto) {
       cached = null;
     }
     if (cached) {
-      portalPerfMark_(perf, 'cache_hit_detalhe', { idAtividade: wantedId });
+      var cachedPayloadBytes = portalApproxPayloadBytes_(cached);
+      portalPerfMark_(perf, 'cache_hit_detalhe', {
+        idAtividade: wantedId,
+        payloadBytes: cachedPayloadBytes
+      });
       var cachedPerf = portalPerfEnd_(perf);
       return portalPerfAttachDiagnostics_({
         ok: true,
         data: cached,
         cacheHit: true,
+        origem: 'geapa-atividades-cache',
+        payloadBytes: cachedPayloadBytes,
         tempoTotalMs: cachedPerf.totalMs
       }, cachedPerf);
     }
@@ -1577,20 +1607,26 @@ function atividades_buscarDetalheParaPortal_(idAtividade, contexto) {
         atividades_isConfirmedPortalCacheRecord_(cachedDetails.detalhesPorId[wantedId])) {
       portalPerfMark_(perf, 'cache_hit_detalhes_agregado', { idAtividade: wantedId });
       var aggregatePerf = portalPerfEnd_(perf);
-      return {
+      return portalPerfAttachDiagnostics_({
         ok: true,
         data: cachedDetails.detalhesPorId[wantedId],
         cacheHit: true,
-        origem: 'cache_agregado',
+        origem: 'geapa-atividades-cache-agregado',
+        payloadBytes: portalApproxPayloadBytes_(cachedDetails.detalhesPorId[wantedId]),
         tempoTotalMs: aggregatePerf.totalMs
-      };
+      }, aggregatePerf);
     }
 
     portalPerfMark_(perf, 'contexto_normalizado');
     var target = null;
     var ss = atividadesV2_getDatabaseSpreadsheetDev_();
     portalPerfMark_(perf, 'abrir_planilha_v2_dev');
-    var records = atividades_readPortalActivityDetailViewRecordsV2Dev_(ss, perf);
+    var source = atividades_readPortalActivityDetailSourceV2Dev_(ss, perf);
+    var records = source.records;
+    portalPerfMark_(perf, 'selecionar_fonte_detalhe', {
+      origem: source.origem,
+      fallback: source.fallback === true
+    });
 
     for (var i = 0; i < records.length; i++) {
       if (String(records[i].ID_ATIVIDADE || '').trim() === wantedId) {
@@ -1600,31 +1636,43 @@ function atividades_buscarDetalheParaPortal_(idAtividade, contexto) {
     }
 
     if (!target || !atividades_canShowActivityInPortal_(target, ctx)) {
-      return {
+      var notFoundPerf = portalPerfEnd_(perf);
+      return portalPerfAttachDiagnostics_({
         ok: false,
         errorCode: 'ATIVIDADE_NAO_ENCONTRADA',
-        message: 'Atividade nao encontrada ou indisponivel para o portal.'
-      };
+        message: 'Atividade nao encontrada ou indisponivel para o portal.',
+        cacheHit: false,
+        origem: source.origem,
+        tempoTotalMs: notFoundPerf.totalMs
+      }, notFoundPerf);
     }
 
     var data = atividades_buildPortalDetail_(target, ctx);
+    var payloadBytes = portalApproxPayloadBytes_(data);
+    portalPerfMark_(perf, 'montar_resposta_detalhe', {
+      idAtividade: wantedId,
+      origem: source.origem,
+      payloadBytes: payloadBytes
+    });
     portalCachePutJson_(cacheKey, data, ATIVIDADES_V2_PORTAL_CACHE_TTL_SECONDS);
     var perfResult = portalPerfEnd_(perf);
     return portalPerfAttachDiagnostics_({
       ok: true,
       data: data,
       cacheHit: false,
+      origem: source.origem,
+      payloadBytes: payloadBytes,
       tempoTotalMs: perfResult.totalMs
     }, perfResult);
   } catch (err) {
     var errorPerf = portalPerfEnd_(perf);
-    return {
+    return portalPerfAttachDiagnostics_({
       ok: false,
       errorCode: 'ERRO_LEITURA_PORTAL',
       message: 'Nao foi possivel consultar a atividade para o portal.',
       details: err && err.message ? err.message : String(err),
       tempoTotalMs: errorPerf ? errorPerf.totalMs : ''
-    };
+    }, errorPerf);
   }
 }
 
@@ -1640,24 +1688,31 @@ function atividadesV2_portalGetAtividadesDetalhes_(contexto) {
     var cached = portalCacheGetJson_(cacheKey);
     if (cached) {
       cached = atividades_filterConfirmedPortalDetailsCache_(cached);
+      var cachedPayloadBytes = portalApproxPayloadBytes_(cached);
       portalPerfMark_(perf, 'cache_hit_detalhes', {
         total: cached && cached.detalhesPorId ? Object.keys(cached.detalhesPorId).length : 0,
-        payloadBytes: portalApproxPayloadBytes_(cached)
+        payloadBytes: cachedPayloadBytes
       });
       var cachedPerf = portalPerfEnd_(perf);
-      return {
+      return portalPerfAttachDiagnostics_({
         ok: true,
         data: cached,
         cacheHit: true,
-        origem: 'cache',
+        origem: 'geapa-atividades-cache',
+        payloadBytes: cachedPayloadBytes,
         tempoTotalMs: cachedPerf.totalMs
-      };
+      }, cachedPerf);
     }
 
     portalPerfMark_(perf, 'contexto_normalizado');
     var ss = atividadesV2_getDatabaseSpreadsheetDev_();
     portalPerfMark_(perf, 'abrir_planilha_v2_dev');
-    var records = atividades_readPortalActivityDetailViewRecordsV2Dev_(ss, perf);
+    var source = atividades_readPortalActivityDetailSourceV2Dev_(ss, perf);
+    var records = source.records;
+    portalPerfMark_(perf, 'selecionar_fonte_detalhes', {
+      origem: source.origem,
+      fallback: source.fallback === true
+    });
 
     var detalhesPorId = {};
     var ultimaAtualizacao = '';
@@ -1681,22 +1736,23 @@ function atividadesV2_portalGetAtividadesDetalhes_(contexto) {
     var cacheOk = portalCachePutJson_(cacheKey, data, ATIVIDADES_V2_PORTAL_DETALHES_CACHE_TTL_SECONDS);
     portalPerfMark_(perf, 'gravar_cache_detalhes', { ok: cacheOk, ttl: ATIVIDADES_V2_PORTAL_DETALHES_CACHE_TTL_SECONDS });
     var perfResult = portalPerfEnd_(perf);
-    return {
+    return portalPerfAttachDiagnostics_({
       ok: true,
       data: data,
       cacheHit: false,
-      origem: 'planilha',
+      origem: source.origem,
+      payloadBytes: payloadBytes,
       tempoTotalMs: perfResult.totalMs
-    };
+    }, perfResult);
   } catch (err) {
     var errorPerf = portalPerfEnd_(perf);
-    return {
+    return portalPerfAttachDiagnostics_({
       ok: false,
       errorCode: 'ERRO_DETALHES_PORTAL_ATIVIDADES',
       message: 'Nao foi possivel carregar os detalhes de atividades para preload.',
       details: err && err.message ? err.message : String(err),
       tempoTotalMs: errorPerf ? errorPerf.totalMs : ''
-    };
+    }, errorPerf);
   }
 }
 
@@ -1840,9 +1896,20 @@ function atividadesV2_runTestePortalPerformanceDev_() {
   var primeira = atividadesV2_portalGetCalendario_(ctx);
   var segunda = atividadesV2_portalGetCalendario_(ctx);
   var detalhes = atividadesV2_portalGetAtividadesDetalhes_(ctx);
+  var primeiraAtividade = primeira.ok && primeira.data.length ? primeira.data[0] : null;
+  var primeiroId = primeiraAtividade ? String(primeiraAtividade.idAtividade || '').trim() : '';
+  var detalhePrimeira = { ok: true, cacheHit: false, origem: 'SEM_ATIVIDADES' };
+  var detalheSegunda = { ok: true, cacheHit: false, origem: 'SEM_ATIVIDADES' };
+
+  if (primeiroId) {
+    portalCacheRemove_(portalCacheBuildKey_('atividade:detalhes', primeiroId + ':' + token));
+    portalCacheRemove_(portalCacheBuildKey_('detalhes', token));
+    detalhePrimeira = atividades_buscarDetalheParaPortal_(primeiroId, ctx);
+    detalheSegunda = atividades_buscarDetalheParaPortal_(primeiroId, ctx);
+  }
 
   return {
-    ok: !!(primeira.ok && segunda.ok && detalhes.ok),
+    ok: !!(primeira.ok && segunda.ok && detalhes.ok && detalhePrimeira.ok && detalheSegunda.ok),
     calendarioPrimeiraChamadaMs: primeira.tempoTotalMs || '',
     calendarioCacheMs: segunda.tempoTotalMs || '',
     detalhesMs: detalhes.tempoTotalMs || '',
@@ -1852,7 +1919,17 @@ function atividadesV2_runTestePortalPerformanceDev_() {
     calendarioOrigemPrimeira: primeira.origem || '',
     calendarioOrigemSegunda: segunda.origem || '',
     detalhesOrigem: detalhes.origem || '',
-    erros: [primeira, segunda, detalhes].filter(function(result) {
+    detalhePrimeiraChamadaMs: detalhePrimeira.tempoTotalMs || '',
+    detalheCacheMs: detalheSegunda.tempoTotalMs || '',
+    detalheOrigemPrimeira: detalhePrimeira.origem || '',
+    detalheOrigemSegunda: detalheSegunda.origem || '',
+    detalheCacheFuncionando: primeiroId ? detalheSegunda.cacheHit === true : true,
+    detalhePerformanceDisponivel: !primeiroId || !!(
+      detalhePrimeira.performance &&
+      typeof detalhePrimeira.performance.totalMs === 'number' &&
+      Array.isArray(detalhePrimeira.performance.etapas)
+    ),
+    erros: [primeira, segunda, detalhes, detalhePrimeira, detalheSegunda].filter(function(result) {
       return !result.ok;
     }).map(function(result) {
       return result.errorCode || result.message || 'ERRO';

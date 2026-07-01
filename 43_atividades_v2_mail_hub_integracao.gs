@@ -9,6 +9,7 @@ var ATIVIDADES_V2_MAIL_ADMIN_CONFIG_KEYS_ = Object.freeze([
   'ATIVIDADES_DESTINATARIOS_ADMINISTRATIVOS',
   'APRESENTACOES_DESTINATARIOS_ADMINISTRATIVOS'
 ]);
+var ATIVIDADES_V2_MAIL_RECIPIENT_CACHE_TTL_SECONDS_ = 300;
 
 var ATIVIDADES_V2_MAIL_EVENTS_ = Object.freeze({
   APRESENTACAO_TITULO_EIXO_ENVIADO: Object.freeze({
@@ -59,6 +60,12 @@ var ATIVIDADES_V2_MAIL_EVENTS_ = Object.freeze({
     subjectHuman: 'Ajuste solicitado no slide ou material da apresentacao',
     introText: 'A gestao do GEAPA solicitou um ajuste no slide ou material da sua apresentacao.'
   }),
+  APRESENTACAO_MATERIAL_DISPENSADO: Object.freeze({
+    moduleName: 'APRESENTACOES', moduleCode: 'APR', entityType: 'APRESENTACAO',
+    flowCode: 'MATERIAL', stage: 'MATERIAL_DISPENSADO', recipients: 'MEMBRO',
+    subjectHuman: 'Entrega de slide ou material dispensada',
+    introText: 'A gestao do GEAPA registrou a dispensa formal do slide ou material desta apresentacao.'
+  }),
   APRESENTACAO_FOTO_REUNIAO_ENVIADA: Object.freeze({
     moduleName: 'APRESENTACOES', moduleCode: 'APR', entityType: 'APRESENTACAO',
     flowCode: 'FOTO', stage: 'FOTO_REUNIAO_ENVIADA', recipients: 'FOTO_DYNAMIC',
@@ -76,6 +83,18 @@ var ATIVIDADES_V2_MAIL_EVENTS_ = Object.freeze({
     flowCode: 'FOTO', stage: 'FOTO_REUNIAO_APROVADA', recipients: 'MEMBRO',
     subjectHuman: 'Foto da reuniao aprovada',
     introText: 'A foto da reuniao vinculada a sua apresentacao foi aprovada pela gestao do GEAPA.'
+  }),
+  APRESENTACAO_FOTO_REUNIAO_AJUSTE_SOLICITADO: Object.freeze({
+    moduleName: 'APRESENTACOES', moduleCode: 'APR', entityType: 'APRESENTACAO',
+    flowCode: 'FOTO', stage: 'FOTO_REUNIAO_AJUSTE', recipients: 'MEMBRO',
+    subjectHuman: 'Ajuste solicitado na foto da reuniao',
+    introText: 'A gestao do GEAPA solicitou uma nova foto ou um ajuste no arquivo enviado para a reuniao.'
+  }),
+  APRESENTACAO_FOTO_REUNIAO_DISPENSADA: Object.freeze({
+    moduleName: 'APRESENTACOES', moduleCode: 'APR', entityType: 'APRESENTACAO',
+    flowCode: 'FOTO', stage: 'FOTO_REUNIAO_DISPENSADA', recipients: 'MEMBRO',
+    subjectHuman: 'Entrega da foto da reuniao dispensada',
+    introText: 'A gestao do GEAPA registrou a dispensa formal da foto desta reuniao.'
   }),
   JUSTIFICATIVA_ENVIADA: Object.freeze({
     moduleName: 'ATIVIDADES', moduleCode: 'ATV', entityType: 'JUSTIFICATIVA',
@@ -127,7 +146,21 @@ function atividadesV2_mailQueueOutgoing_(evento, contexto) {
       return atividadesV2_mailFailure_(eventCode, 'ID_ENTIDADE_MAIL_AUSENTE', 'Nao foi possivel identificar a entidade para o e-mail.', ctx);
     }
 
-    var recipients = atividadesV2_mailResolveRecipients_(definition, actionContext, result, actionPayload);
+    var reference = atividadesV2_mailResolveActivityReference_({
+      eventCode: eventCode,
+      definition: definition,
+      result: result,
+      payload: actionPayload,
+      contexto: actionContext
+    });
+    var recipients = atividadesV2_mailResolveRecipients_({
+      eventCode: eventCode,
+      definition: definition,
+      actionContext: actionContext,
+      result: result,
+      payload: actionPayload,
+      reference: reference
+    });
     if (!recipients.to.length) {
       return atividadesV2_mailFailure_(eventCode, 'DESTINATARIOS_MAIL_AUSENTES', 'Nenhum destinatario valido foi encontrado para o evento.', ctx);
     }
@@ -149,7 +182,7 @@ function atividadesV2_mailQueueOutgoing_(evento, contexto) {
       payload: atividadesV2_mailBuildPayload_(eventCode, definition, result, actionPayload),
       priority: definition.priority || 'NORMAL',
       forceQueueDuplicate: false,
-      metadata: atividadesV2_mailBuildMetadata_(eventCode, definition, result, ctx)
+      metadata: atividadesV2_mailBuildMetadata_(eventCode, definition, result, ctx, recipients, reference)
     };
     var queueResult = GEAPA_CORE.coreMailQueueOutgoing(contract) || {};
     if (queueResult.ok === false) {
@@ -164,7 +197,9 @@ function atividadesV2_mailQueueOutgoing_(evento, contexto) {
       requeued: queueResult.requeued === true,
       saidaId: String(queueResult.saidaId || '').trim(),
       status: String(queueResult.status || '').trim(),
-      correlationKey: String(queueResult.correlationKey || correlationKey).trim()
+      correlationKey: String(queueResult.correlationKey || correlationKey).trim(),
+      recipientSource: recipients.recipientSource || '',
+      fallbackUsed: recipients.fallbackUsed === true
     };
     atividadesV2_mailLog_(safeResult.duplicate ? 'INFO' : 'INFO', eventCode, ctx, safeResult, 'Evento encaminhado ao Mail Hub do CORE.');
     return safeResult;
@@ -221,9 +256,12 @@ function atividadesV2_mailResolveEventFromPortalAction_(tipoAcao, resultado) {
     APRESENTACAO_MATERIAL_REENVIADO: 'APRESENTACAO_MATERIAL_REENVIADO',
     APRESENTACAO_MATERIAL_APROVADO: 'APRESENTACAO_MATERIAL_APROVADO',
     APRESENTACAO_MATERIAL_AJUSTE_SOLICITADO: 'APRESENTACAO_MATERIAL_AJUSTE_SOLICITADO',
+    APRESENTACAO_MATERIAL_DISPENSADO: 'APRESENTACAO_MATERIAL_DISPENSADO',
     APRESENTACAO_FOTO_REUNIAO_ENVIADA: 'APRESENTACAO_FOTO_REUNIAO_ENVIADA',
     APRESENTACAO_FOTO_REUNIAO_REENVIADA: 'APRESENTACAO_FOTO_REUNIAO_REENVIADA',
     APRESENTACAO_FOTO_REUNIAO_APROVADA: 'APRESENTACAO_FOTO_REUNIAO_APROVADA',
+    APRESENTACAO_FOTO_REUNIAO_AJUSTE_SOLICITADO: 'APRESENTACAO_FOTO_REUNIAO_AJUSTE_SOLICITADO',
+    APRESENTACAO_FOTO_REUNIAO_DISPENSADA: 'APRESENTACAO_FOTO_REUNIAO_DISPENSADA',
     JUSTIFICATIVA_ENVIADA_PORTAL: 'JUSTIFICATIVA_ENVIADA'
   };
   if (direct[action]) return direct[action];
@@ -245,30 +283,172 @@ function atividadesV2_mailResolveEntityId_(definition, result, payload) {
   return String(result.idApresentacao || payload.idApresentacao || '').trim();
 }
 
-function atividadesV2_mailResolveRecipients_(definition, actionContext, result, payload) {
+function atividadesV2_mailResolveRecipients_(options) {
+  var opts = options || {};
+  var definition = opts.definition || {};
+  var actionContext = opts.actionContext || {};
+  var result = opts.result || {};
+  var payload = opts.payload || {};
+  var reference = opts.reference || {};
   var recipientMode = definition.recipients;
   if (recipientMode === 'FOTO_DYNAMIC') {
     recipientMode = atividades_isPrivilegedPortalProfile_(actionContext) ? 'MEMBRO' : 'ADMIN';
   }
   if (recipientMode === 'ADMIN') {
-    return {
-      to: atividadesV2_mailGetAdministrativeRecipients_(),
-      cc: [],
-      bcc: [],
-      recipientName: 'Secretaria e Diretoria do GEAPA'
-    };
+    return atividadesV2_mailResolveAdministrativeRecipients_({
+      eventCode: opts.eventCode,
+      definition: definition,
+      result: result,
+      payload: payload,
+      contexto: actionContext,
+      reference: reference
+    });
   }
 
-  var memberEmail = String(result.email || payload.emailMembro || payload.email || '').trim();
+  var presentation = reference.apresentacao || {};
+  var activity = reference.atividade || {};
+  var justification = reference.justificativa || {};
+  var idPessoa = String(
+    result.idPessoa || payload.idPessoa || presentation.ID_PESSOA ||
+    activity.ID_PESSOA_PRINCIPAL || justification.ID_PESSOA || ''
+  ).trim();
+  var memberEmail = String(
+    result.email || payload.emailMembro || payload.email || presentation.EMAIL_MEMBRO ||
+    activity.EMAIL_PESSOA_PRINCIPAL || justification.EMAIL_MEMBRO || ''
+  ).trim();
+  var source = memberEmail ? 'ATIVIDADES_V2_CONTEXTO_ACAO' : '';
+  if (!memberEmail && idPessoa) {
+    var personEmail = atividadesV2_mailResolvePersonEmailV2_(idPessoa, []);
+    memberEmail = personEmail.email;
+    if (memberEmail) source = personEmail.source;
+  }
   return {
     to: atividadesV2_mailNormalizeEmails_([memberEmail]),
     cc: [],
     bcc: [],
-    recipientName: atividades_sanitizePortalText_(result.nomeApresentador || result.nomeMembro || payload.nomeApresentador || payload.nomeMembro || '', 180)
+    recipientName: atividades_sanitizePortalText_(
+      result.nomeApresentador || result.nomeMembro || payload.nomeApresentador || payload.nomeMembro ||
+      presentation.NOME_MEMBRO || activity.NOME_PESSOA_PRINCIPAL_PUBLICO || justification.NOME_MEMBRO || '',
+      180
+    ),
+    recipientSource: source || 'NAO_RESOLVIDO',
+    fallbackUsed: false,
+    referenceDate: reference.referenceDate || '',
+    ciclo: reference.ciclo || '',
+    ano: reference.ano || '',
+    semestre: reference.semestre || '',
+    cargosResolvidos: [],
+    idPessoaDestinatario: idPessoa,
+    warnings: reference.warnings ? reference.warnings.slice() : []
   };
 }
 
-function atividadesV2_mailGetAdministrativeRecipients_() {
+/**
+ * Resolve Secretaria/Diretoria na data da atividade. MAIL_CONFIG e apenas fallback.
+ */
+function atividadesV2_mailResolveAdministrativeRecipients_(options) {
+  var opts = options || {};
+  var reference = opts.reference || atividadesV2_mailResolveActivityReference_(opts);
+  var warnings = reference.warnings ? reference.warnings.slice() : [];
+  var resolved;
+  try {
+    resolved = atividadesV2_mailResolveAdministrativeRecipientsV2_(reference, warnings);
+  } catch (err) {
+    warnings.push('Falha ao consultar Pessoas/Vigencias V2: ' + atividadesV2_errorMessage_(err));
+    resolved = null;
+  }
+  if (resolved && resolved.to.length) return resolved;
+
+  var fallback = atividadesV2_mailGetAdministrativeRecipientsFallback_();
+  if (fallback.length) warnings.push('MAIL_CONFIG usado como fallback por ausencia de ocupantes V2 com e-mail valido.');
+  return {
+    to: fallback,
+    cc: [],
+    bcc: [],
+    recipientName: 'Secretaria e Diretoria do GEAPA',
+    recipientSource: fallback.length ? 'MAIL_CONFIG_FALLBACK' : 'NAO_RESOLVIDO',
+    fallbackUsed: fallback.length > 0,
+    referenceDate: reference.referenceDate || '',
+    ciclo: reference.ciclo || '',
+    ano: reference.ano || '',
+    semestre: reference.semestre || '',
+    cargosResolvidos: [],
+    idPessoaDestinatario: '',
+    warnings: warnings
+  };
+}
+
+function atividadesV2_mailResolveAdministrativeRecipientsV2_(reference, warnings) {
+  var refDate = atividades_parseDateOrNull_(reference.referenceDate) || new Date();
+  var cacheKey = atividadesV2_mailAdminRecipientsCacheKey_(reference, refDate);
+  var cached = typeof portalCacheGetJson_ === 'function' ? portalCacheGetJson_(cacheKey) : null;
+  if (cached && cached.to && cached.to.length) {
+    cached.warnings = (warnings || []).concat(cached.warnings || []);
+    return cached;
+  }
+
+  var pessoas = atividadesV2_mailReadV2Records_('PESSOAS_V2_BASE');
+  var identificadores = atividadesV2_mailReadV2Records_('PESSOAS_V2_IDENTIFICADORES');
+  var vinculos = atividadesV2_mailReadV2Records_('PESSOAS_V2_VINCULOS_GEAPA');
+  var diretorias = atividadesV2_mailReadV2Records_('VIGENCIAS_V2_DIRETORIAS');
+  var cargos = atividadesV2_mailReadV2Records_('VIGENCIAS_V2_CARGOS_CONFIG');
+  var funcoes = atividadesV2_mailReadV2Records_('VIGENCIAS_V2_FUNCOES');
+
+  var pessoasById = atividadesV2_indexByField_(pessoas, 'ID_PESSOA');
+  var cargosByKey = atividadesV2_indexByField_(cargos, 'CARGO_KEY');
+  var diretoriasById = atividadesV2_indexByField_(diretorias, 'ID_DIRETORIA');
+  var identifiersByPerson = atividadesV2_mailGroupByField_(identificadores, 'ID_PESSOA');
+  var linksByPerson = atividadesV2_mailGroupByField_(vinculos, 'ID_PESSOA');
+  var emails = [];
+  var cargosResolvidos = [];
+  var peopleIds = [];
+
+  funcoes.forEach(function(funcao) {
+    if (!atividadesV2_mailRecordActiveOnDate_(funcao, refDate, 'DATA_INICIO', ['DATA_FIM_REAL', 'DATA_FIM_PREVISTA'])) return;
+    var cargo = cargosByKey[String(funcao.CARGO_KEY || '').trim()] || {};
+    if (!atividadesV2_mailIsAdministrativeRole_(funcao, cargo)) return;
+    if (String(cargo.ATIVO || 'SIM').trim().toUpperCase() === 'NAO') return;
+    if (String(cargo.RECEBE_EMAILS || 'SIM').trim().toUpperCase() === 'NAO') return;
+
+    var idDiretoria = String(funcao.ID_DIRETORIA || '').trim();
+    var diretoria = idDiretoria ? diretoriasById[idDiretoria] : null;
+    if (diretoria && !atividadesV2_mailRecordActiveOnDate_(diretoria, refDate, 'DATA_INICIO', ['DATA_FIM_REAL', 'DATA_FIM_PREVISTA'])) return;
+
+    var idPessoa = String(funcao.ID_PESSOA || '').trim();
+    var pessoa = pessoasById[idPessoa];
+    if (!idPessoa || !pessoa || !atividadesV2_mailIsBasePersonActive_(pessoa)) return;
+    if (!atividadesV2_mailHasActiveLinkOnDate_(linksByPerson[idPessoa] || [], refDate)) return;
+
+    var email = atividadesV2_mailResolveEmailFromPersonRecords_(pessoa, identifiersByPerson[idPessoa] || []);
+    if (!email) return;
+    emails.push(email);
+    peopleIds.push(idPessoa);
+    cargosResolvidos.push(String(funcao.CARGO_KEY || cargo.CARGO_KEY || funcao.CARGO_NOME_SNAPSHOT || '').trim());
+  });
+
+  var normalizedEmails = atividadesV2_mailNormalizeEmails_(emails);
+  var result = {
+    to: normalizedEmails,
+    cc: [],
+    bcc: [],
+    recipientName: 'Secretaria e Diretoria do GEAPA',
+    recipientSource: normalizedEmails.length ? 'PESSOAS_V2_VIGENCIAS_V2' : 'NAO_RESOLVIDO',
+    fallbackUsed: false,
+    referenceDate: reference.referenceDate || atividadesV2_mailDateIso_(refDate),
+    ciclo: reference.ciclo || '',
+    ano: reference.ano || '',
+    semestre: reference.semestre || '',
+    cargosResolvidos: atividadesV2_mailUniqueText_(cargosResolvidos),
+    idPessoaDestinatario: peopleIds.length === 1 ? peopleIds[0] : '',
+    warnings: warnings || []
+  };
+  if (normalizedEmails.length && typeof portalCachePutJson_ === 'function') {
+    portalCachePutJson_(cacheKey, result, ATIVIDADES_V2_MAIL_RECIPIENT_CACHE_TTL_SECONDS_);
+  }
+  return result;
+}
+
+function atividadesV2_mailGetAdministrativeRecipientsFallback_() {
   var configured = [];
   if (typeof GEAPA_CORE !== 'undefined' && GEAPA_CORE && typeof GEAPA_CORE.coreMailGetConfigList === 'function') {
     ATIVIDADES_V2_MAIL_ADMIN_CONFIG_KEYS_.forEach(function(key) {
@@ -277,18 +457,201 @@ function atividadesV2_mailGetAdministrativeRecipients_() {
       } catch (err) {}
     });
   }
-  configured = atividadesV2_mailNormalizeEmails_(configured);
-  if (configured.length) return configured;
+  return atividadesV2_mailNormalizeEmails_(configured);
+}
 
-  var groups = [];
-  if (typeof GEAPA_CORE !== 'undefined' && GEAPA_CORE && typeof GEAPA_CORE.coreGetCurrentEmailsByEmailGroup === 'function') {
-    ['SECRETARIA', 'DIRETORIA'].forEach(function(group) {
-      try {
-        groups = groups.concat(GEAPA_CORE.coreGetCurrentEmailsByEmailGroup(group) || []);
-      } catch (err) {}
-    });
+function atividadesV2_mailResolveActivityReference_(options) {
+  var opts = options || {};
+  var result = opts.result || {};
+  var payload = opts.payload || {};
+  var idAtividade = String(opts.idAtividade || result.idAtividade || payload.idAtividade || '').trim();
+  var idApresentacao = String(opts.idApresentacao || result.idApresentacao || payload.idApresentacao || '').trim();
+  var idJustificativa = String(opts.idJustificativa || result.idJustificativa || payload.idJustificativa || '').trim();
+  var warnings = [];
+  var atividade = {};
+  var apresentacao = {};
+  var justificativa = {};
+
+  if (idAtividade || idApresentacao || idJustificativa) {
+    try {
+      var ss = atividadesV2_getDatabaseSpreadsheetDev_();
+      var atividades = atividadesV2_readSheetObjects_(atividadesV2_getTargetSheet_(ss, ATIVIDADES_V2_SHEETS.ATIVIDADES));
+      var apresentacoes = idApresentacao
+        ? atividadesV2_readSheetObjects_(atividadesV2_getTargetSheet_(ss, ATIVIDADES_V2_SHEETS.APRESENTACOES))
+        : [];
+      var justificativas = idJustificativa
+        ? atividadesV2_readSheetObjects_(atividadesV2_getTargetSheet_(ss, ATIVIDADES_V2_SHEETS.JUSTIFICATIVAS))
+        : [];
+
+      apresentacao = atividadesV2_mailFindByField_(apresentacoes, 'ID_APRESENTACAO', idApresentacao) || {};
+      justificativa = atividadesV2_mailFindByField_(justificativas, 'ID_JUSTIFICATIVA', idJustificativa) || {};
+      idAtividade = idAtividade || String(apresentacao.ID_ATIVIDADE || justificativa.ID_ATIVIDADE || '').trim();
+      atividade = atividadesV2_mailFindByField_(atividades, 'ID_ATIVIDADE', idAtividade) || {};
+      if (idAtividade && !atividade.ID_ATIVIDADE) warnings.push('Atividade de referencia nao encontrada na base V2 DEV.');
+    } catch (err) {
+      warnings.push('Nao foi possivel carregar o contexto da atividade V2: ' + atividadesV2_errorMessage_(err));
+    }
   }
-  return atividadesV2_mailNormalizeEmails_(groups);
+
+  var date = atividades_parseDateOrNull_(atividade.DATA_ATIVIDADE || result.dataAtividade || payload.dataAtividade);
+  if (!date) {
+    date = new Date();
+    warnings.push('DATA_ATIVIDADE ausente; data atual usada apenas para resolver destinatarios.');
+  }
+  var ano = String(atividade.ANO || date.getFullYear()).trim();
+  var semestre = String(atividade.SEMESTRE || (date.getMonth() < 6 ? 1 : 2)).trim();
+  return {
+    idAtividade: idAtividade,
+    idApresentacao: idApresentacao,
+    idJustificativa: idJustificativa,
+    atividade: atividade,
+    apresentacao: apresentacao,
+    justificativa: justificativa,
+    referenceDate: atividadesV2_mailDateIso_(date),
+    ciclo: String(atividade.CICLO || result.ciclo || payload.ciclo || '').trim(),
+    ano: ano,
+    semestre: semestre,
+    warnings: warnings
+  };
+}
+
+function atividadesV2_mailReadV2Records_(key) {
+  if (typeof GEAPA_CORE === 'undefined' || !GEAPA_CORE || typeof GEAPA_CORE.coreReadRecordsByKey !== 'function') {
+    throw new Error('GEAPA_CORE.coreReadRecordsByKey indisponivel para consultar ' + key + '.');
+  }
+  return GEAPA_CORE.coreReadRecordsByKey(key, { skipBlankRows: true }) || [];
+}
+
+function atividadesV2_mailResolvePersonEmailV2_(idPessoa, warnings) {
+  try {
+    var pessoas = atividadesV2_mailReadV2Records_('PESSOAS_V2_BASE');
+    var identificadores = atividadesV2_mailReadV2Records_('PESSOAS_V2_IDENTIFICADORES');
+    var pessoa = atividadesV2_mailFindByField_(pessoas, 'ID_PESSOA', idPessoa) || {};
+    var identifiers = identificadores.filter(function(record) {
+      return String(record.ID_PESSOA || '').trim() === String(idPessoa || '').trim();
+    });
+    return {
+      email: atividadesV2_mailResolveEmailFromPersonRecords_(pessoa, identifiers),
+      source: 'PESSOAS_V2'
+    };
+  } catch (err) {
+    if (warnings) warnings.push('Nao foi possivel resolver e-mail da pessoa pela Pessoas V2.');
+    return { email: '', source: 'NAO_RESOLVIDO' };
+  }
+}
+
+function atividadesV2_mailResolveEmailFromPersonRecords_(pessoa, identifiers) {
+  var candidates = [pessoa && pessoa.EMAIL_PRINCIPAL];
+  (identifiers || []).filter(function(record) {
+    var type = atividades_normalizeTextUpper_(record.TIPO_IDENTIFICADOR);
+    return String(record.ATIVO || 'SIM').trim().toUpperCase() !== 'NAO' &&
+      (type === 'EMAIL' || type === 'E-MAIL');
+  }).sort(function(a, b) {
+    var aPrincipal = String(a.PRINCIPAL || '').trim().toUpperCase() === 'SIM' ? 1 : 0;
+    var bPrincipal = String(b.PRINCIPAL || '').trim().toUpperCase() === 'SIM' ? 1 : 0;
+    return bPrincipal - aPrincipal;
+  }).forEach(function(record) {
+    candidates.push(record.VALOR_IDENTIFICADOR);
+  });
+  return atividadesV2_mailNormalizeEmails_(candidates)[0] || '';
+}
+
+function atividadesV2_mailIsBasePersonActive_(pessoa) {
+  if (!pessoa || String(pessoa.ATIVO || 'SIM').trim().toUpperCase() === 'NAO') return false;
+  var status = atividades_normalizeTextUpper_(pessoa.STATUS_CADASTRAL || 'ATIVO');
+  return ['INATIVO', 'INATIVA', 'EXCLUIDO', 'EXCLUIDA', 'CANCELADO', 'CANCELADA'].indexOf(status) === -1;
+}
+
+function atividadesV2_mailHasActiveLinkOnDate_(links, referenceDate) {
+  if (!links || !links.length) return false;
+  return links.some(function(link) {
+    var status = atividades_normalizeTextUpper_(link.STATUS_VINCULO || 'ATIVO');
+    if (['CANCELADO', 'CANCELADA', 'EXCLUIDO', 'EXCLUIDA'].indexOf(status) >= 0) return false;
+    return atividadesV2_mailRecordActiveOnDate_(link, referenceDate, 'DATA_INICIO', ['DATA_FIM']);
+  });
+}
+
+function atividadesV2_mailRecordActiveOnDate_(record, referenceDate, startField, endFields) {
+  if (!record || String(record.ATIVO || 'SIM').trim().toUpperCase() === 'NAO') return false;
+  var status = atividades_normalizeTextUpper_(record.STATUS_VIGENCIA || record.STATUS_DIRETORIA || record.STATUS || 'ATIVO');
+  if (['CANCELADA', 'CANCELADO', 'ANULADA', 'ANULADO', 'REVOGADA', 'REVOGADO'].indexOf(status) >= 0) return false;
+  var ref = atividades_parseDateOrNull_(referenceDate);
+  var start = atividades_parseDateOrNull_(record[startField]);
+  var end = null;
+  (endFields || []).some(function(field) {
+    end = atividades_parseDateOrNull_(record[field]);
+    return !!end;
+  });
+  if (start && ref && atividadesV2_mailDayTime_(start) > atividadesV2_mailDayTime_(ref)) return false;
+  if (end && ref && atividadesV2_mailDayTime_(end) < atividadesV2_mailDayTime_(ref)) return false;
+  return true;
+}
+
+function atividadesV2_mailIsAdministrativeRole_(funcao, cargo) {
+  var text = [
+    funcao.CARGO_KEY,
+    funcao.CARGO_NOME_SNAPSHOT,
+    funcao.TIPO_FUNCAO,
+    cargo.CARGO_KEY,
+    cargo.CARGO_NOME,
+    cargo.NOME_PUBLICO,
+    cargo.TIPO_FUNCAO,
+    cargo.GRUPO_FUNCAO,
+    cargo.GRUPO_CARGO
+  ].map(atividades_normalizeTextUpper_).join(' ');
+  return /SECRETARI/.test(text) || /DIRETORIA/.test(text) || /PRESIDEN/.test(text);
+}
+
+function atividadesV2_mailGroupByField_(records, field) {
+  var out = {};
+  (records || []).forEach(function(record) {
+    var key = String(record && record[field] || '').trim();
+    if (!key) return;
+    if (!out[key]) out[key] = [];
+    out[key].push(record);
+  });
+  return out;
+}
+
+function atividadesV2_mailFindByField_(records, field, value) {
+  var wanted = String(value || '').trim();
+  if (!wanted) return null;
+  for (var i = 0; i < (records || []).length; i++) {
+    if (String(records[i][field] || '').trim() === wanted) return records[i];
+  }
+  return null;
+}
+
+function atividadesV2_mailAdminRecipientsCacheKey_(reference, referenceDate) {
+  var suffix = [
+    atividadesV2_mailDateIso_(referenceDate),
+    reference.ciclo || '',
+    reference.ano || '',
+    reference.semestre || ''
+  ].join(':');
+  return typeof portalCacheBuildKey_ === 'function'
+    ? portalCacheBuildKey_('mail-admin-v2', suffix)
+    : 'portal:v2:mail-admin:' + suffix;
+}
+
+function atividadesV2_mailDateIso_(value) {
+  var date = atividades_parseDateOrNull_(value);
+  if (!date) return '';
+  return Utilities.formatDate(date, Session.getScriptTimeZone() || 'America/Cuiaba', 'yyyy-MM-dd');
+}
+
+function atividadesV2_mailDayTime_(value) {
+  var date = atividades_parseDateOrNull_(value);
+  return date ? new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime() : 0;
+}
+
+function atividadesV2_mailUniqueText_(values) {
+  var seen = {};
+  return (values || []).map(function(value) { return String(value || '').trim(); }).filter(function(value) {
+    if (!value || seen[value]) return false;
+    seen[value] = true;
+    return true;
+  });
 }
 
 function atividadesV2_mailNormalizeEmails_(values) {
@@ -378,16 +741,31 @@ function atividadesV2_mailPayloadItem_(label, value) {
   return text ? { label: label, value: text } : null;
 }
 
-function atividadesV2_mailBuildMetadata_(eventCode, definition, result, context) {
+function atividadesV2_mailBuildMetadata_(eventCode, definition, result, context, recipients, reference) {
+  var rawContext = context && context.contexto || {};
+  var ctx = atividades_normalizePortalContext_(rawContext);
+  var recipientInfo = recipients || {};
+  var ref = reference || {};
   return {
-    source: 'geapa-atividades',
+    source: 'geapa-atividades-v2-portal',
     mode: 'DEV',
     eventCode: eventCode,
     actionType: String(context.tipoAcao || '').trim(),
     moduleCode: definition.moduleCode,
-    idAtividade: String(result.idAtividade || '').trim(),
-    idApresentacao: String(result.idApresentacao || '').trim(),
-    idJustificativa: String(result.idJustificativa || '').trim()
+    idAtividade: String(result.idAtividade || ref.idAtividade || '').trim(),
+    idApresentacao: String(result.idApresentacao || ref.idApresentacao || '').trim(),
+    idJustificativa: String(result.idJustificativa || ref.idJustificativa || '').trim(),
+    recipientSource: recipientInfo.recipientSource || 'NAO_RESOLVIDO',
+    fallbackUsed: recipientInfo.fallbackUsed === true,
+    referenceDate: recipientInfo.referenceDate || ref.referenceDate || '',
+    ciclo: recipientInfo.ciclo || ref.ciclo || '',
+    ano: recipientInfo.ano || ref.ano || '',
+    semestre: recipientInfo.semestre || ref.semestre || '',
+    cargosResolvidos: (recipientInfo.cargosResolvidos || []).slice(),
+    idPessoaDestinatario: String(recipientInfo.idPessoaDestinatario || '').trim(),
+    atorNome: atividades_sanitizePortalText_(rawContext.nome || rawContext.nomeExibicao || rawContext.usuarioNome || '', 160),
+    atorEmail: String(ctx.email || '').trim().toLowerCase(),
+    atorPerfil: String(ctx.perfil || '').trim().toUpperCase()
   };
 }
 
@@ -450,10 +828,114 @@ function atividadesV2_diagnosticarMailHubIntegracao_() {
     mailHubDisponivel: !!queueAvailable,
     processadorDisponivel: !!processAvailable,
     correlationKeyCoreDisponivel: !!correlationAvailable,
-    totalDestinatariosAdministrativos: atividadesV2_mailGetAdministrativeRecipients_().length,
+    totalDestinatariosFallbackConfigurados: atividadesV2_mailGetAdministrativeRecipientsFallback_().length,
     configKeysAdministrativas: ATIVIDADES_V2_MAIL_ADMIN_CONFIG_KEYS_.slice(),
+    fonteAdministrativaPrincipal: 'PESSOAS_V2_VIGENCIAS_V2',
+    fonteAdministrativaFallback: 'MAIL_CONFIG',
     eventosSuportados: Object.keys(ATIVIDADES_V2_MAIL_EVENTS_),
     processaOutboxDurantePortal: false,
     escritaRealizada: false
   };
+}
+
+/**
+ * Simula contratos por evento sem enfileirar, escrever ou processar a outbox.
+ */
+function atividadesV2_diagnosticarMailHubEventosPortalDev_(options) {
+  var opts = options || {};
+  var requestedEvent = atividades_normalizeTextUpper_(opts.eventCode || '');
+  var eventCodes = requestedEvent ? [requestedEvent] : Object.keys(ATIVIDADES_V2_MAIL_EVENTS_);
+  var report = {
+    ok: true,
+    modo: 'DEV',
+    dryRun: true,
+    eventosAvaliados: 0,
+    eventosOk: 0,
+    eventosComAviso: 0,
+    eventosComErro: 0,
+    eventosSuportados: Object.keys(ATIVIDADES_V2_MAIL_EVENTS_),
+    detalhes: [],
+    escritaRealizada: false,
+    enfileiramentoRealizado: false,
+    processouOutbox: false
+  };
+  var result = {
+    idAtividade: String(opts.idAtividade || '').trim(),
+    idApresentacao: String(opts.idApresentacao || '').trim(),
+    idJustificativa: String(opts.idJustificativa || '').trim(),
+    email: String(opts.emailTeste || '').trim()
+  };
+  var payload = {
+    idAtividade: result.idAtividade,
+    idApresentacao: result.idApresentacao,
+    idJustificativa: result.idJustificativa,
+    emailMembro: result.email
+  };
+  var actionContext = atividades_normalizePortalContext_({
+    perfil: opts.perfilTeste || 'ADMIN_TECNICO',
+    email: opts.emailTeste || ''
+  });
+  var sharedReference = atividadesV2_mailResolveActivityReference_({
+    result: result,
+    payload: payload,
+    contexto: actionContext
+  });
+
+  eventCodes.forEach(function(eventCode) {
+    var definition = ATIVIDADES_V2_MAIL_EVENTS_[eventCode];
+    report.eventosAvaliados++;
+    if (!definition) {
+      report.eventosComErro++;
+      report.detalhes.push({ eventCode: eventCode, ok: false, errorCode: 'EVENTO_MAIL_NAO_SUPORTADO' });
+      return;
+    }
+
+    var reference = sharedReference;
+    var entityId = atividadesV2_mailResolveEntityId_(definition, result, payload);
+    var recipients = atividadesV2_mailResolveRecipients_({
+      eventCode: eventCode,
+      definition: definition,
+      actionContext: actionContext,
+      result: result,
+      payload: payload,
+      reference: reference
+    });
+    var warnings = (reference.warnings || []).concat(recipients.warnings || []);
+    var errors = [];
+    if (!entityId) errors.push('ID_ENTIDADE_MAIL_AUSENTE');
+    if (!recipients.to.length) errors.push('DESTINATARIOS_MAIL_AUSENTES');
+    var detail = {
+      eventCode: eventCode,
+      ok: errors.length === 0,
+      entityType: definition.entityType,
+      entityId: entityId,
+      recipientMode: definition.recipients,
+      recipientSource: recipients.recipientSource || 'NAO_RESOLVIDO',
+      fallbackUsed: recipients.fallbackUsed === true,
+      totalDestinatarios: recipients.to.length,
+      destinatariosMascarados: recipients.to.slice(0, 3).map(atividadesV2_mailMaskEmail_),
+      referenceDate: recipients.referenceDate || reference.referenceDate || '',
+      ciclo: recipients.ciclo || reference.ciclo || '',
+      ano: recipients.ano || reference.ano || '',
+      semestre: recipients.semestre || reference.semestre || '',
+      cargosResolvidos: (recipients.cargosResolvidos || []).slice(),
+      correlationKey: entityId ? atividadesV2_mailBuildCorrelationKey_(definition, entityId) : '',
+      warnings: atividadesV2_mailUniqueText_(warnings),
+      errors: errors
+    };
+    if (detail.ok && detail.warnings.length) report.eventosComAviso++;
+    else if (detail.ok) report.eventosOk++;
+    else report.eventosComErro++;
+    report.detalhes.push(detail);
+  });
+
+  report.ok = report.eventosComErro === 0;
+  return report;
+}
+
+function atividadesV2_mailMaskEmail_(email) {
+  var parts = String(email || '').trim().split('@');
+  if (parts.length !== 2) return '';
+  var local = parts[0];
+  return (local ? local.charAt(0) : '*') + '***@' + parts[1];
 }

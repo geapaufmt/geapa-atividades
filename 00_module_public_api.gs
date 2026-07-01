@@ -531,6 +531,12 @@ function atividadesV2_diagnosticarMailHubIntegracao() {
   }, { entrypoint: 'atividadesV2_diagnosticarMailHubIntegracao' });
 }
 
+function atividadesV2_diagnosticarMailHubEventosPortalDev(options) {
+  return atividades_runWithOperationalGuard_('CONFERENCIA_V2', null, function() {
+    return atividadesV2_diagnosticarMailHubEventosPortalDev_(options || {});
+  }, { entrypoint: 'atividadesV2_diagnosticarMailHubEventosPortalDev' });
+}
+
 function atividadesV2_processarFilaEmailsCore() {
   return atividades_runWithOperationalGuard_('ATUALIZACAO_PORTAL_V2', null, function() {
     return atividadesV2_processarFilaEmailsCore_();

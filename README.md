@@ -740,6 +740,8 @@ As acoes de apresentacoes e justificativas do Portal enfileiram comunicacoes na
 central `MAIL_SAIDA` do GEAPA_CORE, sem envio direto durante a requisicao e sem
 outbox paralela no modulo. Consulte
 [`docs/atividades-v2-mail-hub.md`](docs/atividades-v2-mail-hub.md).
+O diagnostico manual `atividadesV2_diagnosticarMailHubEventosPortalDev(options)`
+simula contratos e a origem dos destinatarios sem escrever nem enfileirar.
 
 O modulo expoe uma camada publica somente leitura para o Portal GEAPA:
 
