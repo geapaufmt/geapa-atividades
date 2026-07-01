@@ -1003,6 +1003,20 @@ function atividadesV2_portalRunPresentationAction_(tipoAcao, payload, contexto, 
       result,
       atividadesV2_mailQueuePortalAction_(tipoAcao, action.payload, action.contexto, result)
     );
+    try {
+      if (typeof atividadesV2_mailQueueMemberReminderAfterTitleApproval_ === 'function') {
+        result.lembreteMembrosQueue = atividadesV2_mailQueueMemberReminderAfterTitleApproval_(tipoAcao, result);
+        if (result.lembreteMembrosQueue && result.lembreteMembrosQueue.ok === false) {
+          result.lembreteMembrosQueueWarning = 'Titulo/eixos aprovados, mas o lembrete aos membros nao foi enfileirado.';
+        } else if (result.lembreteMembrosQueue && result.lembreteMembrosQueue.skipped === true) {
+          result.lembreteMembrosQueueWarning = 'Titulo/eixos aprovados, mas o lembrete aos membros nao estava elegivel: ' +
+            String(result.lembreteMembrosQueue.reason || 'MOTIVO_NAO_INFORMADO') + '.';
+        }
+      }
+    } catch (reminderErr) {
+      result.lembreteMembrosQueueWarning = 'Titulo/eixos aprovados, mas houve falha ao avaliar o lembrete aos membros.';
+      Logger.log('GEAPA-ATIVIDADES-V2 lembrete apos aprovacao: ' + atividadesV2_errorMessage_(reminderErr));
+    }
     return {
       ok: true,
       message: 'Acao de apresentacao registrada com sucesso na base DEV.',

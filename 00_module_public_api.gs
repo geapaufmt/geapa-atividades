@@ -573,6 +573,12 @@ function atividadesV2_mailProcessarLembretesDev(options) {
   }, { entrypoint: 'atividadesV2_mailProcessarLembretesDev', executionType: 'MANUAL' });
 }
 
+function atividadesV2_mailReprocessarLembretesAprovadosD1Dev() {
+  return atividades_runWithOperationalGuard_('ATUALIZACAO_PORTAL_V2', null, function() {
+    return atividadesV2_mailReprocessarLembretesAprovadosD1Dev_();
+  }, { entrypoint: 'atividadesV2_mailReprocessarLembretesAprovadosD1Dev', executionType: 'MANUAL' });
+}
+
 function atividadesV2_mailDiagnosticarPendenciasSecretariaDev(options) {
   return atividades_runWithOperationalGuard_('CONFERENCIA_V2', null, function() {
     return atividadesV2_mailDiagnosticarPendenciasSecretariaDev_(options || {});

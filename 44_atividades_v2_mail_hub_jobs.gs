@@ -67,18 +67,20 @@ var ATIVIDADES_V2_MAIL_JOBS_DEFAULTS_ = Object.freeze({
   MAIL_LEMBRETE_MEMBROS_ATIVO: 'SIM',
   MAIL_CONVITE_PROFESSOR_ATIVO: 'SIM',
   MAIL_LEMBRETE_PROFESSOR_ATIVO: 'SIM',
-  MAIL_DIAS_ANTES_COBRANCA_TITULO_EIXO: 14,
-  MAIL_DIAS_ANTES_COBRANCA_MATERIAL: 7,
+  MAIL_DIAS_ANTES_COBRANCA_TITULO_EIXO: 4,
+  MAIL_DIAS_ANTES_COBRANCA_MATERIAL: 4,
   MAIL_DIAS_ANTES_LEMBRETE_APRESENTADOR: 3,
   MAIL_DIAS_ANTES_LEMBRETE_MEMBROS: 1,
   MAIL_DIAS_ANTES_CONVITE_PROFESSOR: 14,
   MAIL_DIAS_ANTES_LEMBRETE_PROFESSOR: 2,
-  MAIL_INTERVALO_HORAS_COBRANCA_TITULO_EIXO: 48,
-  MAIL_INTERVALO_HORAS_COBRANCA_MATERIAL: 48,
+  MAIL_INTERVALO_HORAS_COBRANCA_TITULO_EIXO: 24,
+  MAIL_INTERVALO_HORAS_COBRANCA_MATERIAL: 24,
   MAIL_INTERVALO_HORAS_COBRANCA_FOTO: 48,
-  MAIL_MAX_COBRANCAS_TITULO_EIXO: 3,
-  MAIL_MAX_COBRANCAS_MATERIAL: 3,
+  MAIL_MAX_COBRANCAS_TITULO_EIXO: 4,
+  MAIL_MAX_COBRANCAS_MATERIAL: 4,
   MAIL_MAX_COBRANCAS_FOTO: 2,
+  MAIL_HORAS_APOS_APRESENTACAO_COBRANCA_FOTO: 24,
+  MAIL_COBRAR_DIA_ATIVIDADE: 'NAO',
   MAIL_DIAS_MAX_APOS_COBRANCA_FOTO: 30,
   MAIL_DIAS_ANTES_PENDENCIA_CRITICA: 3,
   MAIL_JOB_BATCH_LIMIT: 25,
@@ -92,8 +94,42 @@ var ATIVIDADES_V2_MAIL_JOB_SCOPES_ = Object.freeze({
   PENDENCIAS: ['APRESENTACAO_PENDENCIAS_SECRETARIA'],
   CONVITES: ['ATIVIDADE_CONVITE_PROFESSOR', 'ATIVIDADE_LEMBRETE_PROFESSOR', 'ATIVIDADE_CONVITE_CONVIDADO', 'ATIVIDADE_LEMBRETE_CONVIDADO']
 });
-var ATIVIDADES_V2_MAIL_JOB_CONFIG_CACHE_KEY_ = 'atividades:v2:mail-jobs:config:v1';
+var ATIVIDADES_V2_MAIL_JOB_CONFIG_CACHE_KEY_ = 'atividades:v2:mail-jobs:config:v2';
 var ATIVIDADES_V2_MAIL_JOB_CONFIG_CACHE_TTL_ = 300;
+var ATIVIDADES_V2_PARAMETROS_OPERACIONAIS_KEY_ = 'NORMAS_PARAMETROS_OPERACIONAIS';
+var ATIVIDADES_V2_PARAMETROS_OPERACIONAIS_SHEET_ = 'PARAMETROS_OPERACIONAIS';
+var ATIVIDADES_V2_PARAMETROS_OPERACIONAIS_CACHE_KEY_ = 'atividades:v2:parametros-operacionais:v1';
+var ATIVIDADES_V2_PARAMETROS_OPERACIONAIS_CACHE_TTL_ = 300;
+
+var ATIVIDADES_V2_MAIL_JOB_NORMATIVE_PARAMETERS_ = Object.freeze({
+  MAIL_DIAS_ANTES_COBRANCA_TITULO_EIXO: Object.freeze({
+    parametroIds: ['PRAZO_INICIO_COBRANCA_TITULO_EIXO_APRESENTACAO'], unidade: 'DIAS'
+  }),
+  MAIL_INTERVALO_HORAS_COBRANCA_TITULO_EIXO: Object.freeze({
+    parametroIds: ['FREQUENCIA_COBRANCA_TITULO_EIXO_APRESENTACAO'], unidade: 'HORAS'
+  }),
+  MAIL_MAX_COBRANCAS_TITULO_EIXO: Object.freeze({
+    parametroIds: ['MAX_COBRANCAS_TITULO_EIXO_APRESENTACAO'], unidade: 'QUANTIDADE'
+  }),
+  MAIL_DIAS_ANTES_COBRANCA_MATERIAL: Object.freeze({
+    parametroIds: ['PRAZO_INICIO_COBRANCA_MATERIAL_APRESENTACAO'], unidade: 'DIAS'
+  }),
+  MAIL_INTERVALO_HORAS_COBRANCA_MATERIAL: Object.freeze({
+    parametroIds: ['FREQUENCIA_COBRANCA_MATERIAL_APRESENTACAO'], unidade: 'HORAS'
+  }),
+  MAIL_MAX_COBRANCAS_MATERIAL: Object.freeze({
+    parametroIds: ['MAX_COBRANCAS_MATERIAL_APRESENTACAO'], unidade: 'QUANTIDADE'
+  }),
+  MAIL_HORAS_APOS_APRESENTACAO_COBRANCA_FOTO: Object.freeze({
+    parametroIds: ['PRAZO_INICIO_COBRANCA_FOTO_REUNIAO', 'PRAZO_ENVIO_ARQUIVO_APRESENTACAO'], unidade: 'HORAS'
+  }),
+  MAIL_INTERVALO_HORAS_COBRANCA_FOTO: Object.freeze({
+    parametroIds: ['FREQUENCIA_COBRANCA_FOTO_REUNIAO'], unidade: 'HORAS'
+  }),
+  MAIL_MAX_COBRANCAS_FOTO: Object.freeze({
+    parametroIds: ['MAX_COBRANCAS_FOTO_REUNIAO'], unidade: 'QUANTIDADE'
+  })
+});
 
 /** Enfileira um unico evento de job sem processar a outbox. */
 function atividadesV2_mailQueueJobEvent_(eventCode, context) {
@@ -133,7 +169,8 @@ function atividadesV2_mailQueueJobEvent_(eventCode, context) {
         idApresentacao: String(ctx.idApresentacao || '').trim(),
         recipientSource: String(ctx.recipientSource || '').trim(),
         fallbackUsed: ctx.fallbackUsed === true,
-        jobWindow: String(ctx.jobWindow || '').trim()
+        jobWindow: String(ctx.jobWindow || '').trim(),
+        deliveryMode: String(ctx.deliveryMode || 'REAL').trim()
       }, ctx.metadata || {})
     }) || {};
     return {
@@ -160,7 +197,38 @@ function atividadesV2_mailQueueJobEvent_(eventCode, context) {
 function atividadesV2_mailJobsReadConfig_(options) {
   var opts = options || {};
   var overrides = opts.config || {};
-  var result = atividadesV2_mailJobsReadBaseConfig_(opts.forceRefreshConfig === true);
+  var base = atividadesV2_mailJobsReadBaseConfig_(opts.forceRefreshConfig === true);
+  var result = Object.assign({}, base.values);
+  var sources = Object.assign({}, base.sources);
+  var warnings = (base.warnings || []).slice();
+  var parametros = atividadesV2_readParametrosOperacionais_({ forceRefreshConfig: opts.forceRefreshConfig === true });
+
+  Object.keys(ATIVIDADES_V2_MAIL_JOB_NORMATIVE_PARAMETERS_).forEach(function(key) {
+    var mapping = ATIVIDADES_V2_MAIL_JOB_NORMATIVE_PARAMETERS_[key];
+    var detail = atividadesV2_mailJobsResolveNormativeParameter_(parametros, mapping);
+    (detail.warnings || []).forEach(function(warning) { warnings.push(warning); });
+    if (detail.found) {
+      result[key] = detail.value;
+      sources[key] = {
+        value: detail.value,
+        source: 'PARAMETROS_OPERACIONAIS',
+        parametroId: detail.parametroId,
+        unidade: detail.unidade,
+        fallbackUsed: false
+      };
+    } else {
+      warnings.push('PARAMETRO_OPERACIONAL_AUSENTE:' + mapping.parametroIds.join('|'));
+      sources[key] = Object.assign({}, sources[key] || {}, {
+        value: result[key],
+        fallbackUsed: true,
+        parametroId: '',
+        unidade: mapping.unidade
+      });
+    }
+  });
+  (parametros.warnings || []).forEach(function(warning) { warnings.push(warning); });
+  (parametros.errors || []).forEach(function(error) { warnings.push(error); });
+
   Object.keys(ATIVIDADES_V2_MAIL_JOBS_DEFAULTS_).forEach(function(key) {
     var value = Object.prototype.hasOwnProperty.call(overrides, key) ? overrides[key] : result[key];
     if (typeof ATIVIDADES_V2_MAIL_JOBS_DEFAULTS_[key] === 'number') {
@@ -168,9 +236,32 @@ function atividadesV2_mailJobsReadConfig_(options) {
       value = isFinite(numericValue) ? numericValue : ATIVIDADES_V2_MAIL_JOBS_DEFAULTS_[key];
     }
     result[key] = value;
+    if (Object.prototype.hasOwnProperty.call(overrides, key)) {
+      var normative = ATIVIDADES_V2_MAIL_JOB_NORMATIVE_PARAMETERS_[key];
+      sources[key] = {
+        value: value,
+        source: 'OPTIONS_CONFIG',
+        parametroId: '',
+        unidade: normative ? normative.unidade : '',
+        fallbackUsed: false
+      };
+    } else if (sources[key]) {
+      sources[key].value = value;
+    }
   });
   result.MAIL_JOB_BATCH_LIMIT = atividadesV2_mailJobsLimit_(opts.limit || result.MAIL_JOB_BATCH_LIMIT);
   result.MAIL_JOB_EMAIL_TESTE = String(opts.emailTeste || result.MAIL_JOB_EMAIL_TESTE || '').trim();
+  if (opts.limit !== undefined && opts.limit !== null && opts.limit !== '') {
+    sources.MAIL_JOB_BATCH_LIMIT = { value: result.MAIL_JOB_BATCH_LIMIT, source: 'OPTIONS', parametroId: '', unidade: '', fallbackUsed: false };
+  }
+  if (String(opts.emailTeste || '').trim()) {
+    sources.MAIL_JOB_EMAIL_TESTE = { value: result.MAIL_JOB_EMAIL_TESTE, source: 'OPTIONS', parametroId: '', unidade: '', fallbackUsed: false };
+  }
+  result._sources = sources;
+  result._warnings = atividadesV2_mailJobsUniqueStrings_(warnings);
+  result._parametrosSource = parametros.source || 'INDISPONIVEL';
+  result._emailTesteExplicit = !!String(opts.emailTeste || '').trim();
+  result._effectiveTestMode = atividadesV2_mailJobsEnabled_(result, 'MAIL_JOB_MODO_TESTE') || result._emailTesteExplicit;
   return result;
 }
 
@@ -178,6 +269,7 @@ function atividadesV2_mailJobsReadBaseConfig_(forceRefresh) {
   var cache = null;
   try {
     cache = CacheService.getScriptCache();
+    if (forceRefresh) cache.remove(ATIVIDADES_V2_MAIL_JOB_CONFIG_CACHE_KEY_);
     if (!forceRefresh) {
       var cached = cache.get(ATIVIDADES_V2_MAIL_JOB_CONFIG_CACHE_KEY_);
       if (cached) return JSON.parse(cached);
@@ -185,22 +277,239 @@ function atividadesV2_mailJobsReadBaseConfig_(forceRefresh) {
   } catch (cacheErr) {}
 
   var props = PropertiesService.getScriptProperties();
-  var result = {};
+  var result = { values: {}, sources: {}, warnings: [] };
+  var mailConfig = atividadesV2_mailJobsReadMailConfigMap_(forceRefresh === true);
+  (mailConfig.warnings || []).forEach(function(warning) { result.warnings.push(warning); });
   Object.keys(ATIVIDADES_V2_MAIL_JOBS_DEFAULTS_).forEach(function(key) {
-    var value = '';
-    try {
-      if (typeof GEAPA_CORE !== 'undefined' && GEAPA_CORE && typeof GEAPA_CORE.coreGetGeapaConfigValue === 'function') {
-        value = GEAPA_CORE.coreGetGeapaConfigValue(key, { defaultValue: '' });
-      }
-    } catch (coreErr) {}
-    if (value === '' || value === null || value === undefined) value = props.getProperty(key);
-    if (value === '' || value === null || value === undefined) value = ATIVIDADES_V2_MAIL_JOBS_DEFAULTS_[key];
-    result[key] = value;
+    var value = Object.prototype.hasOwnProperty.call(mailConfig.values, key) ? mailConfig.values[key] : '';
+    var source = '';
+    if (value !== '' && value !== null && value !== undefined) source = 'MAIL_CONFIG';
+    if (value === '' || value === null || value === undefined) {
+      value = props.getProperty(key);
+      if (value !== '' && value !== null && value !== undefined) source = 'SCRIPT_PROPERTIES';
+    }
+    if (value === '' || value === null || value === undefined) {
+      value = ATIVIDADES_V2_MAIL_JOBS_DEFAULTS_[key];
+      source = 'DEFAULT_CODE';
+    }
+    result.values[key] = value;
+    result.sources[key] = { value: value, source: source, parametroId: '', unidade: '', fallbackUsed: false };
   });
   try {
     if (cache) cache.put(ATIVIDADES_V2_MAIL_JOB_CONFIG_CACHE_KEY_, JSON.stringify(result), ATIVIDADES_V2_MAIL_JOB_CONFIG_CACHE_TTL_);
   } catch (putErr) {}
   return result;
+}
+
+function atividadesV2_mailJobsReadMailConfigMap_(forceDirectRead) {
+  var records = [];
+  var warnings = [];
+  if (!forceDirectRead) {
+    try {
+      if (typeof GEAPA_CORE !== 'undefined' && GEAPA_CORE && typeof GEAPA_CORE.coreReadRecordsByKey === 'function') {
+        records = GEAPA_CORE.coreReadRecordsByKey('MAIL_CONFIG') || [];
+      }
+    } catch (coreErr) {
+      warnings.push('MAIL_CONFIG_CORE_INDISPONIVEL');
+    }
+  }
+  if (!records.length) {
+    try {
+      records = atividadesV2_readSheetObjects_(atividades_getSheetByKeyCached_('MAIL_CONFIG'));
+      if (forceDirectRead) warnings.push('MAIL_CONFIG_LEITURA_DIRETA_FORCADA');
+    } catch (registryErr) {
+      warnings.push('MAIL_CONFIG_REGISTRY_INDISPONIVEL');
+    }
+  }
+  var values = {};
+  (records || []).forEach(function(record) {
+    var active = atividades_normalizeTextUpper_(record.Ativo || record.ATIVO || 'SIM');
+    if (active && ['SIM', 'TRUE', '1'].indexOf(active) === -1) return;
+    var key = atividades_normalizeTextUpper_(record.Chave || record.CHAVE || record.KEY);
+    if (!key) return;
+    values[key] = record.Valor !== undefined ? record.Valor :
+      (record.VALOR !== undefined ? record.VALOR : record.VALUE);
+  });
+  return { values: values, warnings: warnings };
+}
+
+/** Le os parametros normativos pelo Registry sem alterar a planilha. */
+function atividadesV2_readParametrosOperacionais_(options) {
+  var opts = options || {};
+  var cache = null;
+  try {
+    cache = CacheService.getScriptCache();
+    if (!opts.forceRefreshConfig) {
+      var cached = cache.get(ATIVIDADES_V2_PARAMETROS_OPERACIONAIS_CACHE_KEY_);
+      if (cached) return JSON.parse(cached);
+    }
+  } catch (cacheErr) {}
+
+  var report = { ok: false, source: 'INDISPONIVEL', records: [], warnings: [], errors: [] };
+  var rawRecords = [];
+  try {
+    if (typeof GEAPA_CORE !== 'undefined' && GEAPA_CORE && typeof GEAPA_CORE.coreReadRecordsByKey === 'function') {
+      rawRecords = GEAPA_CORE.coreReadRecordsByKey(ATIVIDADES_V2_PARAMETROS_OPERACIONAIS_KEY_) || [];
+      if (rawRecords.length) report.source = 'GEAPA_CORE';
+    }
+  } catch (coreErr) {
+    report.warnings.push('PARAMETROS_OPERACIONAIS_CORE_INDISPONIVEL');
+  }
+
+  if (!rawRecords.length) {
+    try {
+      var entry = null;
+      try {
+        entry = atividades_getRegistryEntryByKey_(ATIVIDADES_V2_PARAMETROS_OPERACIONAIS_KEY_);
+      } catch (registryCoreErr) {
+        report.warnings.push('REGISTRY_CORE_INDISPONIVEL_PARA_PARAMETROS');
+      }
+      if (!entry && typeof atividadesV2_mailGetRegistryEntryDev_ === 'function') {
+        entry = atividadesV2_mailGetRegistryEntryDev_(ATIVIDADES_V2_PARAMETROS_OPERACIONAIS_KEY_);
+      }
+      if (!entry || !entry.id) throw new Error('Key nao encontrada no Registry.');
+      if (entry.ativo === false) throw new Error('Key inativa no Registry.');
+      var ss;
+      try {
+        ss = atividades_openSpreadsheetByIdCached_(entry.id);
+      } catch (openCoreErr) {
+        ss = SpreadsheetApp.openById(String(entry.id || '').trim());
+        report.warnings.push('ABERTURA_DIRETA_PARAMETROS_APOS_CORE_INDISPONIVEL');
+      }
+      var sheet = ss.getSheetByName(entry.sheet || '') || ss.getSheetByName(ATIVIDADES_V2_PARAMETROS_OPERACIONAIS_SHEET_);
+      if (!sheet) throw new Error('Aba PARAMETROS_OPERACIONAIS nao encontrada.');
+      rawRecords = atividadesV2_readSheetObjects_(sheet);
+      report.source = entry.ambiente === 'DEV' ? 'REGISTRY_DEV_DIRECT' : 'REGISTRY';
+    } catch (registryErr) {
+      report.errors.push('ERRO_LER_PARAMETROS_OPERACIONAIS:' + atividadesV2_errorMessage_(registryErr).slice(0, 240));
+    }
+  }
+
+  report.records = (rawRecords || []).map(atividadesV2_mailJobsNormalizeParametroOperacional_).filter(function(record) {
+    return !!record.PARAMETRO_ID && record.VIGENTE === 'SIM' &&
+      ['APRESENTACOES', 'ATIVIDADES', 'GERAL', ''].indexOf(record.MODULO_SISTEMA) >= 0;
+  });
+  report.ok = report.records.length > 0;
+  if (!report.ok && !report.errors.length) report.warnings.push('PARAMETROS_OPERACIONAIS_SEM_REGISTROS_VIGENTES');
+  try {
+    if (cache && report.ok) cache.put(
+      ATIVIDADES_V2_PARAMETROS_OPERACIONAIS_CACHE_KEY_,
+      JSON.stringify(report),
+      ATIVIDADES_V2_PARAMETROS_OPERACIONAIS_CACHE_TTL_
+    );
+  } catch (putErr) {}
+  return report;
+}
+
+function atividadesV2_getParametroOperacional_(parametroId, options) {
+  var report = atividadesV2_readParametrosOperacionais_(options || {});
+  return atividadesV2_mailJobsFindParametroOperacional_(report, parametroId, options || {});
+}
+
+function atividadesV2_getParametroOperacionalNumero_(parametroId, fallback, options) {
+  var detail = atividadesV2_getParametroOperacional_(parametroId, options || {});
+  var number = atividadesV2_mailJobsParseNumber_(detail && detail.VALOR);
+  return number === null ? fallback : number;
+}
+
+function atividadesV2_mailJobsNormalizeParametroOperacional_(record) {
+  var row = record || {};
+  return {
+    PARAMETRO_ID: atividades_normalizeTextUpper_(row.PARAMETRO_ID),
+    DESCRICAO: String(row.DESCRICAO || '').trim(),
+    VALOR: row.VALOR,
+    UNIDADE: atividades_normalizeTextUpper_(row.UNIDADE),
+    MODULO_SISTEMA: atividades_normalizeTextUpper_(row.MODULO_SISTEMA),
+    VIGENTE: atividades_normalizeTextUpper_(row.VIGENTE),
+    PERMITE_AUTOMACAO: atividades_normalizeTextUpper_(row.PERMITE_AUTOMACAO),
+    EXIGE_CONFERENCIA_HUMANA: atividades_normalizeTextUpper_(row.EXIGE_CONFERENCIA_HUMANA),
+    NIVEL_ACESSO: atividades_normalizeTextUpper_(row.NIVEL_ACESSO),
+    OBSERVACAO: String(row.OBSERVACAO || '').trim(),
+    _rowNumber: row._rowNumber || 0
+  };
+}
+
+function atividadesV2_mailJobsFindParametroOperacional_(report, parametroId, options) {
+  var wanted = atividades_normalizeTextUpper_(parametroId);
+  var preferredModule = atividades_normalizeTextUpper_(options && options.moduloSistema || 'APRESENTACOES');
+  var moduleScore = {};
+  moduleScore[preferredModule] = 40;
+  moduleScore.APRESENTACOES = Math.max(moduleScore.APRESENTACOES || 0, 30);
+  moduleScore.ATIVIDADES = Math.max(moduleScore.ATIVIDADES || 0, 20);
+  moduleScore.GERAL = 10;
+  moduleScore[''] = 5;
+  var candidates = (report && report.records || []).filter(function(record) {
+    return record.PARAMETRO_ID === wanted;
+  }).sort(function(a, b) {
+    var scoreA = (a.PERMITE_AUTOMACAO === 'SIM' ? 100 : 0) + (moduleScore[a.MODULO_SISTEMA] || 0);
+    var scoreB = (b.PERMITE_AUTOMACAO === 'SIM' ? 100 : 0) + (moduleScore[b.MODULO_SISTEMA] || 0);
+    return scoreB - scoreA || Number(b._rowNumber || 0) - Number(a._rowNumber || 0);
+  });
+  return candidates[0] || null;
+}
+
+function atividadesV2_mailJobsResolveNormativeParameter_(report, mapping) {
+  var ids = mapping && mapping.parametroIds || [];
+  var warnings = [];
+  for (var i = 0; i < ids.length; i++) {
+    var parameter = atividadesV2_mailJobsFindParametroOperacional_(report, ids[i], { moduloSistema: 'APRESENTACOES' });
+    if (!parameter) continue;
+    var converted = atividadesV2_mailJobsConvertUnit_(parameter.VALOR, parameter.UNIDADE, mapping.unidade);
+    if (converted === null) {
+      warnings.push('PARAMETRO_OPERACIONAL_INVALIDO:' + ids[i]);
+      continue;
+    }
+    if (parameter.PERMITE_AUTOMACAO !== 'SIM') warnings.push('PARAMETRO_SEM_AUTOMACAO_EXPLICITA:' + ids[i]);
+    if (parameter.EXIGE_CONFERENCIA_HUMANA === 'SIM') warnings.push('PARAMETRO_EXIGE_CONFERENCIA_HUMANA:' + ids[i]);
+    return {
+      found: true,
+      value: converted,
+      parametroId: ids[i],
+      unidade: mapping.unidade,
+      warnings: warnings
+    };
+  }
+  return { found: false, warnings: warnings };
+}
+
+function atividadesV2_mailJobsConvertUnit_(value, sourceUnit, targetUnit) {
+  var number = atividadesV2_mailJobsParseNumber_(value);
+  if (number === null) return null;
+  var source = atividadesV2_mailJobsNormalizeUnit_(sourceUnit, value);
+  var target = atividadesV2_mailJobsNormalizeUnit_(targetUnit, '');
+  if (!source || source === target || target === 'QUANTIDADE') return number;
+  if (source === 'DIAS' && target === 'HORAS') return number * 24;
+  if (source === 'HORAS' && target === 'DIAS') return number / 24;
+  if (source === 'MINUTOS' && target === 'HORAS') return number / 60;
+  if (source === 'HORAS' && target === 'MINUTOS') return number * 60;
+  return number;
+}
+
+function atividadesV2_mailJobsNormalizeUnit_(unit, value) {
+  var normalized = atividades_normalizeTextUpper_(unit || value);
+  if (normalized.indexOf('MINUTO') >= 0) return 'MINUTOS';
+  if (normalized.indexOf('HORA') >= 0) return 'HORAS';
+  if (normalized.indexOf('DIA') >= 0) return 'DIAS';
+  if (normalized.indexOf('QUANT') >= 0 || normalized.indexOf('VEZ') >= 0) return 'QUANTIDADE';
+  return normalized;
+}
+
+function atividadesV2_mailJobsParseNumber_(value) {
+  if (typeof value === 'number') return isFinite(value) ? value : null;
+  var match = String(value === null || value === undefined ? '' : value).replace(',', '.').match(/-?\d+(?:\.\d+)?/);
+  if (!match) return null;
+  var number = Number(match[0]);
+  return isFinite(number) ? number : null;
+}
+
+function atividadesV2_mailJobsUniqueStrings_(values) {
+  var seen = {};
+  return (values || []).filter(function(value) {
+    var key = String(value || '').trim();
+    if (!key || seen[key]) return false;
+    seen[key] = true;
+    return true;
+  });
 }
 
 function atividadesV2_mailJobsLimit_(value) {
@@ -242,6 +551,10 @@ function atividadesV2_mailJobsBuildPlan_(scope, options) {
     dryRun: true,
     scope: atividades_normalizeTextUpper_(scope || 'TODOS'),
     config: atividadesV2_mailJobsSafeConfig_(config),
+    configSources: atividadesV2_mailJobsSafeConfigSources_(config),
+    parametrosOperacionaisSource: config._parametrosSource || 'INDISPONIVEL',
+    modoEnvio: config._effectiveTestMode ? 'TESTE' : 'REAL',
+    configSourcesPorAtividade: {},
     totalAnalisado: data.atividades.length + data.apresentacoes.length + data.envolvidos.length,
     totalElegivel: 0,
     totalBloqueado: 0,
@@ -250,7 +563,7 @@ function atividadesV2_mailJobsBuildPlan_(scope, options) {
     items: [],
     exemplosElegiveis: [],
     exemplosBloqueados: [],
-    avisos: [],
+    avisos: (config._warnings || []).slice(),
     erros: [],
     _data: data,
     _config: config,
@@ -267,7 +580,7 @@ function atividadesV2_mailJobsBuildPlan_(scope, options) {
     configByActivity[String(activity.ID_ATIVIDADE || '').trim()] = atividadesV2_findConfigForActivityFromRows_(data.configs, activity) || {};
   });
   var filesByEntity = atividadesV2_mailJobsIndexFiles_(data.arquivos);
-  var allowedEvents = atividadesV2_mailJobsEventsForScope_(plan.scope);
+  var allowedEvents = atividadesV2_mailJobsEventsForScope_(plan.scope, opts.eventCodes);
 
   data.apresentacoes.forEach(function(presentation) {
     var idApresentacao = String(presentation.ID_APRESENTACAO || '').trim();
@@ -276,13 +589,17 @@ function atividadesV2_mailJobsBuildPlan_(scope, options) {
     if (activityFilter && idAtividade !== activityFilter) return;
     var activity = activitiesById[idAtividade] || {};
     var activityConfig = configByActivity[idAtividade] || {};
+    var contextConfig = atividadesV2_mailJobsConfigForActivity_(config, activityConfig);
+    if (contextConfig._hasActivityConfigSource) {
+      plan.configSourcesPorAtividade[idAtividade] = atividadesV2_mailJobsSafeConfigSources_(contextConfig);
+    }
     var context = {
       activity: activity,
       presentation: presentation,
       activityConfig: activityConfig,
       files: atividadesV2_mailJobsFilesForPresentation_(filesByEntity, idAtividade, idApresentacao),
       now: now,
-      config: config,
+      config: contextConfig,
       options: opts
     };
     if (allowedEvents.APRESENTACAO_COBRAR_TITULO_EIXO) atividadesV2_mailJobsPlanTitleCharge_(plan, context);
@@ -315,24 +632,74 @@ function atividadesV2_mailJobsBuildPlan_(scope, options) {
   return plan;
 }
 
-function atividadesV2_mailJobsEventsForScope_(scope) {
+function atividadesV2_mailJobsEventsForScope_(scope, eventCodes) {
   var result = {};
   var normalized = atividades_normalizeTextUpper_(scope || 'TODOS');
   var events = normalized === 'TODOS'
     ? Object.keys(ATIVIDADES_V2_MAIL_JOB_EVENTS_)
     : (ATIVIDADES_V2_MAIL_JOB_SCOPES_[normalized] || []);
+  var requested = (eventCodes || []).map(atividades_normalizeTextUpper_);
+  if (requested.length) {
+    events = events.filter(function(eventCode) { return requested.indexOf(eventCode) >= 0; });
+  }
   events.forEach(function(eventCode) { result[eventCode] = true; });
   return result;
 }
 
 function atividadesV2_mailJobsSafeConfig_(config) {
   var safe = {};
-  Object.keys(config || {}).forEach(function(key) {
+  Object.keys(ATIVIDADES_V2_MAIL_JOBS_DEFAULTS_).forEach(function(key) {
     safe[key] = key === 'MAIL_JOB_EMAIL_TESTE'
-      ? (config[key] ? atividadesV2_mailMaskEmail_(config[key]) : '')
-      : config[key];
+      ? ((config || {})[key] ? atividadesV2_mailMaskEmail_((config || {})[key]) : '')
+      : (config || {})[key];
   });
   return safe;
+}
+
+function atividadesV2_mailJobsSafeConfigSources_(config) {
+  var safeConfig = atividadesV2_mailJobsSafeConfig_(config || {});
+  var sources = config && config._sources || {};
+  var safe = {};
+  Object.keys(ATIVIDADES_V2_MAIL_JOBS_DEFAULTS_).forEach(function(key) {
+    var source = sources[key] || {};
+    safe[key] = {
+      value: safeConfig[key],
+      source: String(source.source || 'DEFAULT_CODE'),
+      parametroId: String(source.parametroId || ''),
+      unidade: String(source.unidade || ''),
+      fallbackUsed: source.fallbackUsed === true
+    };
+  });
+  return safe;
+}
+
+function atividadesV2_mailJobsConfigForActivity_(baseConfig, activityConfig) {
+  var result = {};
+  Object.keys(ATIVIDADES_V2_MAIL_JOBS_DEFAULTS_).forEach(function(key) { result[key] = baseConfig[key]; });
+  result._sources = Object.assign({}, baseConfig._sources || {});
+  result._warnings = (baseConfig._warnings || []).slice();
+  result._parametrosSource = baseConfig._parametrosSource || '';
+  result._emailTesteExplicit = baseConfig._emailTesteExplicit === true;
+  result._effectiveTestMode = baseConfig._effectiveTestMode === true;
+  result._hasActivityConfigSource = false;
+
+  var source = result._sources.MAIL_HORAS_APOS_APRESENTACAO_COBRANCA_FOTO || {};
+  var canUseModelFallback = ['PARAMETROS_OPERACIONAIS', 'OPTIONS_CONFIG'].indexOf(source.source) === -1;
+  var modelHours = atividadesV2_mailJobsParseNumber_(
+    activityConfig && (activityConfig.PRAZO_FOTO_REUNIAO_HORAS_APOS || activityConfig.PRAZO_ENVIO_FOTOS_HORAS)
+  );
+  if (canUseModelFallback && modelHours !== null && modelHours >= 0) {
+    result.MAIL_HORAS_APOS_APRESENTACAO_COBRANCA_FOTO = modelHours;
+    result._sources.MAIL_HORAS_APOS_APRESENTACAO_COBRANCA_FOTO = {
+      value: modelHours,
+      source: 'ATIVIDADES_CONFIG',
+      parametroId: activityConfig.PRAZO_FOTO_REUNIAO_HORAS_APOS ? 'PRAZO_FOTO_REUNIAO_HORAS_APOS' : 'PRAZO_ENVIO_FOTOS_HORAS',
+      unidade: 'HORAS',
+      fallbackUsed: true
+    };
+    result._hasActivityConfigSource = true;
+  }
+  return result;
 }
 
 function atividadesV2_mailJobsIndexFiles_(files) {
@@ -378,9 +745,10 @@ function atividadesV2_mailJobsBlock_(plan, reason, context) {
 
 function atividadesV2_mailJobsPush_(plan, item) {
   var config = plan._config;
-  var testEmail = String(config.MAIL_JOB_EMAIL_TESTE || '').trim();
+  var testEmail = config._effectiveTestMode ? String(config.MAIL_JOB_EMAIL_TESTE || '').trim() : '';
   var originalTo = atividadesV2_mailNormalizeEmails_(item.to || []);
   item.to = testEmail ? atividadesV2_mailNormalizeEmails_([testEmail]) : originalTo;
+  item.deliveryMode = testEmail ? 'TESTE' : 'REAL';
   item.recipientSource = testEmail ? 'EMAIL_TESTE_DEV' : (item.recipientSource || 'ATIVIDADES_V2');
   item.destinatariosOriginais = originalTo.length;
   if (!item.to.length) {
@@ -398,7 +766,8 @@ function atividadesV2_mailJobsSafeItem_(item) {
     correlationKey: item.correlationKey,
     destinatariosMascarados: (item.to || []).map(atividadesV2_mailMaskEmail_),
     recipientSource: item.recipientSource || '',
-    fallbackUsed: item.fallbackUsed === true
+    fallbackUsed: item.fallbackUsed === true,
+    modoEnvio: item.deliveryMode || 'REAL'
   };
 }
 
@@ -411,7 +780,8 @@ function atividadesV2_mailJobsPlanTitleCharge_(plan, context) {
     return atividadesV2_mailJobsBlock_(plan, 'TITULO_EIXO_JA_ATENDIDO', atividadesV2_mailJobsIds_(context));
   }
   var days = atividadesV2_mailJobsDaysBetween_(context.now, context.activity.DATA_ATIVIDADE);
-  if (days === null || days < 1 || days > Number(context.config.MAIL_DIAS_ANTES_COBRANCA_TITULO_EIXO)) {
+  var minDays = atividadesV2_mailJobsEnabled_(context.config, 'MAIL_COBRAR_DIA_ATIVIDADE') ? 0 : 1;
+  if (days === null || days < minDays || days > Number(context.config.MAIL_DIAS_ANTES_COBRANCA_TITULO_EIXO)) {
     return atividadesV2_mailJobsBlock_(plan, 'FORA_DA_JANELA_TITULO_EIXO', atividadesV2_mailJobsIds_(context));
   }
   var count = atividadesV2_mailJobsCounter_(context.presentation.QTD_COBRANCAS_TITULO_EIXO);
@@ -453,7 +823,8 @@ function atividadesV2_mailJobsPlanMaterialCharge_(plan, context) {
     return atividadesV2_mailJobsBlock_(plan, 'MATERIAL_JA_ATENDIDO', atividadesV2_mailJobsIds_(context));
   }
   var days = atividadesV2_mailJobsDaysBetween_(context.now, context.activity.DATA_ATIVIDADE);
-  if (days === null || days < 0 || days > Number(context.config.MAIL_DIAS_ANTES_COBRANCA_MATERIAL)) {
+  var minDays = atividadesV2_mailJobsEnabled_(context.config, 'MAIL_COBRAR_DIA_ATIVIDADE') ? 0 : 1;
+  if (days === null || days < minDays || days > Number(context.config.MAIL_DIAS_ANTES_COBRANCA_MATERIAL)) {
     return atividadesV2_mailJobsBlock_(plan, 'FORA_DA_JANELA_MATERIAL', atividadesV2_mailJobsIds_(context));
   }
   var count = atividadesV2_mailJobsCounter_(context.presentation.QTD_COBRANCAS_MATERIAL);
@@ -492,9 +863,12 @@ function atividadesV2_mailJobsPlanPhotoCharge_(plan, context) {
   if (atividadesV2_mailJobsHasResolvedFile_(context.files, 'FOTO_REUNIAO')) {
     return atividadesV2_mailJobsBlock_(plan, 'FOTO_JA_ATENDIDA', atividadesV2_mailJobsIds_(context));
   }
-  var days = atividadesV2_mailJobsDaysBetween_(context.now, context.activity.DATA_ATIVIDADE);
-  var maxAfter = Number(context.config.MAIL_DIAS_MAX_APOS_COBRANCA_FOTO);
-  if (days === null || days > 0 || days < -maxAfter) {
+  var activityEnd = atividadesV2_mailJobsActivityEndDateTime_(context.activity);
+  var startAfterHours = Number(context.config.MAIL_HORAS_APOS_APRESENTACAO_COBRANCA_FOTO || 0);
+  var maxAfterHours = Number(context.config.MAIL_DIAS_MAX_APOS_COBRANCA_FOTO || 0) * 24;
+  var chargeStartsAt = activityEnd ? new Date(activityEnd.getTime() + startAfterHours * 3600000) : null;
+  var chargeEndsAt = activityEnd ? new Date(activityEnd.getTime() + maxAfterHours * 3600000) : null;
+  if (!activityEnd || context.now.getTime() < chargeStartsAt.getTime() || context.now.getTime() > chargeEndsAt.getTime()) {
     return atividadesV2_mailJobsBlock_(plan, 'FORA_DA_JANELA_FOTO', atividadesV2_mailJobsIds_(context));
   }
   var count = atividadesV2_mailJobsCounter_(context.presentation.QTD_COBRANCAS_FOTO_REUNIAO);
@@ -634,12 +1008,32 @@ function atividadesV2_mailJobsPlanMemberReminders_(plan, data, configByActivity,
     if (options.idAtividade && idAtividade !== String(options.idAtividade).trim()) return;
     if (!idAtividade || !atividadesV2_mailJobsActivityOperational_(activity)) return;
     var config = configByActivity[idAtividade] || {};
-    if (!atividadesV2_mailJobsIsYes_(activity.EXIGE_LEMBRETE) && !atividadesV2_mailJobsIsYes_(config.EXIGE_LEMBRETE_PADRAO)) return;
-    if (!atividadesV2_mailJobsActivityVisibleToMembers_(activity)) return;
-    var days = atividadesV2_mailJobsDaysBetween_(now, activity.DATA_ATIVIDADE);
-    if (days !== Number(plan._config.MAIL_DIAS_ANTES_LEMBRETE_MEMBROS)) return;
+    var forcedByApproval = atividades_normalizeTextUpper_(options.triggerReason) === 'TITULO_EIXO_APROVADO';
     var presentation = atividadesV2_mailJobsPresentationForActivity_(data.apresentacoes, idAtividade);
-    if (presentation && atividadesV2_mailJobsIsYes_(presentation.LEMBRETE_MEMBROS_ENVIADO)) return;
+    var presentationApproved = atividades_normalizeTextUpper_(
+      presentation && (presentation.STATUS_TITULO_EIXO || activity.STATUS_EIXO_TEMATICO)
+    ) === 'APROVADO';
+    if (options.requireApprovedPresentation === true && !presentationApproved) {
+      if (options.idAtividade) atividadesV2_mailJobsBlock_(plan, 'TITULO_EIXO_NAO_APROVADO', { idAtividade: idAtividade });
+      return;
+    }
+    if (!forcedByApproval && !atividadesV2_mailJobsIsYes_(activity.EXIGE_LEMBRETE) && !atividadesV2_mailJobsIsYes_(config.EXIGE_LEMBRETE_PADRAO)) return;
+    var communicationEligible = forcedByApproval
+      ? atividadesV2_mailJobsActivityEligibleForApprovalReminder_(activity)
+      : atividadesV2_mailJobsActivityVisibleToMembers_(activity);
+    if (!communicationEligible) {
+      if (options.idAtividade) atividadesV2_mailJobsBlock_(plan, 'ATIVIDADE_NAO_PUBLICADA_OU_COM_ACESSO_RESTRITO', { idAtividade: idAtividade });
+      return;
+    }
+    var days = atividadesV2_mailJobsDaysBetween_(now, activity.DATA_ATIVIDADE);
+    if (days !== Number(plan._config.MAIL_DIAS_ANTES_LEMBRETE_MEMBROS)) {
+      if (options.idAtividade) atividadesV2_mailJobsBlock_(plan, 'FORA_DA_JANELA_LEMBRETE_MEMBROS', { idAtividade: idAtividade });
+      return;
+    }
+    if (presentation && atividadesV2_mailJobsIsYes_(presentation.LEMBRETE_MEMBROS_ENVIADO)) {
+      if (options.idAtividade) atividadesV2_mailJobsBlock_(plan, 'LEMBRETE_MEMBROS_JA_ENVIADO', { idAtividade: idAtividade });
+      return;
+    }
     var membersResult = atividadesV2_listarMembrosChamadaViaCore_(activity.DATA_ATIVIDADE, { perfil: 'ADMIN_TECNICO', somenteVisiveis: false }, null);
     if (!membersResult || membersResult.ok !== true) {
       atividadesV2_mailJobsBlock_(plan, 'ERRO_LISTAR_MEMBROS_APLICAVEIS', { idAtividade: idAtividade });
@@ -658,8 +1052,13 @@ function atividadesV2_mailJobsPlanMemberReminders_(plan, data, configByActivity,
         to: [email],
         recipientName: String(member.nomeExibicao || member.nome || '').trim(),
         recipientSource: 'GEAPA_CORE_MEMBROS_APLICAVEIS',
-        correlationKey: atividadesV2_mailJobsCorrelation_(['ATV', idAtividade, 'LEMBRETE', 'MEMBRO', recipientToken, 'D' + days]),
+        // Teste e envio real precisam de identidades distintas: a homologacao nao
+        // pode consumir a chave que sera usada para comunicar o membro de verdade.
+        correlationKey: atividadesV2_mailJobsCorrelation_([
+          'ATV', idAtividade, 'LEMBRETE', 'MEMBRO', recipientToken, 'D' + days, 'MODO', plan.modoEnvio
+        ]),
         jobWindow: 'D' + days,
+        metadata: { triggerReason: forcedByApproval ? 'TITULO_EIXO_APROVADO' : 'JOB_PROGRAMADO' },
         payload: atividadesV2_mailJobsActivityPayload_(activity, { introText: 'Lembrete de atividade futura do GEAPA.' }),
         completionGroup: groupKey,
         completionUpdate: {
@@ -801,6 +1200,19 @@ function atividadesV2_mailJobsActivityVisibleToMembers_(activity) {
     ['RESTRITA_DIRETORIA', 'OCULTA'].indexOf(access) === -1;
 }
 
+/**
+ * Elegibilidade transacional do lembrete disparado pela aprovacao de tema.
+ * A visibilidade DIRETORIA nao e alterada nem usada para expor a atividade no Portal;
+ * a comunicacao e permitida porque a atividade ja foi publicada e tem acesso nao restrito.
+ */
+function atividadesV2_mailJobsActivityEligibleForApprovalReminder_(activity) {
+  var publication = atividades_normalizeTextUpper_(activity.STATUS_PUBLICACAO_PORTAL);
+  var visibility = atividades_normalizeTextUpper_(activity.VISIBILIDADE_PORTAL);
+  var access = atividades_normalizeTextUpper_(activity.CLASSIFICACAO_ACESSO);
+  return publication === 'PUBLICADA' && ['DIRETORIA', 'MEMBROS', 'PUBLICA'].indexOf(visibility) >= 0 &&
+    ['RESTRITA_DIRETORIA', 'OCULTA'].indexOf(access) === -1;
+}
+
 function atividadesV2_mailJobsPresentationPendingLabels_(context) {
   var pending = [];
   var titleStatus = atividades_normalizeTextUpper_(context.presentation.STATUS_TITULO_EIXO || context.activity.STATUS_EIXO_TEMATICO);
@@ -913,6 +1325,17 @@ function atividadesV2_mailJobsDaysBetween_(from, to) {
   return Math.round((atividadesV2_mailJobsDayTime_(end) - atividadesV2_mailJobsDayTime_(start)) / 86400000);
 }
 
+function atividadesV2_mailJobsActivityEndDateTime_(activity) {
+  if (!activity) return null;
+  var start = atividadesV2_buildActivityDateTime_(activity.DATA_ATIVIDADE, activity.HORARIO_INICIO);
+  var end = atividadesV2_buildActivityDateTime_(
+    activity.DATA_ATIVIDADE,
+    activity.HORARIO_FIM || activity.HORARIO_INICIO
+  );
+  if (start && end && end.getTime() < start.getTime()) end = new Date(end.getTime() + 86400000);
+  return end || start || atividades_parseDateOrNull_(activity.DATA_ATIVIDADE);
+}
+
 function atividadesV2_mailJobsDayTime_(value) {
   var date = atividades_parseDateOrNull_(value);
   return date ? new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime() : 0;
@@ -964,12 +1387,9 @@ function atividadesV2_mailJobsRun_(scope, options, forceDryRun) {
   if (!atividadesV2_mailJobsEnabled_(config, 'MAIL_JOBS_ATIVOS')) {
     return atividadesV2_mailJobsBlockedRun_(plan, 'MAIL_JOBS_DESATIVADOS');
   }
-  var testMode = atividadesV2_mailJobsEnabled_(config, 'MAIL_JOB_MODO_TESTE');
+  var testMode = config._effectiveTestMode === true;
   if (testMode && !String(config.MAIL_JOB_EMAIL_TESTE || '').trim()) {
     return atividadesV2_mailJobsBlockedRun_(plan, 'EMAIL_TESTE_OBRIGATORIO_NO_MODO_TESTE');
-  }
-  if (!testMode && !String(config.MAIL_JOB_EMAIL_TESTE || '').trim() && opts.confirmarEnvioReal !== true) {
-    return atividadesV2_mailJobsBlockedRun_(plan, 'CONFIRMACAO_ENVIO_REAL_OBRIGATORIA');
   }
 
   var lock = LockService.getScriptLock();
@@ -1042,6 +1462,7 @@ function atividadesV2_mailJobsExecutePlan_(plan) {
     modo: 'DEV',
     dryRun: false,
     scope: plan.scope,
+    modoEnvio: plan.modoEnvio,
     totalAnalisado: plan.totalAnalisado,
     totalElegivel: plan.totalElegivel,
     totalBloqueado: plan.totalBloqueado,
@@ -1052,6 +1473,9 @@ function atividadesV2_mailJobsExecutePlan_(plan) {
     totalLinhasControleAtualizadas: updatedRows,
     totalDestinatariosProcessados: selected.reduce(function(total, item) { return total + (item.to || []).length; }, 0),
     origensDestinatarios: atividadesV2_mailJobsCountRecipientSources_(selected),
+    parametrosOperacionaisSource: plan.parametrosOperacionaisSource,
+    configSources: plan.configSources,
+    configSourcesPorAtividade: plan.configSourcesPorAtividade,
     totalErros: errors.length,
     motivosBloqueio: plan.motivosBloqueio,
     resultados: outcomes,
@@ -1113,7 +1537,11 @@ function atividadesV2_mailJobsPublicPlan_(plan) {
     modo: 'DEV',
     dryRun: true,
     scope: plan.scope,
+    modoEnvio: plan.modoEnvio,
     config: plan.config,
+    parametrosOperacionaisSource: plan.parametrosOperacionaisSource,
+    configSources: plan.configSources,
+    configSourcesPorAtividade: plan.configSourcesPorAtividade,
     totalAnalisado: plan.totalAnalisado,
     totalElegivel: plan.totalElegivel,
     totalBloqueado: plan.totalBloqueado,
@@ -1137,10 +1565,14 @@ function atividadesV2_mailJobsBlockedRun_(plan, reason) {
     modo: 'DEV',
     dryRun: false,
     scope: plan.scope,
+    modoEnvio: plan.modoEnvio,
     errorCode: reason,
     message: 'Job bloqueado por protecao operacional: ' + reason + '.',
     totalElegivel: plan.totalElegivel,
     totalEnfileirado: 0,
+    parametrosOperacionaisSource: plan.parametrosOperacionaisSource,
+    configSources: plan.configSources,
+    avisos: plan.avisos,
     escritaRealizada: false,
     processouOutbox: false
   };
@@ -1166,6 +1598,8 @@ function atividadesV2_mailJobsLog_(ss, result) {
         totalLinhasControleAtualizadas: result.totalLinhasControleAtualizadas,
         totalDestinatariosProcessados: result.totalDestinatariosProcessados,
         origensDestinatarios: result.origensDestinatarios,
+        parametrosOperacionaisSource: result.parametrosOperacionaisSource,
+        modoEnvio: result.modoEnvio,
         totalErros: result.totalErros,
         correlationKeys: (result.resultados || []).slice(0, 20).map(function(item) { return item.correlationKey; })
       })
@@ -1191,6 +1625,21 @@ function atividadesV2_mailProcessarLembretesDev_(options) {
   return atividadesV2_mailJobsRun_('LEMBRETES', options || {}, false);
 }
 
+/**
+ * Recupera lembretes D-1 de apresentacoes cujo titulo/eixos ja foram aprovados.
+ * Nao processa a outbox e respeita deduplicacao e marcadores de envio.
+ */
+function atividadesV2_mailReprocessarLembretesAprovadosD1Dev_() {
+  return atividadesV2_mailJobsRun_('LEMBRETES', {
+    eventCodes: ['ATIVIDADE_LEMBRETE_MEMBROS'],
+    triggerReason: 'TITULO_EIXO_APROVADO',
+    requireApprovedPresentation: true,
+    limit: 100,
+    processOutbox: false,
+    forceRefreshConfig: true
+  }, false);
+}
+
 function atividadesV2_mailDiagnosticarPendenciasSecretariaDev_(options) {
   return atividadesV2_mailJobsRun_('PENDENCIAS', options || {}, true);
 }
@@ -1213,4 +1662,41 @@ function atividadesV2_mailDiagnosticarJobsDev_(options) {
 
 function atividadesV2_mailProcessarJobsDev_(options) {
   return atividadesV2_mailJobsRun_('TODOS', options || {}, false);
+}
+
+/**
+ * Enfileira o lembrete geral dos membros logo apos a aprovacao do titulo/eixos.
+ * A rotina continua sujeita a publicacao, acesso nao restrito, D-1 e deduplicacao.
+ */
+function atividadesV2_mailQueueMemberReminderAfterTitleApproval_(actionType, actionResult) {
+  var type = atividades_normalizeTextUpper_(actionType);
+  if (['APRESENTACAO_TITULO_EIXO_APROVADO', 'APRESENTACAO_TITULO_EIXO_EDITADO_APROVADO'].indexOf(type) === -1) {
+    return { ok: true, skipped: true, reason: 'ACAO_NAO_APROVA_TITULO_EIXO' };
+  }
+  var idAtividade = String(actionResult && actionResult.idAtividade || '').trim();
+  if (!idAtividade) return { ok: false, skipped: true, reason: 'ID_ATIVIDADE_AUSENTE' };
+  var result = atividadesV2_mailJobsRun_('LEMBRETES', {
+    idAtividade: idAtividade,
+    eventCodes: ['ATIVIDADE_LEMBRETE_MEMBROS'],
+    triggerReason: 'TITULO_EIXO_APROVADO',
+    requireApprovedPresentation: true,
+    limit: 100,
+    processOutbox: false,
+    forceRefreshConfig: true
+  }, false);
+  var blockingReasons = Object.keys(result && result.motivosBloqueio || {});
+  var skipped = Number(result && result.totalProcessado || 0) === 0;
+  return {
+    ok: result && result.ok === true,
+    skipped: skipped,
+    reason: skipped ? (blockingReasons[0] || 'LEMBRETE_NAO_ELEGIVEL') : '',
+    modoEnvio: result && result.modoEnvio || '',
+    totalElegivel: Number(result && result.totalElegivel || 0),
+    totalEnfileirado: Number(result && result.totalEnfileirado || 0),
+    totalDuplicado: Number(result && result.totalDuplicado || 0),
+    totalErros: Number(result && result.totalErros || 0),
+    errorCode: String(result && result.errorCode || ''),
+    motivosBloqueio: result && result.motivosBloqueio || {},
+    avisos: (result && result.avisos || []).slice(0, 20)
+  };
 }
