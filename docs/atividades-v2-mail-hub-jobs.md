@@ -121,6 +121,8 @@ Principais chaves:
 - `MAIL_COBRAR_DIA_ATIVIDADE` (padrao `NAO`);
 - `MAIL_DIAS_MAX_APOS_COBRANCA_FOTO`;
 - `MAIL_JOB_BATCH_LIMIT` (padrao `25`, maximo `100`);
+- `MAIL_BCC_BATCH_SIZE` (padrao `50`, maximo efetivo `500`);
+- `MAIL_LEMBRETE_MEMBROS_TO_VISIVEL` (e-mail operacional visivel no lembrete coletivo);
 - `MAIL_JOB_MODO_TESTE` (padrao `SIM`);
 - `MAIL_JOB_EMAIL_TESTE`.
 
@@ -146,6 +148,11 @@ inclui contadores, motivos de bloqueio, destinatarios mascarados e correlation
 keys previstas. `configSources` mostra valor efetivo, origem, unidade,
 `parametroId` e se houve fallback. `configSourcesPorAtividade` mostra eventual
 fallback especifico de `Atividades_Config`.
+
+Para `ATIVIDADE_LEMBRETE_MEMBROS`, cada exemplo tambem informa total de membros
+aplicaveis, e-mails validos, duplicidades removidas, `toVisivel` mascarado,
+quantidade de CCO, tamanho do lote e total de linhas previstas. A amostra de CCO
+e limitada e mascarada; listas completas nao sao gravadas em logs.
 
 ## Funcoes reais
 
@@ -225,6 +232,19 @@ As correlation keys dos lembretes de membros incluem o modo `TESTE` ou `REAL`.
 Assim, uma homologacao redirecionada para `MAIL_JOB_EMAIL_TESTE` nao bloqueia o
 envio real posterior aos membros. `MAIL_JOB_EMAIL_TESTE` pode permanecer
 preenchido: ele somente substitui destinatarios quando `MAIL_JOB_MODO_TESTE=SIM`.
+
+O lembrete geral e coletivo. Em modo real, cada atividade/janela gera uma linha
+por lote em `MAIL_SAIDA`: `MAIL_LEMBRETE_MEMBROS_TO_VISIVEL` fica em `to`, os
+membros aplicaveis ficam somente em `bcc` e `cc` permanece vazio. O tamanho do
+lote e controlado por `MAIL_BCC_BATCH_SIZE`; a correlation key usa atividade,
+janela, modo e numero do lote, sem token individual de membro.
+
+Em modo de teste, existe uma unica linha destinada exclusivamente a
+`MAIL_JOB_EMAIL_TESTE`, sem membros reais em `to`, `cc` ou `bcc`. Esse teste nao
+marca `LEMBRETE_MEMBROS_ENVIADO`. No modo real, o marcador e sua data somente
+sao atualizados quando todos os lotes forem aceitos pelo Mail Hub ou reconhecidos
+como duplicados validos. Se o destinatario operacional estiver ausente no modo
+real, o job bloqueia com `MAIL_LEMBRETE_MEMBROS_TO_VISIVEL_AUSENTE`.
 
 Para conferir D-4, D-3, D-2 e D-1 sem alterar o relogio do sistema, use `agora`
 no diagnostico e mantenha a atividade filtrada. O item deve ficar elegivel uma

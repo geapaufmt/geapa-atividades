@@ -84,6 +84,8 @@ var ATIVIDADES_V2_MAIL_JOBS_DEFAULTS_ = Object.freeze({
   MAIL_DIAS_MAX_APOS_COBRANCA_FOTO: 30,
   MAIL_DIAS_ANTES_PENDENCIA_CRITICA: 3,
   MAIL_JOB_BATCH_LIMIT: 25,
+  MAIL_BCC_BATCH_SIZE: 50,
+  MAIL_LEMBRETE_MEMBROS_TO_VISIVEL: '',
   MAIL_JOB_MODO_TESTE: 'SIM',
   MAIL_JOB_EMAIL_TESTE: ''
 });
@@ -94,7 +96,7 @@ var ATIVIDADES_V2_MAIL_JOB_SCOPES_ = Object.freeze({
   PENDENCIAS: ['APRESENTACAO_PENDENCIAS_SECRETARIA'],
   CONVITES: ['ATIVIDADE_CONVITE_PROFESSOR', 'ATIVIDADE_LEMBRETE_PROFESSOR', 'ATIVIDADE_CONVITE_CONVIDADO', 'ATIVIDADE_LEMBRETE_CONVIDADO']
 });
-var ATIVIDADES_V2_MAIL_JOB_CONFIG_CACHE_KEY_ = 'atividades:v2:mail-jobs:config:v2';
+var ATIVIDADES_V2_MAIL_JOB_CONFIG_CACHE_KEY_ = 'atividades:v2:mail-jobs:config:v3';
 var ATIVIDADES_V2_MAIL_JOB_CONFIG_CACHE_TTL_ = 300;
 var ATIVIDADES_V2_PARAMETROS_OPERACIONAIS_KEY_ = 'NORMAS_PARAMETROS_OPERACIONAIS';
 var ATIVIDADES_V2_PARAMETROS_OPERACIONAIS_SHEET_ = 'PARAMETROS_OPERACIONAIS';
@@ -142,7 +144,11 @@ function atividadesV2_mailQueueJobEvent_(eventCode, context) {
       return { ok: false, errorCode: 'MAIL_HUB_INDISPONIVEL', eventCode: code };
     }
     var to = atividadesV2_mailNormalizeEmails_(ctx.to || []);
-    if (!to.length) return { ok: false, errorCode: 'DESTINATARIOS_MAIL_AUSENTES', eventCode: code };
+    var cc = atividadesV2_mailNormalizeEmails_(ctx.cc || []);
+    var bcc = atividadesV2_mailNormalizeEmails_(ctx.bcc || []);
+    if (!to.length && !cc.length && !bcc.length) {
+      return { ok: false, errorCode: 'DESTINATARIOS_MAIL_AUSENTES', eventCode: code };
+    }
     var correlationKey = String(ctx.correlationKey || '').trim();
     if (!correlationKey) return { ok: false, errorCode: 'CORRELATION_KEY_OBRIGATORIA', eventCode: code };
     var queueResult = GEAPA_CORE.coreMailQueueOutgoing({
@@ -154,8 +160,8 @@ function atividadesV2_mailQueueJobEvent_(eventCode, context) {
       flowCode: definition.flowCode,
       stage: definition.stage,
       to: to,
-      cc: [],
-      bcc: [],
+      cc: cc,
+      bcc: bcc,
       recipientName: atividades_sanitizePortalText_(ctx.recipientName || '', 180),
       subjectHuman: definition.subjectHuman,
       payload: ctx.payload || {},
@@ -621,7 +627,7 @@ function atividadesV2_mailJobsBuildPlan_(scope, options) {
   plan.totalElegivel = plan.items.length;
   plan.totalQueSeriaEnfileirado = Math.min(plan.items.length, config.MAIL_JOB_BATCH_LIMIT);
   plan.totalDestinatariosPlanejados = plan.items.reduce(function(total, item) {
-    return total + (item.to || []).length;
+    return total + atividadesV2_mailJobsRecipientCount_(item);
   }, 0);
   plan.items.slice(0, config.MAIL_JOB_BATCH_LIMIT).forEach(function(item) {
     plan.exemplosElegiveis.push(atividadesV2_mailJobsSafeItem_(item));
@@ -649,7 +655,7 @@ function atividadesV2_mailJobsEventsForScope_(scope, eventCodes) {
 function atividadesV2_mailJobsSafeConfig_(config) {
   var safe = {};
   Object.keys(ATIVIDADES_V2_MAIL_JOBS_DEFAULTS_).forEach(function(key) {
-    safe[key] = key === 'MAIL_JOB_EMAIL_TESTE'
+    safe[key] = ['MAIL_JOB_EMAIL_TESTE', 'MAIL_LEMBRETE_MEMBROS_TO_VISIVEL'].indexOf(key) >= 0
       ? ((config || {})[key] ? atividadesV2_mailMaskEmail_((config || {})[key]) : '')
       : (config || {})[key];
   });
@@ -745,14 +751,19 @@ function atividadesV2_mailJobsBlock_(plan, reason, context) {
 
 function atividadesV2_mailJobsPush_(plan, item) {
   var config = plan._config;
-  var testEmail = config._effectiveTestMode ? String(config.MAIL_JOB_EMAIL_TESTE || '').trim() : '';
+  var testMode = config._effectiveTestMode === true;
+  var testEmail = testMode ? String(config.MAIL_JOB_EMAIL_TESTE || '').trim() : '';
   var originalTo = atividadesV2_mailNormalizeEmails_(item.to || []);
-  item.to = testEmail ? atividadesV2_mailNormalizeEmails_([testEmail]) : originalTo;
-  item.deliveryMode = testEmail ? 'TESTE' : 'REAL';
-  item.recipientSource = testEmail ? 'EMAIL_TESTE_DEV' : (item.recipientSource || 'ATIVIDADES_V2');
-  item.destinatariosOriginais = originalTo.length;
-  if (!item.to.length) {
-    atividadesV2_mailJobsBlock_(plan, 'SEM_DESTINATARIO_VALIDO', item);
+  var originalCc = atividadesV2_mailNormalizeEmails_(item.cc || []);
+  var originalBcc = atividadesV2_mailNormalizeEmails_(item.bcc || []);
+  item.to = testMode ? atividadesV2_mailNormalizeEmails_([testEmail]) : originalTo;
+  item.cc = testMode ? [] : originalCc;
+  item.bcc = testMode ? [] : originalBcc;
+  item.deliveryMode = testMode ? 'TESTE' : 'REAL';
+  item.recipientSource = testMode ? 'EMAIL_TESTE_DEV' : (item.recipientSource || 'ATIVIDADES_V2');
+  item.destinatariosOriginais = originalTo.length + originalCc.length + originalBcc.length;
+  if (!item.to.length && !item.cc.length && !item.bcc.length) {
+    atividadesV2_mailJobsBlock_(plan, testMode ? 'EMAIL_TESTE_OBRIGATORIO_NO_MODO_TESTE' : 'SEM_DESTINATARIO_VALIDO', item);
     return;
   }
   plan.items.push(item);
@@ -765,6 +776,17 @@ function atividadesV2_mailJobsSafeItem_(item) {
     idApresentacao: item.idApresentacao || '',
     correlationKey: item.correlationKey,
     destinatariosMascarados: (item.to || []).map(atividadesV2_mailMaskEmail_),
+    toVisivel: (item.to || []).length ? atividadesV2_mailMaskEmail_(item.to[0]) : '',
+    totalCc: (item.cc || []).length,
+    totalBcc: (item.bcc || []).length,
+    amostraBccMascarada: (item.bcc || []).slice(0, 3).map(atividadesV2_mailMaskEmail_),
+    totalMembrosAplicaveis: Number(item.collectiveStats && item.collectiveStats.totalMembrosAplicaveis || 0),
+    totalEmailsValidos: Number(item.collectiveStats && item.collectiveStats.totalEmailsValidos || 0),
+    totalEmailsDuplicadosRemovidos: Number(item.collectiveStats && item.collectiveStats.totalEmailsDuplicadosRemovidos || 0),
+    lote: Number(item.collectiveStats && item.collectiveStats.lote || 0),
+    totalLotes: Number(item.collectiveStats && item.collectiveStats.totalLotes || 0),
+    totalLinhasPrevistas: Number(item.collectiveStats && item.collectiveStats.totalLotes || 0),
+    tamanhoLote: Number(item.collectiveStats && item.collectiveStats.tamanhoLote || 0),
     recipientSource: item.recipientSource || '',
     fallbackUsed: item.fallbackUsed === true,
     modoEnvio: item.deliveryMode || 'REAL'
@@ -1039,35 +1061,91 @@ function atividadesV2_mailJobsPlanMemberReminders_(plan, data, configByActivity,
       atividadesV2_mailJobsBlock_(plan, 'ERRO_LISTAR_MEMBROS_APLICAVEIS', { idAtividade: idAtividade });
       return;
     }
-    var groupKey = 'MEMBROS|' + idAtividade + '|D' + days;
-    (membersResult.data || []).forEach(function(member) {
-      var email = String(member.email || '').trim();
-      var ref = String(member.idPessoa || member.rga || email || '').trim();
-      var recipientToken = atividadesV2_mailJobsRecipientToken_(ref);
+    var members = membersResult.data || [];
+    var validCandidates = [];
+    members.forEach(function(member) {
+      atividadesV2_mailNormalizeEmails_([member && member.email || '']).forEach(function(email) {
+        validCandidates.push(email);
+      });
+    });
+    var memberEmails = atividadesV2_mailNormalizeEmails_(validCandidates);
+    var duplicateEmails = Math.max(0, validCandidates.length - memberEmails.length);
+    if (!memberEmails.length) {
+      atividadesV2_mailJobsBlock_(plan, 'MEMBROS_APLICAVEIS_SEM_EMAIL_VALIDO', { idAtividade: idAtividade });
+      return;
+    }
+
+    var testMode = plan.modoEnvio === 'TESTE';
+    var visibleTo = atividadesV2_mailNormalizeEmails_([plan._config.MAIL_LEMBRETE_MEMBROS_TO_VISIVEL])[0] || '';
+    if (!visibleTo) {
+      if (!testMode) {
+        atividadesV2_mailJobsBlock_(plan, 'MAIL_LEMBRETE_MEMBROS_TO_VISIVEL_AUSENTE', { idAtividade: idAtividade });
+        return;
+      }
+      plan.avisos.push('MAIL_LEMBRETE_MEMBROS_TO_VISIVEL_AUSENTE');
+    }
+
+    var configuredBatchSize = Math.floor(Number(plan._config.MAIL_BCC_BATCH_SIZE || 50));
+    var batchSize = isFinite(configuredBatchSize) && configuredBatchSize > 0
+      ? Math.min(configuredBatchSize, 500)
+      : 50;
+    var batches = testMode ? [[]] : atividadesV2_mailJobsChunk_(memberEmails, batchSize);
+    var groupKey = 'MEMBROS|' + idAtividade + '|D' + days + '|MODO|' + plan.modoEnvio;
+    var completionUpdate = !testMode ? {
+      rowNumber: atividadesV2_mailJobsPresentationRowForActivity_(data.apresentacoes, idAtividade),
+      values: { LEMBRETE_MEMBROS_ENVIADO: 'SIM', DATA_ENVIO_LEMBRETE_MEMBROS: now, ATUALIZADO_EM: now }
+    } : null;
+
+    batches.forEach(function(batch, index) {
+      var batchNumber = index + 1;
       atividadesV2_mailJobsPush_(plan, {
         eventCode: 'ATIVIDADE_LEMBRETE_MEMBROS',
         idAtividade: idAtividade,
         idApresentacao: '',
         entityId: idAtividade,
-        to: [email],
-        recipientName: String(member.nomeExibicao || member.nome || '').trim(),
-        recipientSource: 'GEAPA_CORE_MEMBROS_APLICAVEIS',
-        // Teste e envio real precisam de identidades distintas: a homologacao nao
-        // pode consumir a chave que sera usada para comunicar o membro de verdade.
+        to: testMode ? [plan._config.MAIL_JOB_EMAIL_TESTE] : [visibleTo],
+        cc: [],
+        bcc: testMode ? [] : batch,
+        recipientName: 'Membros do GEAPA',
+        recipientSource: testMode ? 'EMAIL_TESTE_DEV' : 'GEAPA_CORE_MEMBROS_APLICAVEIS_BCC',
         correlationKey: atividadesV2_mailJobsCorrelation_([
-          'ATV', idAtividade, 'LEMBRETE', 'MEMBRO', recipientToken, 'D' + days, 'MODO', plan.modoEnvio
+          'ATV', idAtividade, 'LEMBRETE', 'MEMBROS', 'D' + days,
+          'MODO', plan.modoEnvio, 'B' + batchNumber
         ]),
         jobWindow: 'D' + days,
-        metadata: { triggerReason: forcedByApproval ? 'TITULO_EIXO_APROVADO' : 'JOB_PROGRAMADO' },
-        payload: atividadesV2_mailJobsActivityPayload_(activity, { introText: 'Lembrete de atividade futura do GEAPA.' }),
-        completionGroup: groupKey,
-        completionUpdate: {
-          rowNumber: atividadesV2_mailJobsPresentationRowForActivity_(data.apresentacoes, idAtividade),
-          values: { LEMBRETE_MEMBROS_ENVIADO: 'SIM', DATA_ENVIO_LEMBRETE_MEMBROS: now, ATUALIZADO_EM: now }
-        }
+        metadata: {
+          triggerReason: forcedByApproval ? 'TITULO_EIXO_APROVADO' : 'JOB_PROGRAMADO',
+          totalMembrosAplicaveis: members.length,
+          totalEmailsValidos: memberEmails.length,
+          totalEmailsDuplicadosRemovidos: duplicateEmails,
+          lote: batchNumber,
+          totalLotes: batches.length,
+          totalBcc: testMode ? 0 : batch.length
+        },
+        collectiveStats: {
+          totalMembrosAplicaveis: members.length,
+          totalEmailsValidos: memberEmails.length,
+          totalEmailsDuplicadosRemovidos: duplicateEmails,
+          lote: batchNumber,
+          totalLotes: batches.length,
+          tamanhoLote: testMode ? 0 : batch.length
+        },
+        payload: atividadesV2_mailJobsActivityPayload_(activity, {
+          introText: 'Ola, membros do GEAPA. Lembrete de atividade futura do GEAPA.'
+        }),
+        completionGroup: testMode ? '' : groupKey,
+        completionUpdate: completionUpdate
       });
     });
   });
+}
+
+function atividadesV2_mailJobsChunk_(values, size) {
+  var source = values || [];
+  var chunkSize = Math.max(1, Math.floor(Number(size || source.length || 1)));
+  var result = [];
+  for (var i = 0; i < source.length; i += chunkSize) result.push(source.slice(i, i + chunkSize));
+  return result;
 }
 
 function atividadesV2_mailJobsPlanInvites_(plan, data, activitiesById, now, options) {
@@ -1471,7 +1549,9 @@ function atividadesV2_mailJobsExecutePlan_(plan) {
     totalDuplicado: duplicates,
     totalReenfileirado: requeued,
     totalLinhasControleAtualizadas: updatedRows,
-    totalDestinatariosProcessados: selected.reduce(function(total, item) { return total + (item.to || []).length; }, 0),
+    totalDestinatariosProcessados: selected.reduce(function(total, item) {
+      return total + atividadesV2_mailJobsRecipientCount_(item);
+    }, 0),
     origensDestinatarios: atividadesV2_mailJobsCountRecipientSources_(selected),
     parametrosOperacionaisSource: plan.parametrosOperacionaisSource,
     configSources: plan.configSources,
@@ -1490,9 +1570,13 @@ function atividadesV2_mailJobsCountRecipientSources_(items) {
   var result = {};
   (items || []).forEach(function(item) {
     var source = String(item.recipientSource || 'NAO_INFORMADA').trim();
-    result[source] = Number(result[source] || 0) + (item.to || []).length;
+    result[source] = Number(result[source] || 0) + atividadesV2_mailJobsRecipientCount_(item);
   });
   return result;
+}
+
+function atividadesV2_mailJobsRecipientCount_(item) {
+  return (item && item.to || []).length + (item && item.cc || []).length + (item && item.bcc || []).length;
 }
 
 function atividadesV2_mailJobsApplyPresentationUpdatesBatch_(sheet, updates) {
