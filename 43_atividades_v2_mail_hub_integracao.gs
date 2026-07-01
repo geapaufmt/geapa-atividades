@@ -10,13 +10,15 @@ var ATIVIDADES_V2_MAIL_ADMIN_CONFIG_KEYS_ = Object.freeze([
   'APRESENTACOES_DESTINATARIOS_ADMINISTRATIVOS'
 ]);
 var ATIVIDADES_V2_MAIL_RECIPIENT_CACHE_TTL_SECONDS_ = 300;
+var ATIVIDADES_V2_MAIL_ADMIN_RESOLVER_CACHE_VERSION_ = 'v3';
+var ATIVIDADES_V2_MAIL_REGISTRY_DEV_CACHE_ = null;
 
 var ATIVIDADES_V2_MAIL_EVENTS_ = Object.freeze({
   APRESENTACAO_TITULO_EIXO_ENVIADO: Object.freeze({
     moduleName: 'APRESENTACOES', moduleCode: 'APR', entityType: 'APRESENTACAO',
     flowCode: 'TITULO_EIXO', stage: 'TITULO_EIXO_ENVIADO', recipients: 'ADMIN',
     subjectHuman: 'Nova proposta de titulo e eixos para analise',
-    introText: 'Uma proposta de titulo e eixos foi enviada pelo apresentador e aguarda analise da Secretaria/Diretoria.'
+    introText: 'Uma proposta de titulo e eixos foi enviada pelo apresentador e aguarda analise da Secretaria.'
   }),
   APRESENTACAO_TITULO_EIXO_APROVADO: Object.freeze({
     moduleName: 'APRESENTACOES', moduleCode: 'APR', entityType: 'APRESENTACAO',
@@ -40,7 +42,7 @@ var ATIVIDADES_V2_MAIL_EVENTS_ = Object.freeze({
     moduleName: 'APRESENTACOES', moduleCode: 'APR', entityType: 'APRESENTACAO',
     flowCode: 'MATERIAL', stage: 'MATERIAL_ENVIADO', recipients: 'ADMIN',
     subjectHuman: 'Slide ou material de apresentacao enviado',
-    introText: 'Um slide ou material de apresentacao foi enviado e esta disponivel para acompanhamento da Secretaria/Diretoria.'
+    introText: 'Um slide ou material de apresentacao foi enviado e esta disponivel para acompanhamento da Secretaria.'
   }),
   APRESENTACAO_MATERIAL_REENVIADO: Object.freeze({
     moduleName: 'APRESENTACOES', moduleCode: 'APR', entityType: 'APRESENTACAO',
@@ -100,7 +102,7 @@ var ATIVIDADES_V2_MAIL_EVENTS_ = Object.freeze({
     moduleName: 'ATIVIDADES', moduleCode: 'ATV', entityType: 'JUSTIFICATIVA',
     flowCode: 'JUSTIFICATIVA', stage: 'JUSTIFICATIVA_ENVIADA', recipients: 'ADMIN',
     subjectHuman: 'Nova justificativa de falta para analise',
-    introText: 'Uma justificativa de falta foi enviada pelo Portal GEAPA e aguarda analise da Secretaria/Diretoria.'
+    introText: 'Uma justificativa de falta foi enviada pelo Portal GEAPA e aguarda analise da Secretaria.'
   }),
   JUSTIFICATIVA_DEFERIDA: Object.freeze({
     moduleName: 'ATIVIDADES', moduleCode: 'ATV', entityType: 'JUSTIFICATIVA',
@@ -344,7 +346,7 @@ function atividadesV2_mailResolveRecipients_(options) {
 }
 
 /**
- * Resolve Secretaria/Diretoria na data da atividade. MAIL_CONFIG e apenas fallback.
+ * Resolve ocupantes da Secretaria na data da atividade. MAIL_CONFIG e apenas fallback.
  */
 function atividadesV2_mailResolveAdministrativeRecipients_(options) {
   var opts = options || {};
@@ -360,21 +362,24 @@ function atividadesV2_mailResolveAdministrativeRecipients_(options) {
   if (resolved && resolved.to.length) return resolved;
 
   var fallback = atividadesV2_mailGetAdministrativeRecipientsFallback_();
+  warnings = atividadesV2_mailUniqueText_(warnings.concat(resolved && resolved.warnings || []));
   if (fallback.length) warnings.push('MAIL_CONFIG usado como fallback por ausencia de ocupantes V2 com e-mail valido.');
   return {
     to: fallback,
     cc: [],
     bcc: [],
-    recipientName: 'Secretaria e Diretoria do GEAPA',
+    recipientName: 'Secretaria do GEAPA',
     recipientSource: fallback.length ? 'MAIL_CONFIG_FALLBACK' : 'NAO_RESOLVIDO',
     fallbackUsed: fallback.length > 0,
     referenceDate: reference.referenceDate || '',
     ciclo: reference.ciclo || '',
     ano: reference.ano || '',
     semestre: reference.semestre || '',
-    cargosResolvidos: [],
+    cargosResolvidos: resolved && resolved.cargosResolvidos || [],
     idPessoaDestinatario: '',
-    warnings: warnings
+    warnings: atividadesV2_mailUniqueText_(warnings),
+    adminResolverStats: resolved && resolved.adminResolverStats || {},
+    adminResolverFallbackReason: resolved && resolved.adminResolverFallbackReason || 'ERRO_LEITURA_V2'
   };
 }
 
@@ -383,69 +388,155 @@ function atividadesV2_mailResolveAdministrativeRecipientsV2_(reference, warnings
   var cacheKey = atividadesV2_mailAdminRecipientsCacheKey_(reference, refDate);
   var cached = typeof portalCacheGetJson_ === 'function' ? portalCacheGetJson_(cacheKey) : null;
   if (cached && cached.to && cached.to.length) {
-    cached.warnings = (warnings || []).concat(cached.warnings || []);
+    cached.warnings = atividadesV2_mailUniqueText_((warnings || []).concat(cached.warnings || []));
     return cached;
   }
 
-  var pessoas = atividadesV2_mailReadV2Records_('PESSOAS_V2_BASE');
-  var identificadores = atividadesV2_mailReadV2Records_('PESSOAS_V2_IDENTIFICADORES');
-  var vinculos = atividadesV2_mailReadV2Records_('PESSOAS_V2_VINCULOS_GEAPA');
-  var diretorias = atividadesV2_mailReadV2Records_('VIGENCIAS_V2_DIRETORIAS');
-  var cargos = atividadesV2_mailReadV2Records_('VIGENCIAS_V2_CARGOS_CONFIG');
-  var funcoes = atividadesV2_mailReadV2Records_('VIGENCIAS_V2_FUNCOES');
-
-  var pessoasById = atividadesV2_indexByField_(pessoas, 'ID_PESSOA');
-  var cargosByKey = atividadesV2_indexByField_(cargos, 'CARGO_KEY');
-  var diretoriasById = atividadesV2_indexByField_(diretorias, 'ID_DIRETORIA');
-  var identifiersByPerson = atividadesV2_mailGroupByField_(identificadores, 'ID_PESSOA');
-  var linksByPerson = atividadesV2_mailGroupByField_(vinculos, 'ID_PESSOA');
-  var emails = [];
-  var cargosResolvidos = [];
-  var peopleIds = [];
-
-  funcoes.forEach(function(funcao) {
-    if (!atividadesV2_mailRecordActiveOnDate_(funcao, refDate, 'DATA_INICIO', ['DATA_FIM_REAL', 'DATA_FIM_PREVISTA'])) return;
-    var cargo = cargosByKey[String(funcao.CARGO_KEY || '').trim()] || {};
-    if (!atividadesV2_mailIsAdministrativeRole_(funcao, cargo)) return;
-    if (String(cargo.ATIVO || 'SIM').trim().toUpperCase() === 'NAO') return;
-    if (String(cargo.RECEBE_EMAILS || 'SIM').trim().toUpperCase() === 'NAO') return;
-
-    var idDiretoria = String(funcao.ID_DIRETORIA || '').trim();
-    var diretoria = idDiretoria ? diretoriasById[idDiretoria] : null;
-    if (diretoria && !atividadesV2_mailRecordActiveOnDate_(diretoria, refDate, 'DATA_INICIO', ['DATA_FIM_REAL', 'DATA_FIM_PREVISTA'])) return;
-
-    var idPessoa = String(funcao.ID_PESSOA || '').trim();
-    var pessoa = pessoasById[idPessoa];
-    if (!idPessoa || !pessoa || !atividadesV2_mailIsBasePersonActive_(pessoa)) return;
-    if (!atividadesV2_mailHasActiveLinkOnDate_(linksByPerson[idPessoa] || [], refDate)) return;
-
-    var email = atividadesV2_mailResolveEmailFromPersonRecords_(pessoa, identifiersByPerson[idPessoa] || []);
-    if (!email) return;
-    emails.push(email);
-    peopleIds.push(idPessoa);
-    cargosResolvidos.push(String(funcao.CARGO_KEY || cargo.CARGO_KEY || funcao.CARGO_NOME_SNAPSHOT || '').trim());
-  });
-
-  var normalizedEmails = atividadesV2_mailNormalizeEmails_(emails);
+  var evaluation = atividadesV2_mailEvaluateAdministrativeRecipientsV2_(reference);
+  var normalizedEmails = evaluation.to;
   var result = {
     to: normalizedEmails,
     cc: [],
     bcc: [],
-    recipientName: 'Secretaria e Diretoria do GEAPA',
+    recipientName: 'Secretaria do GEAPA',
     recipientSource: normalizedEmails.length ? 'PESSOAS_V2_VIGENCIAS_V2' : 'NAO_RESOLVIDO',
     fallbackUsed: false,
     referenceDate: reference.referenceDate || atividadesV2_mailDateIso_(refDate),
     ciclo: reference.ciclo || '',
     ano: reference.ano || '',
     semestre: reference.semestre || '',
-    cargosResolvidos: atividadesV2_mailUniqueText_(cargosResolvidos),
-    idPessoaDestinatario: peopleIds.length === 1 ? peopleIds[0] : '',
-    warnings: warnings || []
+    cargosResolvidos: evaluation.cargosResolvidos,
+    idPessoaDestinatario: evaluation.pessoasResolvidas.length === 1 ? evaluation.pessoasResolvidas[0].idPessoa : '',
+    warnings: atividadesV2_mailUniqueText_((warnings || []).concat(evaluation.warnings || [])),
+    adminResolverStats: evaluation.stats,
+    adminResolverFallbackReason: evaluation.fallbackReason || ''
   };
   if (normalizedEmails.length && typeof portalCachePutJson_ === 'function') {
     portalCachePutJson_(cacheKey, result, ATIVIDADES_V2_MAIL_RECIPIENT_CACHE_TTL_SECONDS_);
   }
   return result;
+}
+
+function atividadesV2_mailEvaluateAdministrativeRecipientsV2_(reference) {
+  var refDate = atividades_parseDateOrNull_(reference.referenceDate) || new Date();
+  var readReport = { sources: {}, warnings: [], errors: [] };
+  var data = {
+    pessoas: atividadesV2_mailReadV2RecordsSafe_('PESSOAS_V2_BASE', readReport),
+    identificadores: atividadesV2_mailReadV2RecordsSafe_('PESSOAS_V2_IDENTIFICADORES', readReport),
+    vinculos: atividadesV2_mailReadV2RecordsSafe_('PESSOAS_V2_VINCULOS_GEAPA', readReport),
+    diretorias: atividadesV2_mailReadV2RecordsSafe_('VIGENCIAS_V2_DIRETORIAS', readReport),
+    cargos: atividadesV2_mailReadV2RecordsSafe_('VIGENCIAS_V2_CARGOS_CONFIG', readReport),
+    funcoes: atividadesV2_mailReadV2RecordsSafe_('VIGENCIAS_V2_FUNCOES', readReport)
+  };
+  var stats = {
+    totalPessoas: data.pessoas.length,
+    totalIdentificadores: data.identificadores.length,
+    totalVinculos: data.vinculos.length,
+    totalDiretorias: data.diretorias.length,
+    totalCargosConfig: data.cargos.length,
+    totalFuncoes: data.funcoes.length,
+    funcoesAtivasNaData: 0,
+    funcoesComCargoAdministrativo: 0,
+    funcoesComCargoRecebeEmail: 0,
+    funcoesComDiretoriaValida: 0,
+    funcoesComPessoaValida: 0,
+    funcoesComVinculoValido: 0,
+    funcoesComEmailValido: 0
+  };
+  var discardReasons = {};
+  var pessoasById = atividadesV2_indexByField_(data.pessoas, 'ID_PESSOA');
+  var cargosByKey = atividadesV2_indexByField_(data.cargos, 'CARGO_KEY');
+  var diretoriasById = atividadesV2_indexByField_(data.diretorias, 'ID_DIRETORIA');
+  var identifiersByPerson = atividadesV2_mailGroupByField_(data.identificadores, 'ID_PESSOA');
+  var linksByPerson = atividadesV2_mailGroupByField_(data.vinculos, 'ID_PESSOA');
+  var emails = [];
+  var cargosResolvidos = [];
+  var pessoasResolvidas = [];
+
+  data.funcoes.forEach(function(funcao) {
+    if (!atividadesV2_mailRecordActiveOnDate_(funcao, refDate, 'DATA_INICIO', ['DATA_FIM_REAL', 'DATA_FIM_PREVISTA'])) {
+      atividadesV2_mailCountReason_(discardReasons, 'FUNCAO_FORA_DA_VIGENCIA');
+      return;
+    }
+    stats.funcoesAtivasNaData++;
+
+    var cargoKey = String(funcao.CARGO_KEY || '').trim();
+    var cargo = cargosByKey[cargoKey] || {};
+    if (!atividadesV2_mailIsAdministrativeRole_(funcao, cargo)) {
+      atividadesV2_mailCountReason_(discardReasons, 'CARGO_NAO_ADMINISTRATIVO');
+      return;
+    }
+    stats.funcoesComCargoAdministrativo++;
+
+    if (!cargo.CARGO_KEY || String(cargo.ATIVO || 'SIM').trim().toUpperCase() === 'NAO' ||
+        String(cargo.RECEBE_EMAILS || '').trim().toUpperCase() !== 'SIM') {
+      atividadesV2_mailCountReason_(discardReasons, cargo.CARGO_KEY ? 'CARGO_NAO_RECEBE_EMAIL' : 'CARGO_CONFIG_NAO_LOCALIZADO');
+      return;
+    }
+    stats.funcoesComCargoRecebeEmail++;
+
+    var idDiretoria = String(funcao.ID_DIRETORIA || '').trim();
+    var diretoria = idDiretoria ? diretoriasById[idDiretoria] : null;
+    if (idDiretoria && (!diretoria || !atividadesV2_mailRecordActiveOnDate_(diretoria, refDate, 'DATA_INICIO', ['DATA_FIM_REAL', 'DATA_FIM_PREVISTA']))) {
+      atividadesV2_mailCountReason_(discardReasons, 'DIRETORIA_INVALIDA');
+      return;
+    }
+    stats.funcoesComDiretoriaValida++;
+
+    var idPessoa = String(funcao.ID_PESSOA || '').trim();
+    var pessoa = pessoasById[idPessoa];
+    if (!idPessoa || !pessoa || !atividadesV2_mailIsBasePersonActive_(pessoa)) {
+      atividadesV2_mailCountReason_(discardReasons, 'PESSOA_INVALIDA');
+      return;
+    }
+    stats.funcoesComPessoaValida++;
+
+    if (!atividadesV2_mailHasActiveLinkOnDate_(linksByPerson[idPessoa] || [], refDate)) {
+      atividadesV2_mailCountReason_(discardReasons, 'VINCULO_INVALIDO');
+      return;
+    }
+    stats.funcoesComVinculoValido++;
+
+    var email = atividadesV2_mailResolveEmailFromPersonRecords_(pessoa, identifiersByPerson[idPessoa] || []);
+    var emailSource = email ? 'PESSOA' : '';
+    if (!email) {
+      email = atividadesV2_mailNormalizeEmails_([cargo.EMAILS_GRUPO])[0] || '';
+      if (email) emailSource = 'CARGO_CONFIG_EMAILS_GRUPO';
+    }
+    if (!email) {
+      atividadesV2_mailCountReason_(discardReasons, 'PESSOA_SEM_EMAIL_VALIDO');
+      return;
+    }
+    stats.funcoesComEmailValido++;
+    emails.push(email);
+    cargosResolvidos.push(cargoKey || funcao.CARGO_NOME_SNAPSHOT || '');
+    pessoasResolvidas.push({
+      idPessoa: idPessoa,
+      nome: atividadesV2_mailMaskPersonName_(pessoa.NOME_EXIBICAO || pessoa.NOME_COMPLETO || ''),
+      cargoKey: cargoKey,
+      emailSource: emailSource
+    });
+  });
+
+  var warnings = readReport.warnings.slice();
+  if (readReport.errors.length) warnings.push('ERRO_LEITURA_V2');
+  if (stats.funcoesAtivasNaData > 0 && stats.funcoesComCargoAdministrativo === 0) warnings.push('CARGOS_ADMINISTRATIVOS_NAO_LOCALIZADOS');
+  if (discardReasons.DIRETORIA_INVALIDA) warnings.push('FUNCOES_ADMINISTRATIVAS_DESCARTADAS_POR_DIRETORIA');
+  if (discardReasons.VINCULO_INVALIDO) warnings.push('FUNCOES_ADMINISTRATIVAS_DESCARTADAS_POR_VINCULO');
+  if (discardReasons.PESSOA_SEM_EMAIL_VALIDO) warnings.push('PESSOAS_SEM_EMAIL_VALIDO');
+  if (stats.funcoesComCargoAdministrativo > 0 && stats.funcoesComEmailValido === 0) warnings.push('FUNCOES_ADMINISTRATIVAS_ENCONTRADAS_SEM_EMAIL');
+  var normalizedEmails = atividadesV2_mailNormalizeEmails_(emails);
+  return {
+    to: normalizedEmails,
+    stats: stats,
+    cargosResolvidos: atividadesV2_mailUniqueText_(cargosResolvidos),
+    pessoasResolvidas: pessoasResolvidas,
+    motivosDescarte: discardReasons,
+    readSources: readReport.sources,
+    readErrors: readReport.errors,
+    warnings: atividadesV2_mailUniqueText_(warnings),
+    fallbackReason: normalizedEmails.length ? '' : atividadesV2_mailResolveFallbackReason_(readReport, stats, discardReasons)
+  };
 }
 
 function atividadesV2_mailGetAdministrativeRecipientsFallback_() {
@@ -493,7 +584,7 @@ function atividadesV2_mailResolveActivityReference_(options) {
     }
   }
 
-  var date = atividades_parseDateOrNull_(atividade.DATA_ATIVIDADE || result.dataAtividade || payload.dataAtividade);
+  var date = atividades_parseDateOrNull_(opts.referenceDate || atividade.DATA_ATIVIDADE || result.dataAtividade || payload.dataAtividade);
   if (!date) {
     date = new Date();
     warnings.push('DATA_ATIVIDADE ausente; data atual usada apenas para resolver destinatarios.');
@@ -515,11 +606,86 @@ function atividadesV2_mailResolveActivityReference_(options) {
   };
 }
 
-function atividadesV2_mailReadV2Records_(key) {
-  if (typeof GEAPA_CORE === 'undefined' || !GEAPA_CORE || typeof GEAPA_CORE.coreReadRecordsByKey !== 'function') {
-    throw new Error('GEAPA_CORE.coreReadRecordsByKey indisponivel para consultar ' + key + '.');
+function atividadesV2_mailReadV2Records_(key, readReport) {
+  var coreError = null;
+  if (typeof GEAPA_CORE !== 'undefined' && GEAPA_CORE && typeof GEAPA_CORE.coreReadRecordsByKey === 'function') {
+    try {
+      var records = GEAPA_CORE.coreReadRecordsByKey(key, { skipBlankRows: true }) || [];
+      if (records.length) {
+        if (readReport) readReport.sources[key] = 'GEAPA_CORE';
+        return records;
+      }
+      coreError = new Error('Core retornou zero registros para a key.');
+    } catch (err) {
+      coreError = err;
+    }
+  } else {
+    coreError = new Error('GEAPA_CORE.coreReadRecordsByKey indisponivel.');
   }
-  return GEAPA_CORE.coreReadRecordsByKey(key, { skipBlankRows: true }) || [];
+
+  try {
+    var entry = atividadesV2_mailGetRegistryEntryDev_(key);
+    if (!entry) throw new Error('Key DEV nao encontrada no Registry.');
+    if (entry.ativo === false) throw new Error('Key DEV inativa no Registry.');
+    if (String(entry.ambiente || '').trim().toUpperCase() !== 'DEV') throw new Error('Key nao pertence ao ambiente DEV.');
+    var ss = SpreadsheetApp.openById(String(entry.id || '').trim());
+    var sheet = ss.getSheetByName(String(entry.sheet || '').trim());
+    if (!sheet) throw new Error('Aba nao encontrada: ' + String(entry.sheet || '').trim() + '.');
+    if (readReport) {
+      readReport.sources[key] = 'REGISTRY_DEV_DIRECT';
+      readReport.warnings.push('LEITURA_DEV_DIRETA_APOS_CORE_INDISPONIVEL:' + key);
+    }
+    return atividadesV2_readSheetObjects_(sheet);
+  } catch (directError) {
+    throw new Error(
+      'Falha ao ler ' + key + ' pelo Core (' + atividadesV2_errorMessage_(coreError) +
+      ') e pelo Registry DEV (' + atividadesV2_errorMessage_(directError) + ').'
+    );
+  }
+}
+
+function atividadesV2_mailGetRegistryEntryDev_(key) {
+  var wanted = String(key || '').trim().toUpperCase();
+  if (!wanted) return null;
+  if (!ATIVIDADES_V2_MAIL_REGISTRY_DEV_CACHE_) {
+    var registrySs = SpreadsheetApp.openById(ATIVIDADES_V2_REGISTRY_FALLBACK.SPREADSHEET_ID);
+    var registrySheet = registrySs.getSheetByName(ATIVIDADES_V2_REGISTRY_FALLBACK.SHEET_NAME);
+    if (!registrySheet) throw new Error('Aba Registry nao encontrada para leitura DEV.');
+    var values = registrySheet.getDataRange().getValues();
+    if (!values.length) throw new Error('Registry vazio.');
+    var headers = values[0].map(function(header) { return String(header || '').trim(); });
+    var headerMap = {};
+    headers.forEach(function(header, index) { if (header) headerMap[header] = index; });
+    ['KEY', 'SPREADSHEET_ID', 'SHEET_NAME', 'ATIVO', 'AMBIENTE'].forEach(function(header) {
+      if (headerMap[header] === undefined) throw new Error('Registry sem cabecalho ' + header + '.');
+    });
+    var entries = {};
+    for (var i = 1; i < values.length; i++) {
+      var row = values[i];
+      var rowKey = String(row[headerMap.KEY] || '').trim().toUpperCase();
+      var environment = String(row[headerMap.AMBIENTE] || '').trim().toUpperCase();
+      if (!rowKey || environment !== 'DEV') continue;
+      entries[rowKey] = {
+        key: rowKey,
+        id: String(row[headerMap.SPREADSHEET_ID] || '').trim(),
+        sheet: String(row[headerMap.SHEET_NAME] || '').trim(),
+        ativo: String(row[headerMap.ATIVO] || '').trim().toUpperCase() === 'SIM',
+        ambiente: environment
+      };
+    }
+    ATIVIDADES_V2_MAIL_REGISTRY_DEV_CACHE_ = entries;
+  }
+  return ATIVIDADES_V2_MAIL_REGISTRY_DEV_CACHE_[wanted] || null;
+}
+
+function atividadesV2_mailReadV2RecordsSafe_(key, readReport) {
+  try {
+    return atividadesV2_mailReadV2Records_(key, readReport);
+  } catch (err) {
+    readReport.sources[key] = 'ERRO';
+    readReport.errors.push({ key: key, errorCode: 'ERRO_LEITURA_V2', message: atividadesV2_errorMessage_(err).slice(0, 300) });
+    return [];
+  }
 }
 
 function atividadesV2_mailResolvePersonEmailV2_(idPessoa, warnings) {
@@ -597,9 +763,35 @@ function atividadesV2_mailIsAdministrativeRole_(funcao, cargo) {
     cargo.NOME_PUBLICO,
     cargo.TIPO_FUNCAO,
     cargo.GRUPO_FUNCAO,
-    cargo.GRUPO_CARGO
+    cargo.GRUPO_CARGO,
+    cargo.EMAILS_GRUPO
   ].map(atividades_normalizeTextUpper_).join(' ');
-  return /SECRETARI/.test(text) || /DIRETORIA/.test(text) || /PRESIDEN/.test(text);
+  return /SECRETARI/.test(text);
+}
+
+function atividadesV2_mailCountReason_(reasons, code) {
+  var key = String(code || 'NAO_INFORMADO').trim();
+  reasons[key] = Number(reasons[key] || 0) + 1;
+}
+
+function atividadesV2_mailResolveFallbackReason_(readReport, stats, discardReasons) {
+  if (readReport.errors.length) return 'ERRO_LEITURA_V2';
+  if (!stats.totalFuncoes) return 'SEM_FUNCOES_V2';
+  if (!stats.funcoesAtivasNaData) return 'SEM_FUNCOES_ATIVAS_NA_DATA';
+  if (!stats.funcoesComCargoAdministrativo) return 'CARGOS_ADMINISTRATIVOS_NAO_LOCALIZADOS';
+  if (!stats.funcoesComCargoRecebeEmail) return 'CARGOS_ADMINISTRATIVOS_SEM_RECEBIMENTO_EMAIL';
+  if (!stats.funcoesComDiretoriaValida) return 'FUNCOES_ADMINISTRATIVAS_DESCARTADAS_POR_DIRETORIA';
+  if (!stats.funcoesComPessoaValida) return 'PESSOAS_ADMINISTRATIVAS_INVALIDAS';
+  if (!stats.funcoesComVinculoValido) return 'FUNCOES_ADMINISTRATIVAS_DESCARTADAS_POR_VINCULO';
+  if (!stats.funcoesComEmailValido) return 'PESSOAS_SEM_EMAIL_VALIDO';
+  var keys = Object.keys(discardReasons || {});
+  return keys.length ? keys[0] : 'SEM_DESTINATARIOS_V2';
+}
+
+function atividadesV2_mailMaskPersonName_(name) {
+  var parts = String(name || '').trim().split(/\s+/).filter(function(part) { return !!part; });
+  if (!parts.length) return '';
+  return parts[0] + (parts.length > 1 ? ' ' + parts[parts.length - 1].charAt(0) + '.' : '');
 }
 
 function atividadesV2_mailGroupByField_(records, field) {
@@ -624,6 +816,7 @@ function atividadesV2_mailFindByField_(records, field, value) {
 
 function atividadesV2_mailAdminRecipientsCacheKey_(reference, referenceDate) {
   var suffix = [
+    ATIVIDADES_V2_MAIL_ADMIN_RESOLVER_CACHE_VERSION_,
     atividadesV2_mailDateIso_(referenceDate),
     reference.ciclo || '',
     reference.ano || '',
@@ -763,6 +956,9 @@ function atividadesV2_mailBuildMetadata_(eventCode, definition, result, context,
     semestre: recipientInfo.semestre || ref.semestre || '',
     cargosResolvidos: (recipientInfo.cargosResolvidos || []).slice(),
     idPessoaDestinatario: String(recipientInfo.idPessoaDestinatario || '').trim(),
+    recipientWarnings: atividadesV2_mailUniqueText_(recipientInfo.warnings || []).slice(0, 20),
+    adminResolverStats: recipientInfo.adminResolverStats || {},
+    adminResolverFallbackReason: String(recipientInfo.adminResolverFallbackReason || '').trim(),
     atorNome: atividades_sanitizePortalText_(rawContext.nome || rawContext.nomeExibicao || rawContext.usuarioNome || '', 160),
     atorEmail: String(ctx.email || '').trim().toLowerCase(),
     atorPerfil: String(ctx.perfil || '').trim().toUpperCase()
@@ -919,6 +1115,8 @@ function atividadesV2_diagnosticarMailHubEventosPortalDev_(options) {
       ano: recipients.ano || reference.ano || '',
       semestre: recipients.semestre || reference.semestre || '',
       cargosResolvidos: (recipients.cargosResolvidos || []).slice(),
+      adminResolverStats: recipients.adminResolverStats || {},
+      adminResolverFallbackReason: recipients.adminResolverFallbackReason || '',
       correlationKey: entityId ? atividadesV2_mailBuildCorrelationKey_(definition, entityId) : '',
       warnings: atividadesV2_mailUniqueText_(warnings),
       errors: errors
@@ -931,6 +1129,91 @@ function atividadesV2_diagnosticarMailHubEventosPortalDev_(options) {
 
   report.ok = report.eventosComErro === 0;
   return report;
+}
+
+/**
+ * Explica cada filtro do resolver administrativo sem enfileirar mensagens.
+ */
+function atividadesV2_diagnosticarDestinatariosAdministrativosV2Dev_(options) {
+  var opts = options || {};
+  var reference = atividadesV2_mailResolveActivityReference_({
+    idAtividade: opts.idAtividade,
+    idApresentacao: opts.idApresentacao,
+    idJustificativa: opts.idJustificativa,
+    referenceDate: opts.referenceDate,
+    result: {},
+    payload: {}
+  });
+  var evaluation = atividadesV2_mailEvaluateAdministrativeRecipientsV2_(reference);
+  var fallbackConfigured = atividadesV2_mailGetAdministrativeRecipientsFallback_();
+  var stats = evaluation.stats;
+  return {
+    ok: evaluation.readErrors.length === 0 && evaluation.to.length > 0,
+    modo: 'DEV',
+    dryRun: true,
+    eventCode: atividades_normalizeTextUpper_(opts.eventCode || ''),
+    referenceDate: reference.referenceDate,
+    idAtividade: reference.idAtividade,
+    idApresentacao: reference.idApresentacao,
+    idJustificativa: reference.idJustificativa,
+    ciclo: reference.ciclo,
+    ano: reference.ano,
+    semestre: reference.semestre,
+    totalPessoas: stats.totalPessoas,
+    totalIdentificadores: stats.totalIdentificadores,
+    totalVinculos: stats.totalVinculos,
+    totalDiretorias: stats.totalDiretorias,
+    totalCargosConfig: stats.totalCargosConfig,
+    totalFuncoes: stats.totalFuncoes,
+    etapasFiltro: {
+      funcoesAtivasNaData: stats.funcoesAtivasNaData,
+      funcoesComCargoAdministrativo: stats.funcoesComCargoAdministrativo,
+      funcoesComCargoRecebeEmail: stats.funcoesComCargoRecebeEmail,
+      funcoesComDiretoriaValida: stats.funcoesComDiretoriaValida,
+      funcoesComPessoaValida: stats.funcoesComPessoaValida,
+      funcoesComVinculoValido: stats.funcoesComVinculoValido,
+      funcoesComEmailValido: stats.funcoesComEmailValido
+    },
+    recipientSource: evaluation.to.length ? 'PESSOAS_V2_VIGENCIAS_V2' : 'NAO_RESOLVIDO',
+    fallbackUsed: false,
+    usariaFallback: evaluation.to.length === 0 && fallbackConfigured.length > 0,
+    adminResolverFallbackReason: evaluation.fallbackReason,
+    destinatariosResolvidosMascarados: evaluation.to.map(atividadesV2_mailMaskEmail_),
+    cargosResolvidos: evaluation.cargosResolvidos,
+    pessoasResolvidas: evaluation.pessoasResolvidas,
+    motivosDescarte: evaluation.motivosDescarte,
+    fontesLeitura: evaluation.readSources,
+    errosLeitura: evaluation.readErrors,
+    warnings: atividadesV2_mailUniqueText_((reference.warnings || []).concat(evaluation.warnings || [])),
+    fallbackKeys: ATIVIDADES_V2_MAIL_ADMIN_CONFIG_KEYS_.slice(),
+    totalDestinatariosFallbackConfigurados: fallbackConfigured.length,
+    escritaRealizada: false,
+    enfileiramentoRealizado: false,
+    processouOutbox: false
+  };
+}
+
+function atividadesV2_limparCacheDestinatariosMailHubDev_(options) {
+  var opts = options || {};
+  var reference = atividadesV2_mailResolveActivityReference_({
+    idAtividade: opts.idAtividade,
+    idApresentacao: opts.idApresentacao,
+    idJustificativa: opts.idJustificativa,
+    referenceDate: opts.referenceDate,
+    result: {},
+    payload: {}
+  });
+  var cacheKey = atividadesV2_mailAdminRecipientsCacheKey_(reference, reference.referenceDate);
+  if (typeof portalCacheRemove_ === 'function') portalCacheRemove_(cacheKey);
+  else CacheService.getScriptCache().remove(cacheKey);
+  return {
+    ok: true,
+    modo: 'DEV',
+    cacheScope: 'MAIL_ADMIN_RECIPIENTS_V2',
+    referenceDate: reference.referenceDate,
+    ciclo: reference.ciclo,
+    removido: true
+  };
 }
 
 function atividadesV2_mailMaskEmail_(email) {

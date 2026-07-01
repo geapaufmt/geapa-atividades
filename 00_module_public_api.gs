@@ -537,6 +537,18 @@ function atividadesV2_diagnosticarMailHubEventosPortalDev(options) {
   }, { entrypoint: 'atividadesV2_diagnosticarMailHubEventosPortalDev' });
 }
 
+function atividadesV2_diagnosticarDestinatariosAdministrativosV2Dev(options) {
+  return atividades_runWithOperationalGuard_('CONFERENCIA_V2', null, function() {
+    return atividadesV2_diagnosticarDestinatariosAdministrativosV2Dev_(options || {});
+  }, { entrypoint: 'atividadesV2_diagnosticarDestinatariosAdministrativosV2Dev' });
+}
+
+function atividadesV2_limparCacheDestinatariosMailHubDev(options) {
+  return atividades_runWithOperationalGuard_('CONFERENCIA_V2', null, function() {
+    return atividadesV2_limparCacheDestinatariosMailHubDev_(options || {});
+  }, { entrypoint: 'atividadesV2_limparCacheDestinatariosMailHubDev' });
+}
+
 function atividadesV2_processarFilaEmailsCore() {
   return atividades_runWithOperationalGuard_('ATUALIZACAO_PORTAL_V2', null, function() {
     return atividadesV2_processarFilaEmailsCore_();
