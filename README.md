@@ -742,6 +742,9 @@ outbox paralela no modulo. Consulte
 [`docs/atividades-v2-mail-hub.md`](docs/atividades-v2-mail-hub.md).
 O diagnostico manual `atividadesV2_diagnosticarMailHubEventosPortalDev(options)`
 simula contratos e a origem dos destinatarios sem escrever nem enfileirar.
+Jobs V2 de cobranca, lembrete e convite usam a mesma central com dry-run e
+protecao de lote; consulte
+[`docs/atividades-v2-mail-hub-jobs.md`](docs/atividades-v2-mail-hub-jobs.md).
 
 O modulo expoe uma camada publica somente leitura para o Portal GEAPA:
 

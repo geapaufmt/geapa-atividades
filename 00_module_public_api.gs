@@ -549,6 +549,66 @@ function atividadesV2_limparCacheDestinatariosMailHubDev(options) {
   }, { entrypoint: 'atividadesV2_limparCacheDestinatariosMailHubDev' });
 }
 
+function atividadesV2_mailDiagnosticarCobrancasApresentacoesDev(options) {
+  return atividades_runWithOperationalGuard_('CONFERENCIA_V2', null, function() {
+    return atividadesV2_mailDiagnosticarCobrancasApresentacoesDev_(options || {});
+  }, { entrypoint: 'atividadesV2_mailDiagnosticarCobrancasApresentacoesDev' });
+}
+
+function atividadesV2_mailProcessarCobrancasApresentacoesDev(options) {
+  return atividades_runWithOperationalGuard_('ATUALIZACAO_PORTAL_V2', null, function() {
+    return atividadesV2_mailProcessarCobrancasApresentacoesDev_(options || {});
+  }, { entrypoint: 'atividadesV2_mailProcessarCobrancasApresentacoesDev', executionType: 'MANUAL' });
+}
+
+function atividadesV2_mailDiagnosticarLembretesDev(options) {
+  return atividades_runWithOperationalGuard_('CONFERENCIA_V2', null, function() {
+    return atividadesV2_mailDiagnosticarLembretesDev_(options || {});
+  }, { entrypoint: 'atividadesV2_mailDiagnosticarLembretesDev' });
+}
+
+function atividadesV2_mailProcessarLembretesDev(options) {
+  return atividades_runWithOperationalGuard_('ATUALIZACAO_PORTAL_V2', null, function() {
+    return atividadesV2_mailProcessarLembretesDev_(options || {});
+  }, { entrypoint: 'atividadesV2_mailProcessarLembretesDev', executionType: 'MANUAL' });
+}
+
+function atividadesV2_mailDiagnosticarPendenciasSecretariaDev(options) {
+  return atividades_runWithOperationalGuard_('CONFERENCIA_V2', null, function() {
+    return atividadesV2_mailDiagnosticarPendenciasSecretariaDev_(options || {});
+  }, { entrypoint: 'atividadesV2_mailDiagnosticarPendenciasSecretariaDev' });
+}
+
+function atividadesV2_mailProcessarPendenciasSecretariaDev(options) {
+  return atividades_runWithOperationalGuard_('ATUALIZACAO_PORTAL_V2', null, function() {
+    return atividadesV2_mailProcessarPendenciasSecretariaDev_(options || {});
+  }, { entrypoint: 'atividadesV2_mailProcessarPendenciasSecretariaDev', executionType: 'MANUAL' });
+}
+
+function atividadesV2_mailDiagnosticarConvitesDev(options) {
+  return atividades_runWithOperationalGuard_('CONFERENCIA_V2', null, function() {
+    return atividadesV2_mailDiagnosticarConvitesDev_(options || {});
+  }, { entrypoint: 'atividadesV2_mailDiagnosticarConvitesDev' });
+}
+
+function atividadesV2_mailProcessarConvitesDev(options) {
+  return atividades_runWithOperationalGuard_('ATUALIZACAO_PORTAL_V2', null, function() {
+    return atividadesV2_mailProcessarConvitesDev_(options || {});
+  }, { entrypoint: 'atividadesV2_mailProcessarConvitesDev', executionType: 'MANUAL' });
+}
+
+function atividadesV2_mailDiagnosticarJobsDev(options) {
+  return atividades_runWithOperationalGuard_('CONFERENCIA_V2', null, function() {
+    return atividadesV2_mailDiagnosticarJobsDev_(options || {});
+  }, { entrypoint: 'atividadesV2_mailDiagnosticarJobsDev' });
+}
+
+function atividadesV2_mailProcessarJobsDev(options) {
+  return atividades_runWithOperationalGuard_('ATUALIZACAO_PORTAL_V2', null, function() {
+    return atividadesV2_mailProcessarJobsDev_(options || {});
+  }, { entrypoint: 'atividadesV2_mailProcessarJobsDev', executionType: 'MANUAL' });
+}
+
 function atividadesV2_processarFilaEmailsCore() {
   return atividades_runWithOperationalGuard_('ATUALIZACAO_PORTAL_V2', null, function() {
     return atividadesV2_processarFilaEmailsCore_();
