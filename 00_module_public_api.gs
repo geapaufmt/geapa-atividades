@@ -54,6 +54,31 @@ function atividadesV2_portalGetAtividadesBundle(contexto) {
   return atividadesV2_portalGetAtividadesBundle_(contexto);
 }
 
+function atividadesV2_firestoreDiagnosticarCalendarioDev(options) {
+  return atividades_runWithOperationalGuard_('CONFERENCIA_V2', null, function() {
+    return atividadesV2_firestoreDiagnosticarCalendarioDev_(options || {});
+  }, { entrypoint: 'atividadesV2_firestoreDiagnosticarCalendarioDev' });
+}
+
+function atividadesV2_firestoreSyncCalendarioDev(options) {
+  options = options || {};
+  return atividades_runWithOperationalGuard_('ATUALIZACAO_PORTAL_V2', null, function(guard) {
+    var safeOptions = Object.assign({}, options);
+    if (guard && String(guard.modeRead || '').trim().toUpperCase() === 'DRY_RUN') {
+      safeOptions.dryRun = true;
+    }
+    return atividadesV2_firestoreSyncCalendarioDev_(safeOptions);
+  }, { entrypoint: 'atividadesV2_firestoreSyncCalendarioDev' });
+}
+
+function atividadesV2_runTesteFirestoreCalendarioDryRun() {
+  return atividadesV2_firestoreSyncCalendarioDev({ dryRun: true });
+}
+
+function atividadesV2_runSyncFirestoreCalendarioCompletoDev() {
+  return atividadesV2_firestoreSyncCalendarioDev({ dryRun: false });
+}
+
 function atividadesV2_portalGetMinhaFrequencia(contexto) {
   return atividadesV2_portalGetMinhaFrequencia_(contexto);
 }
