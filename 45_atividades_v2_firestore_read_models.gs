@@ -5,6 +5,10 @@
 
 var ATIVIDADES_V2_FIRESTORE_CALENDAR_COLLECTION = 'portalActivities';
 var ATIVIDADES_V2_FIRESTORE_CALENDAR_SCHEMA_VERSION = 'portal-activity-calendar-v3';
+var ATIVIDADES_V2_FIRESTORE_CALENDAR_SNAPSHOT_COLLECTION = 'portalActivityCalendarSnapshots';
+var ATIVIDADES_V2_FIRESTORE_CALENDAR_SNAPSHOT_ID = 'current';
+var ATIVIDADES_V2_FIRESTORE_CALENDAR_SNAPSHOT_SCHEMA_VERSION = 'portal-activity-calendar-snapshot-v1';
+var ATIVIDADES_V2_FIRESTORE_CALENDAR_SNAPSHOT_MAX_BYTES = 900000;
 var ATIVIDADES_V2_FIRESTORE_MAX_DOCUMENTS = 500;
 var ATIVIDADES_V2_FIRESTORE_RESTRICTED_ACCESS = Object.freeze([
   'ADMIN', 'ADMINISTRACAO', 'DIRETORIA', 'GESTAO', 'RESTRITA', 'RESTRITO', 'SECRETARIA'
@@ -12,6 +16,9 @@ var ATIVIDADES_V2_FIRESTORE_RESTRICTED_ACCESS = Object.freeze([
 var ATIVIDADES_V2_FIRESTORE_HASH_IGNORED_FIELDS = Object.freeze([
   'cacheUpdatedAt', 'sourceHash', 'sourceVersion', 'datasetComplete', 'syncScope',
   'ativoNoReadModel', 'stale', 'staleReason', 'staleDetectedAt'
+]);
+var ATIVIDADES_V2_FIRESTORE_SNAPSHOT_HASH_IGNORED_FIELDS = Object.freeze([
+  'cacheUpdatedAt', 'sourceHash', 'sourceVersion'
 ]);
 
 function atividadesV2_firestoreOptions_(options) {
@@ -561,7 +568,156 @@ function atividadesV2_firestoreDiagnosticarCalendarioDev_(options) {
 }
 
 function atividadesV2_firestoreSyncCalendarioDev_(options) {
-  return atividadesV2_firestoreSyncReadModelBySpec_(atividadesV2_firestoreCalendarSpec_(), options || {});
+  var opts = options || {};
+  var result = atividadesV2_firestoreSyncReadModelBySpec_(atividadesV2_firestoreCalendarSpec_(), opts);
+  if (result && result.ok === true && result.escopoCompleto === true && !opts.idAtividade && !opts.limit) {
+    result.snapshot = atividadesV2_firestoreSyncCalendarioSnapshotDev_({
+      dryRun: result.dryRun !== false,
+      reason: opts.reason || 'CALENDARIO_COMPLETO'
+    });
+    result.ok = result.snapshot && result.snapshot.ok === true;
+  }
+  return result;
+}
+
+function atividadesV2_firestoreLatestSourceUpdatedAt_(documents, fallback) {
+  var latestText = '';
+  var latestMs = 0;
+  (documents || []).forEach(function(document) {
+    var text = String(document && document.sourceUpdatedAt || '').trim();
+    var parsed = text ? new Date(text) : null;
+    if (!parsed || isNaN(parsed.getTime()) || parsed.getTime() <= latestMs) return;
+    latestMs = parsed.getTime();
+    latestText = parsed.toISOString();
+  });
+  return latestText || String(fallback || '');
+}
+
+function atividadesV2_firestoreBuildCalendarSnapshot_(prepared, now) {
+  var updatedAt = now || new Date();
+  var atividades = (prepared && prepared.selected || []).map(function(item) {
+    return item.document;
+  });
+  var snapshot = {
+    schemaVersion: ATIVIDADES_V2_FIRESTORE_CALENDAR_SNAPSHOT_SCHEMA_VERSION,
+    source: 'PORTAL_ATIVIDADES_CALENDARIO',
+    sourceSystem: 'geapa-atividades',
+    datasetComplete: prepared && prepared.datasetComplete === true,
+    stale: false,
+    cacheUpdatedAt: updatedAt.toISOString(),
+    sourceUpdatedAt: atividadesV2_firestoreLatestSourceUpdatedAt_(atividades, updatedAt.toISOString()),
+    total: atividades.length,
+    atividades: atividades
+  };
+  snapshot.sourceHash = atividadesV2_firestoreBuildSourceHash_(
+    snapshot,
+    ATIVIDADES_V2_FIRESTORE_SNAPSHOT_HASH_IGNORED_FIELDS
+  );
+  snapshot.sourceVersion = atividadesV2_firestoreBuildSourceVersion_(snapshot.schemaVersion, snapshot.sourceHash);
+  return snapshot;
+}
+
+/** Materializa um unico documento publico com o calendario completo. */
+function atividadesV2_firestoreSyncCalendarioSnapshotDev_(options) {
+  var opts = options || {};
+  var dryRun = opts.dryRun !== false;
+  if (opts.idAtividade || opts.limit) {
+    return {
+      ok: false,
+      dryRun: dryRun,
+      errorCode: 'FIRESTORE_SNAPSHOT_EXIGE_ESCOPO_COMPLETO',
+      totalEscrito: 0
+    };
+  }
+
+  var prepared;
+  try {
+    prepared = atividadesV2_firestorePrepareCalendar_({ dryRun: dryRun });
+  } catch (prepareErr) {
+    return {
+      ok: false,
+      dryRun: dryRun,
+      errorCode: 'FIRESTORE_SNAPSHOT_FONTE_INDISPONIVEL',
+      message: String(prepareErr && prepareErr.message || prepareErr || '').slice(0, 500),
+      totalEscrito: 0
+    };
+  }
+  if (!prepared.datasetComplete || prepared.syncScope !== 'FULL') {
+    return {
+      ok: false,
+      dryRun: dryRun,
+      errorCode: 'FIRESTORE_SNAPSHOT_DATASET_PARCIAL',
+      totalElegivel: prepared.totalEligible,
+      totalEscrito: 0
+    };
+  }
+  if (!prepared.selected.length) {
+    return {
+      ok: false,
+      dryRun: dryRun,
+      errorCode: 'FIRESTORE_SNAPSHOT_SEM_ATIVIDADES',
+      totalElegivel: 0,
+      totalEscrito: 0
+    };
+  }
+
+  var snapshot = atividadesV2_firestoreBuildCalendarSnapshot_(prepared, new Date());
+  var approxBytes = JSON.stringify(snapshot).length;
+  if (approxBytes > ATIVIDADES_V2_FIRESTORE_CALENDAR_SNAPSHOT_MAX_BYTES) {
+    return {
+      ok: false,
+      dryRun: dryRun,
+      errorCode: 'FIRESTORE_SNAPSHOT_LIMITE_TAMANHO',
+      tamanhoAproximadoBytes: approxBytes,
+      limiteBytes: ATIVIDADES_V2_FIRESTORE_CALENDAR_SNAPSHOT_MAX_BYTES,
+      totalEscrito: 0
+    };
+  }
+
+  var path = ATIVIDADES_V2_FIRESTORE_CALENDAR_SNAPSHOT_COLLECTION + '/' +
+    ATIVIDADES_V2_FIRESTORE_CALENDAR_SNAPSHOT_ID;
+  var write = { ok: true, written: false, code: 'DRY_RUN' };
+  var lock = null;
+  try {
+    if (!dryRun) {
+      lock = LockService.getScriptLock();
+      if (!lock.tryLock(30000)) throw new Error('Nao foi possivel obter lock para gravar o snapshot do calendario.');
+      var setDocument = atividadesV2_firestoreRequireCoreMethod_('coreFirestoreSetDocument');
+      write = setDocument(path, snapshot, { dryRun: false, merge: false });
+      if (!write || write.ok !== true) {
+        throw new Error('Firestore rejeitou snapshot: ' + String(write && write.code || 'SEM_CODIGO'));
+      }
+    }
+    var result = {
+      ok: true,
+      dryRun: dryRun,
+      path: path,
+      schemaVersion: snapshot.schemaVersion,
+      datasetComplete: snapshot.datasetComplete,
+      total: snapshot.total,
+      sourceHash: snapshot.sourceHash,
+      sourceUpdatedAt: snapshot.sourceUpdatedAt,
+      cacheUpdatedAt: snapshot.cacheUpdatedAt,
+      tamanhoAproximadoBytes: approxBytes,
+      totalEscrito: dryRun ? 0 : 1,
+      totalQueSeriaEscrito: dryRun ? 1 : 0,
+      camposProibidosIncluidos: [],
+      firestore: { ok: write.ok === true, code: String(write.code || '') }
+    };
+    if (!dryRun) atividadesV2_firestoreLogResult_(prepared.spreadsheet, 'FIRESTORE_CALENDARIO_SNAPSHOT_SYNC', result);
+    return result;
+  } catch (err) {
+    return {
+      ok: false,
+      dryRun: dryRun,
+      path: path,
+      errorCode: 'FIRESTORE_CALENDARIO_SNAPSHOT_SYNC_FALHOU',
+      message: String(err && err.message || err || '').slice(0, 500),
+      totalEscrito: 0
+    };
+  } finally {
+    if (lock) lock.releaseLock();
+  }
 }
 
 function atividadesV2_firestoreDiagnosticarReconciliacaoCalendarioDev_(options) {

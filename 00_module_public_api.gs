@@ -71,6 +71,15 @@ function atividadesV2_firestoreSyncCalendarioDev(options) {
   }, { entrypoint: 'atividadesV2_firestoreSyncCalendarioDev' });
 }
 
+function atividadesV2_firestoreSyncCalendarioSnapshotDev(options) {
+  options = options || {};
+  return atividades_runWithOperationalGuard_('ATUALIZACAO_PORTAL_V2', null, function(guard) {
+    var safeOptions = Object.assign({}, options);
+    if (guard && String(guard.modeRead || '').trim().toUpperCase() === 'DRY_RUN') safeOptions.dryRun = true;
+    return atividadesV2_firestoreSyncCalendarioSnapshotDev_(safeOptions);
+  }, { entrypoint: 'atividadesV2_firestoreSyncCalendarioSnapshotDev' });
+}
+
 function atividadesV2_firestoreDiagnosticarReconciliacaoCalendarioDev(options) {
   return atividades_runWithOperationalGuard_('CONFERENCIA_V2', null, function() {
     return atividadesV2_firestoreDiagnosticarReconciliacaoCalendarioDev_(options || {});
@@ -92,6 +101,10 @@ function atividadesV2_runTesteFirestoreCalendarioDryRun() {
 
 function atividadesV2_runSyncFirestoreCalendarioCompletoDev() {
   return atividadesV2_firestoreSyncCalendarioDev({ dryRun: false });
+}
+
+function atividadesV2_runSyncFirestoreCalendarioSnapshotDev() {
+  return atividadesV2_firestoreSyncCalendarioSnapshotDev({ dryRun: false });
 }
 
 function atividadesV2_portalGetMinhaFrequencia(contexto) {

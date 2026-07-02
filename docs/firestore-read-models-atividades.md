@@ -10,6 +10,12 @@ O primeiro read model e `portalActivities/{ID_ATIVIDADE}`, derivado de
 `PORTAL_ATIVIDADES_CALENDARIO`. `portalActivityDetails`, frequencia,
 justificativas e pendencias individuais permanecem fora deste pacote.
 
+Para a leitura inicial rapida do Portal, o sync completo tambem materializa o
+documento publico agregado `portalActivityCalendarSnapshots/current`, com
+`schemaVersion=portal-activity-calendar-snapshot-v1`. O array `atividades`
+reutiliza exclusivamente os documentos produzidos pelo builder publico do
+calendario; nao ha um segundo mapeamento com campos privados.
+
 ## Motor reutilizavel
 
 O arquivo `45_atividades_v2_firestore_read_models.gs` separa o contrato do
@@ -55,7 +61,24 @@ atividadesV2_runSyncFirestoreCalendarioCompletoDev()
 
 Os documentos recebem `datasetComplete=true`, `syncScope=FULL`,
 `ativoNoReadModel=true` e `stale=false`. Documentos com `sourceVersion` e
-metadados identicos sao pulados.
+metadados identicos sao pulados. Quando o conjunto e completo e nao vazio, a
+mesma execucao grava `portalActivityCalendarSnapshots/current`.
+
+O snapshot tambem pode ser reconstruido manualmente:
+
+```javascript
+atividadesV2_runSyncFirestoreCalendarioSnapshotDev()
+```
+
+Para conferir sem escrita:
+
+```javascript
+atividadesV2_firestoreSyncCalendarioSnapshotDev({ dryRun: true })
+```
+
+O snapshot e recusado se houver `limit`, `idAtividade`, conjunto vazio,
+dataset parcial ou tamanho aproximado acima de 900 KB. Sync por ID nunca
+substitui o snapshot completo.
 
 ### Por ID
 
@@ -130,6 +153,20 @@ Documentos incrementais podem compor um conjunto previamente completo, mas o
 cliente exige evidencia vigente de pelo menos um documento `FULL` para tratar a
 colecao como snapshot. Se o conjunto estiver parcial, vencido, vazio ou com
 schema desconhecido, usa o Apps Script como fallback.
+
+## Contrato do snapshot publico
+
+`portalActivityCalendarSnapshots/current` contem apenas:
+
+- metadados `source`, `sourceSystem`, `sourceUpdatedAt`, `cacheUpdatedAt`,
+  `sourceHash`, `sourceVersion`, `schemaVersion`, `datasetComplete` e `stale`;
+- `total`;
+- `atividades`, usando os mesmos campos publicos permitidos em
+  `portalActivities/{ID_ATIVIDADE}`.
+
+CPF, telefone, e-mail, presenca individual, justificativa, logs, tokens,
+observacoes internas e IDs de planilhas nao entram no documento. Sheets V2 e
+Apps Script continuam sendo a fonte oficial.
 
 ## Pre-requisitos
 
