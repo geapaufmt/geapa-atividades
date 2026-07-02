@@ -193,7 +193,11 @@ function atividades_criarAtividadePorModelo_(payload, contexto) {
   var warnings = [];
   var views = null;
   try {
-    views = atividadesV2_refreshViewsAfterActivityCreate_();
+    views = atividadesV2_refreshViewsAfterActivityCreate_({
+      idAtividade: creation.idAtividade,
+      reason: 'ATIVIDADE_CRIADA_POR_MODELO',
+      contexto: validated.meta.contexto
+    });
     atividadesV2_invalidateCachesAfterActivityCreate_(creation.idAtividade, creation.row);
   } catch (postErr) {
     warnings.push('Atividade criada, mas houve falha ao atualizar views/cache. Execute a atualizacao manual das views.');

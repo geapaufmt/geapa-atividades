@@ -69,7 +69,11 @@ function atividadesV2_portalCriarAtividade_(payload, contexto) {
   var views = null;
   var avisos = [];
   try {
-    views = atividadesV2_refreshViewsAfterActivityCreate_();
+    views = atividadesV2_refreshViewsAfterActivityCreate_({
+      idAtividade: creation.idAtividade,
+      reason: 'ATIVIDADE_CRIADA_PORTAL',
+      contexto: ctx
+    });
     atividadesV2_invalidateCachesAfterActivityCreate_(creation.idAtividade, creation.row);
   } catch (postErr) {
     avisos.push('Atividade criada, mas houve falha ao atualizar views/cache: ' + atividadesV2_errorMessage_(postErr).slice(0, 300));
@@ -365,12 +369,20 @@ function atividadesV2_appendPortalAcaoAtividadeCriada_(ss, creation, contexto) {
   });
 }
 
-function atividadesV2_refreshViewsAfterActivityCreate_() {
+function atividadesV2_refreshViewsAfterActivityCreate_(options) {
+  var opts = options || {};
   var result = {
     calendario: atividadesV2_atualizarPortalCalendario_({ dryRun: false }),
     detalhes: atividadesV2_atualizarPortalDetalhes_({ dryRun: false }),
     status: atividadesV2_atualizarPortalStatus_({ dryRun: false })
   };
+  if (opts.idAtividade && typeof atividadesV2_firestoreSyncCalendarioPorAtividadeSafe_ === 'function') {
+    result.firestoreSync = atividadesV2_firestoreSyncCalendarioPorAtividadeSafe_(opts.idAtividade, {
+      enabled: opts.firestoreEnabled !== false,
+      reason: opts.reason || 'ATIVIDADE_VIEW_ATUALIZADA',
+      contexto: opts.contexto || {}
+    });
+  }
   Logger.log('GEAPA-ATIVIDADES-V2-PORTAL atividade criada: views atualizadas: ' + atividadesV2_safeLogData_({
     calendarioOk: result.calendario && result.calendario.ok,
     detalhesOk: result.detalhes && result.detalhes.ok,

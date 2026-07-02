@@ -165,7 +165,11 @@ function atividadesV2_portalSalvarEdicaoAtividadeAdmin_(payload, contexto) {
   } finally {
     lock.releaseLock();
   }
-  if (result && result.ok) result.meta = atividadesV2_adminRefreshViewsSafe_();
+  if (result && result.ok) result.meta = atividadesV2_adminRefreshViewsSafe_(
+    result.data && result.data.idAtividade,
+    'ATIVIDADE_EDITADA',
+    ctx
+  );
   return result;
 }
 
@@ -199,7 +203,11 @@ function atividadesV2_portalAlterarStatusAtividadeAdmin_(action, payload, contex
   } finally {
     lock.releaseLock();
   }
-  if (result && result.ok) result.meta = atividadesV2_adminRefreshViewsSafe_();
+  if (result && result.ok) result.meta = atividadesV2_adminRefreshViewsSafe_(
+    result.data && result.data.idAtividade,
+    'ATIVIDADE_' + atividades_normalizeTextUpper_(action),
+    ctx
+  );
   return result;
 }
 
@@ -560,9 +568,16 @@ function atividadesV2_adminInvalidateCaches_(idAtividade, before, after) {
   }
 }
 
-function atividadesV2_adminRefreshViewsSafe_() {
+function atividadesV2_adminRefreshViewsSafe_(idAtividade, reason, contexto) {
   try {
-    return { viewsAtualizadas: atividadesV2_refreshViewsAfterActivityCreate_(), aviso: '' };
+    return {
+      viewsAtualizadas: atividadesV2_refreshViewsAfterActivityCreate_({
+        idAtividade: idAtividade,
+        reason: reason,
+        contexto: contexto || {}
+      }),
+      aviso: ''
+    };
   } catch (err) {
     return { viewsAtualizadas: null, aviso: 'Alteracao salva; atualizacao das views deve ser repetida manualmente.' };
   }

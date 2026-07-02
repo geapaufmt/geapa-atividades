@@ -326,6 +326,12 @@ function atividadesV2_portalRegistrarMaterialApresentacao_(payload, contexto) {
     });
     atividadesV2_refreshPresentationPortalViews_();
     atividadesV2_invalidatePresentationPortalCaches_(result.contexto, materialResult);
+    if (typeof atividadesV2_firestoreSyncCalendarioPorAtividadeSafe_ === 'function') {
+      materialResult.firestoreSync = atividadesV2_firestoreSyncCalendarioPorAtividadeSafe_(materialResult.idAtividade, {
+        reason: actionType,
+        contexto: result.contexto
+      });
+    }
     atividadesV2_mailAttachQueueResult_(
       materialResult,
       atividadesV2_mailQueuePortalAction_(
@@ -384,6 +390,7 @@ function atividadesV2_atualizarStatusRealizacaoApresentacoesDev_(options) {
     ok: true,
     dryRun: dryRun,
     candidatos: [],
+    idsAtualizados: [],
     totalCandidatos: 0,
     totalAtualizados: 0,
     avisos: [],
@@ -452,6 +459,7 @@ function atividadesV2_atualizarStatusRealizacaoApresentacoesDev_(options) {
           DETALHES_JSON: atividadesV2_safeLogData_(evaluation.item)
         });
         report.totalAtualizados++;
+        report.idsAtualizados.push(evaluation.item.idAtividade);
       } catch (err) {
         report.erros.push({
           idAtividade: evaluation.item.idAtividade,
@@ -465,6 +473,13 @@ function atividadesV2_atualizarStatusRealizacaoApresentacoesDev_(options) {
     if (!dryRun && atualizarViews) {
       report.atualizacaoViews = atividadesV2_atualizarViewsPortal_({ dryRun: false, stopOnError: false });
       atividadesV2_invalidatePresentationPortalCaches_({}, {});
+      if (typeof atividadesV2_firestoreSyncCalendarioPorAtividadeSafe_ === 'function') {
+        report.firestoreSync = atividadesV2_firestoreUniqueStrings_(report.idsAtualizados).map(function(idAtividade) {
+          return atividadesV2_firestoreSyncCalendarioPorAtividadeSafe_(idAtividade, {
+            reason: 'APRESENTACAO_STATUS_REALIZADA_AUTOMATICO'
+          });
+        });
+      }
     }
     return report;
   } finally {
@@ -999,6 +1014,12 @@ function atividadesV2_portalRunPresentationAction_(tipoAcao, payload, contexto, 
     });
     atividadesV2_refreshPresentationPortalViews_();
     atividadesV2_invalidatePresentationPortalCaches_(action.contexto, result);
+    if (typeof atividadesV2_firestoreSyncCalendarioPorAtividadeSafe_ === 'function') {
+      result.firestoreSync = atividadesV2_firestoreSyncCalendarioPorAtividadeSafe_(result.idAtividade, {
+        reason: tipoAcao,
+        contexto: action.contexto
+      });
+    }
     atividadesV2_mailAttachQueueResult_(
       result,
       atividadesV2_mailQueuePortalAction_(tipoAcao, action.payload, action.contexto, result)
