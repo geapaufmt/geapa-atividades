@@ -94,6 +94,7 @@ function atividadesV2_firestoreBuildCalendarDocument_(record, now, metadata) {
     publicoAlvo: atividadesV2_firestoreText_(record.PUBLICO_ALVO, 180),
     cargaHoraria: atividadesV2_firestoreText_(record.CARGA_HORARIA, 20),
     statusOperacional: atividadesV2_firestoreText_(record.STATUS_OPERACIONAL, 80),
+    statusPublico: atividadesV2_firestoreText_(record.STATUS_PUBLICO || statusPublicacao, 80),
     statusPublicacaoPortal: statusPublicacao,
     visibilidadePortal: atividadesV2_firestoreText_(record.VISIBILIDADE_PORTAL, 80),
     classificacaoAcesso: atividadesV2_firestoreText_(record.CLASSIFICACAO_ACESSO, 80),
