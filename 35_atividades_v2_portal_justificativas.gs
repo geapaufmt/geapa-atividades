@@ -40,6 +40,8 @@ var ATIVIDADES_V2_JUSTIFICATIVAS_MOTIVOS_ROTULOS = Object.freeze({
 
 var ATIVIDADES_V2_JUSTIFICATIVAS_MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
 var ATIVIDADES_V2_JUSTIFICATIVAS_ROOT_FOLDER_PROP = 'ATIVIDADES_V2_JUSTIFICATIVAS_ROOT_FOLDER_ID';
+var ATIVIDADES_V2_JUSTIFICATIVA_PREVIA_JANELA_PARAMETRO = 'PRAZO_ANTECEDENCIA_JUSTIFICATIVA_PREVIA';
+var ATIVIDADES_V2_JUSTIFICATIVA_PREVIA_JANELA_FALLBACK_DIAS = 7;
 
 function atividadesV2_portalEnviarJustificativa_(payload, contexto) {
   return atividadesV2_portalRunJustificativaAction_(
@@ -120,6 +122,7 @@ function atividadesV2_portalEnviarJustificativa_(payload, contexto) {
 }
 
 function atividadesV2_portalGetJustificativasConfig_() {
+  var janelaPrevia = atividadesV2_getJustificativaPreviaJanelaConfig_();
   return {
     ok: true,
     data: {
@@ -140,6 +143,12 @@ function atividadesV2_portalGetJustificativasConfig_() {
           'application/msword',
           'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
         ]
+      },
+      justificativaPrevia: {
+        antecedenciaDias: janelaPrevia.dias,
+        parametroId: janelaPrevia.parametroId,
+        fonte: janelaPrevia.fonte,
+        fallbackUsado: janelaPrevia.fallbackUsado
       }
     }
   };
@@ -349,6 +358,7 @@ function atividadesV2_portalListarJustificativasPendentesDiretoria_(contexto) {
 function atividadesV2_diagnosticarFluxoJustificativasPortalDev_() {
   var ss = atividadesV2_getDatabaseSpreadsheetDev_();
   var data = atividadesV2_readJustificativasPortalData_(ss);
+  var janelaPrevia = atividadesV2_getJustificativaPreviaJanelaConfig_({ forceRefreshConfig: true });
   var justificativasByRegistro = atividadesV2_indexActiveJustificativasByRegistro_(data.justificativas);
   var stats = {
     presencas: data.presencas.length,
@@ -377,7 +387,17 @@ function atividadesV2_diagnosticarFluxoJustificativasPortalDev_() {
       stats.faltasJustificaveis++;
     }
   });
-  return { ok: true, modo: 'DEV', stats: stats };
+  return {
+    ok: true,
+    modo: 'DEV',
+    configuracao: {
+      justificativaPreviaAntecedenciaDias: janelaPrevia.dias,
+      parametroId: janelaPrevia.parametroId,
+      fonte: janelaPrevia.fonte,
+      fallbackUsado: janelaPrevia.fallbackUsado
+    },
+    stats: stats
+  };
 }
 
 function atividadesV2_runTestePortalJustificativasDev_() {
@@ -433,8 +453,15 @@ function atividadesV2_getMinhasJustificativasPortalData_(contexto) {
 
 function atividadesV2_getPreviousJustificationCalendarContext_(ss, contexto) {
   var ctx = atividades_normalizePortalContext_(contexto || {});
+  var janelaPrevia = atividadesV2_getJustificativaPreviaJanelaConfig_();
   if (!ctx.idPessoa && !ctx.rga && !ctx.email) {
-    return { byActivity: {}, contexto: ctx };
+    return {
+      byActivity: {},
+      contexto: ctx,
+      now: new Date(),
+      janelaPreviaDias: janelaPrevia.dias,
+      janelaPreviaFonte: janelaPrevia.fonte
+    };
   }
   var justificativasSheet = atividadesV2_getTargetSheet_(ss, ATIVIDADES_V2_SHEETS.JUSTIFICATIVAS);
   atividadesV2_applyHeadersIfMissing_(justificativasSheet, ATIVIDADES_V2_SCHEMA.JUSTIFICATIVAS);
@@ -444,7 +471,9 @@ function atividadesV2_getPreviousJustificationCalendarContext_(ss, contexto) {
       ctx
     ),
     contexto: ctx,
-    now: new Date()
+    now: new Date(),
+    janelaPreviaDias: janelaPrevia.dias,
+    janelaPreviaFonte: janelaPrevia.fonte
   };
 }
 
@@ -465,7 +494,11 @@ function atividadesV2_buildPreviousJustificationActionMeta_(atividade, contexto,
   if (!atividadesV2_activityAllowsPreviousJustificativa_(atividade, ctx)) {
     return atividadesV2_previousJustificationUnavailable_('ATIVIDADE_NAO_JUSTIFICAVEL', '');
   }
-  var temporal = atividadesV2_classificarPrazoJustificativaPrevia_(atividade, cache && cache.now || new Date());
+  var temporal = atividadesV2_classificarPrazoJustificativaPrevia_(
+    atividade,
+    cache && cache.now || new Date(),
+    { janelaPreviaDias: cache && cache.janelaPreviaDias }
+  );
   if (temporal.statusTemporalidade !== 'PREVIA') {
     return atividadesV2_previousJustificationUnavailable_('FORA_DA_JANELA_PREVIA', 'Justificativa previa disponivel apenas dentro da janela prevista.');
   }
@@ -491,10 +524,10 @@ function atividadesV2_previousJustificationUnavailable_(reason, message) {
 }
 
 function atividadesV2_activityIsFutureForPreviousJustificativa_(atividade, refDate) {
-  var date = atividades_parseDateOrNull_(atividade && atividade.DATA_ATIVIDADE);
-  if (!date) return false;
+  var activityStart = atividadesV2_getActivityStartForPreviousJustificativa_(atividade);
+  if (!activityStart) return false;
   var now = atividades_parseDateOrNull_(refDate) || new Date();
-  return new Date(date.getFullYear(), date.getMonth(), date.getDate(), 0, 0, 0, 0).getTime() > now.getTime();
+  return activityStart.getTime() > now.getTime();
 }
 
 function atividadesV2_resolveJustificativaSubmissionBundle_(ss, payload, contexto) {
@@ -806,12 +839,20 @@ function atividadesV2_classificarPrazoJustificativaPresenca_(presenca, atividade
   };
 }
 
-function atividadesV2_classificarPrazoJustificativaPrevia_(atividade, refDate) {
+function atividadesV2_classificarPrazoJustificativaPrevia_(atividade, refDate, options) {
   var sentAt = atividades_parseDateOrNull_(refDate) || new Date();
-  var lookup = atividadesV2_buildActivityLookupForJustificativaV2_(atividade, null);
-  var temporalidade = typeof atividades_classificarTemporalidadeJustificativa_ === 'function'
-    ? atividades_classificarTemporalidadeJustificativa_(sentAt, lookup)
-    : 'PREVIA';
+  var activityStart = atividadesV2_getActivityStartForPreviousJustificativa_(atividade);
+  var janelaDias = Number(options && options.janelaPreviaDias);
+  if (!isFinite(janelaDias) || janelaDias <= 0) {
+    janelaDias = atividadesV2_getJustificativaPreviaJanelaConfig_().dias;
+  }
+  var windowStart = activityStart ? new Date(activityStart.getTime()) : null;
+  if (windowStart) windowStart.setDate(windowStart.getDate() - janelaDias);
+  var temporalidade = !activityStart
+    ? 'PREVIA_FORA_DA_JANELA'
+    : (sentAt.getTime() >= activityStart.getTime()
+      ? 'POS_ATIVIDADE'
+      : (sentAt.getTime() < windowStart.getTime() ? 'PREVIA_FORA_DA_JANELA' : 'PREVIA'));
   return {
     deadline: atividadesV2_calcularPrazoJustificativaV2_(null, atividade),
     statusPrazo: 'JUSTIFICATIVA_PREVIA',
@@ -820,6 +861,62 @@ function atividadesV2_classificarPrazoJustificativaPrevia_(atividade, refDate) {
     envioForaDoPrazo: 'NAO',
     mensagemPortal: 'Justificativa previa registrada. Ela sera analisada caso a falta seja confirmada na chamada.'
   };
+}
+
+function atividadesV2_getJustificativaPreviaJanelaConfig_(options) {
+  var configuredFallback = Number(
+    ATIVIDADES_CFG && ATIVIDADES_CFG.JUSTIFICATIVAS &&
+    ATIVIDADES_CFG.JUSTIFICATIVAS.PRE_ACTIVITY_WINDOW_DAYS
+  );
+  var fallback = isFinite(configuredFallback) && configuredFallback > 0
+    ? configuredFallback
+    : ATIVIDADES_V2_JUSTIFICATIVA_PREVIA_JANELA_FALLBACK_DIAS;
+  try {
+    if (typeof atividadesV2_getParametroOperacional_ !== 'function') throw new Error('LEITOR_INDISPONIVEL');
+    var parameter = atividadesV2_getParametroOperacional_(
+      ATIVIDADES_V2_JUSTIFICATIVA_PREVIA_JANELA_PARAMETRO,
+      {
+        moduloSistema: 'ATIVIDADES',
+        forceRefreshConfig: options && options.forceRefreshConfig === true
+      }
+    );
+    if (!parameter) throw new Error('PARAMETRO_AUSENTE');
+    var days = typeof atividadesV2_mailJobsConvertUnit_ === 'function'
+      ? atividadesV2_mailJobsConvertUnit_(parameter.VALOR, parameter.UNIDADE, 'DIAS')
+      : Number(parameter.VALOR);
+    if (!isFinite(days) || days <= 0 || days > 365) throw new Error('PARAMETRO_INVALIDO');
+    return {
+      dias: days,
+      parametroId: ATIVIDADES_V2_JUSTIFICATIVA_PREVIA_JANELA_PARAMETRO,
+      fonte: 'PARAMETROS_OPERACIONAIS',
+      fallbackUsado: false
+    };
+  } catch (err) {
+    return {
+      dias: fallback,
+      parametroId: ATIVIDADES_V2_JUSTIFICATIVA_PREVIA_JANELA_PARAMETRO,
+      fonte: 'DEFAULT_CODE',
+      fallbackUsado: true
+    };
+  }
+}
+
+function atividadesV2_getActivityStartForPreviousJustificativa_(atividade) {
+  var date = atividades_parseDateOrNull_(atividade && atividade.DATA_ATIVIDADE);
+  if (!date) return null;
+  var timeValue = atividade && (atividade.HORARIO_INICIO || atividade.HORA_INICIO);
+  var minutes = atividades_parseTimeValueToMinutes_(timeValue);
+  if (minutes === null && String(timeValue || '').trim()) return null;
+  minutes = minutes === null ? 0 : minutes;
+  return new Date(
+    date.getFullYear(),
+    date.getMonth(),
+    date.getDate(),
+    Math.floor(minutes / 60),
+    minutes % 60,
+    0,
+    0
+  );
 }
 
 function atividadesV2_classificarPrazoJustificativaRecord_(record, refDate) {

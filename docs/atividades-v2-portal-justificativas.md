@@ -73,7 +73,25 @@ Payload de ausencia futura:
 }
 ```
 
-O backend valida a janela previa com a logica V1 (`atividades_classificarTemporalidadeJustificativa_` e relacionadas). Se estiver dentro da janela, grava `STATUS_ANALISE = PREVIA`, `ID_REGISTRO_PRESENCA` vazio e `DECISAO_APLICADA_NA_PRESENCA = NAO_APLICADA`.
+O backend valida a janela previa V2 usando `DATA_ATIVIDADE` e `HORARIO_INICIO`. Assim, uma atividade no mesmo dia permanece futura ate seu horario de inicio. Se estiver dentro da janela, grava `STATUS_ANALISE = PREVIA`, `ID_REGISTRO_PRESENCA` vazio e `DECISAO_APLICADA_NA_PRESENCA = NAO_APLICADA`.
+
+A antecedencia vem da aba `PARAMETROS_OPERACIONAIS`, localizada pelo Registry com a key `NORMAS_PARAMETROS_OPERACIONAIS`:
+
+- `PARAMETRO_ID = PRAZO_ANTECEDENCIA_JUSTIFICATIVA_PREVIA`;
+- `MODULO_SISTEMA = ATIVIDADES`;
+- `UNIDADE = DIAS`;
+- `VIGENTE = SIM`.
+
+Se a linha estiver ausente ou invalida, o fluxo usa temporariamente o fallback seguro de `7` dias. A leitura e feita por cabecalho e usa o cache compartilhado de parametros operacionais por 5 minutos. O diagnostico manual forca uma releitura para homologar alteracoes imediatamente.
+
+Linha recomendada, apresentada na ordem dos cabecalhos atualmente consumidos pelo modulo:
+
+```text
+PARAMETRO_ID\tDESCRICAO\tVALOR\tUNIDADE\tMODULO_SISTEMA\tVIGENTE\tPERMITE_AUTOMACAO\tEXIGE_CONFERENCIA_HUMANA\tNIVEL_ACESSO\tOBSERVACAO
+PRAZO_ANTECEDENCIA_JUSTIFICATIVA_PREVIA\tAntecedencia para membro justificar ausencia futura pelo Portal\t7\tDIAS\tATIVIDADES\tSIM\tSIM\tNAO\tINTERNO\tJanela anterior ao horario de inicio da atividade; apos o inicio, usar o fluxo de justificativa de falta.
+```
+
+Se a aba tiver outra ordem de colunas, distribua os valores pelos nomes dos cabecalhos; o codigo nao depende da posicao das colunas.
 
 Se ja existir justificativa ativa do membro para a mesma atividade, o card deve mostrar que a justificativa previa foi enviada e orientar acompanhamento em `Meu Vinculo -> Minhas justificativas`.
 
@@ -284,21 +302,22 @@ Durante a homologacao, o botao do e-mail ainda pode abrir o formulario antigo co
 
 1. Rode `atividadesV2_diagnosticarFluxoJustificativasPortalDev()`.
 2. Rode `atividadesV2_runTestePortalJustificativasDev()`.
-3. Consultar `atividadesV2_portalGetCalendario(contexto)` com atividade futura justificavel e conferir `podeJustificarAusenciaFutura`.
-4. Enviar justificativa previa sem `idRegistroPresenca` e conferir `STATUS_ANALISE = PREVIA`.
-5. Tentar duplicar justificativa previa e confirmar bloqueio.
-6. Rodar `atividadesV2_promoverJustificativasPreviasDev({ dryRun: true })`.
-7. No Portal, consultar `atividadesV2_portalGetMinhasJustificativas(contexto)` com membro que tenha falta.
-8. Enviar justificativa dentro do prazo.
-9. Enviar justificativa fora do prazo sem ciencia e confirmar bloqueio.
-10. Enviar justificativa fora do prazo com ciencia e conferir `OBSERVACOES_INTERNAS`.
-11. Enviar justificativa com `documentoComprobatorio.conteudoBase64` e conferir link no Drive.
-12. Consultar `atividadesV2_portalGetMinhaFrequencia(contexto)` e conferir ciclos/registros.
-13. Rodar `atividadesV2_runTesteMinhaFrequenciaDetalhadaDev(contexto)` e confirmar `payloadAntigoDetectado = false`.
-14. Rodar o mesmo teste com `perfil: "DIRETORIA"` e identificadores pessoais do proprio usuario, conferindo que nao retorna registros de terceiros.
-15. Rodar com `{ perfil: "DIRETORIA" }` sem identificador e confirmar `errorCode = USUARIO_NAO_IDENTIFICADO`.
-16. Listar pendencias com `atividadesV2_portalListarJustificativasPendentesDiretoria(contexto)`.
-17. Testar `DEFERIR`, `ABONAR`, `INDEFERIR` e `SOLICITAR_AJUSTE`.
+3. Conferir `PRAZO_ANTECEDENCIA_JUSTIFICATIVA_PREVIA` em `PARAMETROS_OPERACIONAIS`, rodar novamente o diagnostico e confirmar `fonte = PARAMETROS_OPERACIONAIS` e `fallbackUsado = false`.
+4. Consultar `atividadesV2_portalGetCalendario(contexto)` com atividade futura justificavel, inclusive no mesmo dia antes do horario de inicio, e conferir `podeJustificarAusenciaFutura`.
+5. Enviar justificativa previa sem `idRegistroPresenca` e conferir `STATUS_ANALISE = PREVIA`.
+6. Tentar duplicar justificativa previa e confirmar bloqueio.
+7. Rodar `atividadesV2_promoverJustificativasPreviasDev({ dryRun: true })`.
+8. No Portal, consultar `atividadesV2_portalGetMinhasJustificativas(contexto)` com membro que tenha falta.
+9. Enviar justificativa dentro do prazo.
+10. Enviar justificativa fora do prazo sem ciencia e confirmar bloqueio.
+11. Enviar justificativa fora do prazo com ciencia e conferir `OBSERVACOES_INTERNAS`.
+12. Enviar justificativa com `documentoComprobatorio.conteudoBase64` e conferir link no Drive.
+13. Consultar `atividadesV2_portalGetMinhaFrequencia(contexto)` e conferir ciclos/registros.
+14. Rodar `atividadesV2_runTesteMinhaFrequenciaDetalhadaDev(contexto)` e confirmar `payloadAntigoDetectado = false`.
+15. Rodar o mesmo teste com `perfil: "DIRETORIA"` e identificadores pessoais do proprio usuario, conferindo que nao retorna registros de terceiros.
+16. Rodar com `{ perfil: "DIRETORIA" }` sem identificador e confirmar `errorCode = USUARIO_NAO_IDENTIFICADO`.
+17. Listar pendencias com `atividadesV2_portalListarJustificativasPendentesDiretoria(contexto)`.
+18. Testar `DEFERIR`, `ABONAR`, `INDEFERIR` e `SOLICITAR_AJUSTE`.
 
 Depois das escritas, conferir:
 

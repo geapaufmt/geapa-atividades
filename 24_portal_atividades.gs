@@ -1510,7 +1510,7 @@ function atividadesV2_portalGetCalendario_(contexto) {
     portalPerfMark_(perf, 'ler_status_chamada', {
       total: Object.keys(statusMap || {}).length
     });
-    var shouldLoadPreviousJustifications = ctx.perfil === 'MEMBRO' &&
+    var shouldLoadPreviousJustifications =
       !!String(ctx.idPessoa || ctx.rga || ctx.email || '').trim();
     var justificativaContext = shouldLoadPreviousJustifications && typeof atividadesV2_getPreviousJustificationCalendarContext_ === 'function'
       ? atividadesV2_getPreviousJustificationCalendarContext_(ss, ctx)
