@@ -108,9 +108,9 @@ Cada falta justificavel informa prazo, situacao de prazo, se exige ciencia por f
 
 ## Minha Frequencia
 
-`atividadesV2_portalGetMinhaFrequencia(contexto)` le a aba operacional `Atividades_Presencas_Registros`, filtra no backend pelo usuario logado e retorna registros por ciclo.
+`atividadesV2_portalGetMinhaFrequencia(contexto)` le a aba operacional `Atividades_Presencas_Registros`, filtra no backend pelo usuario logado e retorna registros agrupados pelo `CICLO` institucional completo. `ANO` e `SEMESTRE` permanecem metadados dos registros, mas nao dividem o calculo da frequencia.
 
-O retorno traz `contrato = MINHA_FREQUENCIA_DETALHADA_V2` e usa cache versionado (`frequencia_detalhada_v2`) para evitar reaproveitar payload antigo baseado em `PORTAL_FREQUENCIA_MEMBROS`.
+O retorno traz `contrato = MINHA_FREQUENCIA_DETALHADA_V2`, `agrupamento = CICLO` e usa cache versionado (`frequencia_detalhada_v3`) para evitar reaproveitar payloads antigos separados por semestre.
 
 Esta rota e sempre de escopo proprio. Mesmo quando o usuario tem perfil `DIRETORIA`, `SECRETARIO` ou `ADMIN_TECNICO`, `Meu Vinculo -> Minha frequencia` retorna somente os registros vinculados ao `idPessoa`, `rga` ou `email` do usuario logado. Contextos sem identificador pessoal retornam erro controlado `USUARIO_NAO_IDENTIFICADO`, nunca todos os registros.
 
@@ -118,14 +118,16 @@ Formato resumido:
 
 ```js
 {
+  agrupamento: "CICLO",
   resumoGeral: {},
-  cicloAtual: "2026/1",
+  cicloAtual: "GEAPA_2026",
   ciclos: [
     {
-      ciclo: "2026/1",
+      ciclo: "GEAPA_2026",
       cicloOperacional: "GEAPA_2026",
+      rotuloCiclo: "GEAPA_2026",
       ano: "2026",
-      semestre: "1",
+      semestre: "",
       resumo: {},
       registros: [
         {
@@ -145,7 +147,11 @@ Formato resumido:
           podeEnviarJustificativa,
           podeVerJustificativa,
           podeComplementarJustificativa,
-          acaoJustificativa
+          acaoJustificativa,
+          dataLimiteJustificativa,
+          statusPrazo,
+          envioForaDoPrazo,
+          exigeCienciaForaPrazo
         }
       ]
     }
