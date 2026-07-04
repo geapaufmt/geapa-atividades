@@ -318,37 +318,29 @@ function atividadesV2_portalRegistrarMaterialApresentacao_(payload, contexto) {
     ? 'APRESENTACAO_MATERIAL_REENVIADO'
     : 'APRESENTACAO_MATERIAL_ENVIADO';
   var result = atividadesV2_portalActionStart_(actionType, payload, contexto);
+  var trace = atividadesV2_portalWriteTraceStart_(actionType, payload);
+  result.contexto._portalWriteTrace = trace;
+  result.contexto._portalWriteAction = result;
   try {
     var materialResult = atividadesV2_registrarMaterialApresentacao_(payload || {}, result.contexto);
-    atividadesV2_portalWithLock_('APRESENTACAO_MATERIAL_AUDITORIA', function(ss) {
-      atividadesV2_portalActionSuccess_(ss, result, materialResult);
-      return true;
-    });
-    atividadesV2_refreshPresentationPortalViews_();
-    atividadesV2_invalidatePresentationPortalCaches_(result.contexto, materialResult);
-    if (typeof atividadesV2_firestoreSyncCalendarioPorAtividadeSafe_ === 'function') {
-      materialResult.firestoreSync = atividadesV2_firestoreSyncCalendarioPorAtividadeSafe_(materialResult.idAtividade, {
-        reason: actionType,
-        contexto: result.contexto
-      });
+    if (materialResult && materialResult._idempotentReplayResponse) {
+      return materialResult._idempotentReplayResponse;
     }
-    atividadesV2_mailAttachQueueResult_(
-      materialResult,
-      atividadesV2_mailQueuePortalAction_(
-        atividades_normalizeTextUpper_(materialResult.statusMaterial) === 'REENVIADO'
-          ? 'APRESENTACAO_MATERIAL_REENVIADO'
-          : actionType,
-        payload || {},
-        result.contexto,
-        materialResult
-      )
-    );
-    return {
-      ok: true,
-      message: 'Slide/material registrado com sucesso na base DEV.',
-      data: materialResult
-    };
+    trace.idAtividade = materialResult.idAtividade || trace.idAtividade;
+    trace.idApresentacao = materialResult.idApresentacao || trace.idApresentacao;
+    var auditWarnings = materialResult._auditWarnings || [];
+    delete materialResult._auditWarnings;
+    auditWarnings.forEach(function(warning) {
+      atividadesV2_portalWriteWarning_(trace, warning.code, warning.message);
+    });
+    atividadesV2_portalWriteMarkSecondaryPending_(trace);
+    atividadesV2_portalWriteAttachResult_(materialResult, trace, 'REGISTRADO');
+    return atividadesV2_portalWriteSuccessResponse_(materialResult, {
+      userMessage: 'Slide/material registrado com sucesso.',
+      entityId: materialResult.idApresentacao || ''
+    });
   } catch (err) {
+    atividadesV2_portalWriteLogSafe_(atividadesV2_getDatabaseSpreadsheetDev_(), trace, 'ERRO', err && (err.code || err.errorCode) || 'ERRO_MATERIAL');
     try {
       atividadesV2_portalActionError_(atividadesV2_getDatabaseSpreadsheetDev_(), result, err);
     } catch (logErr) {}
@@ -1006,48 +998,43 @@ function atividadesV2_runTestePortalApresentacoesAcoesDev_() {
 
 function atividadesV2_portalRunPresentationAction_(tipoAcao, payload, contexto, callback) {
   var action = atividadesV2_portalActionStart_(tipoAcao, payload, contexto);
+  var trace = atividadesV2_portalWriteTraceStart_(tipoAcao, payload);
+  action.trace = trace;
+  var replayResponse = null;
   try {
     var result = atividadesV2_portalWithLock_(tipoAcao, function(ss) {
-      var data = callback(ss, action);
-      atividadesV2_portalActionSuccess_(ss, action, data);
+      var existing = atividadesV2_portalWriteFindRequest_(ss, action);
+      if (existing) {
+        replayResponse = atividadesV2_portalWriteReplayResponse_(existing);
+        return null;
+      }
+      var data = atividadesV2_portalWriteStage_(trace, 'VALIDACAO_E_ESCRITA_OFICIAL', function() {
+        return callback(ss, action);
+      });
+      data.performance = atividadesV2_portalWriteSummary_(trace, 'REGISTRADO', '');
+      var auditWarnings = atividadesV2_portalWriteStage_(trace, 'ENFILEIRAMENTO_POS_PROCESSAMENTO', function() {
+        return atividadesV2_portalActionSuccess_(ss, action, data) || [];
+      });
+      auditWarnings.forEach(function(warning) {
+        atividadesV2_portalWriteWarning_(trace, warning.code, warning.message);
+      });
       return data;
     });
-    atividadesV2_refreshPresentationPortalViews_();
-    atividadesV2_invalidatePresentationPortalCaches_(action.contexto, result);
-    if (typeof atividadesV2_firestoreSyncCalendarioPorAtividadeSafe_ === 'function') {
-      result.firestoreSync = atividadesV2_firestoreSyncCalendarioPorAtividadeSafe_(result.idAtividade, {
-        reason: tipoAcao,
-        contexto: action.contexto
-      });
-    }
-    atividadesV2_mailAttachQueueResult_(
-      result,
-      atividadesV2_mailQueuePortalAction_(tipoAcao, action.payload, action.contexto, result)
-    );
-    try {
-      if (typeof atividadesV2_mailQueueMemberReminderAfterTitleApproval_ === 'function') {
-        result.lembreteMembrosQueue = atividadesV2_mailQueueMemberReminderAfterTitleApproval_(tipoAcao, result);
-        if (result.lembreteMembrosQueue && result.lembreteMembrosQueue.ok === false) {
-          result.lembreteMembrosQueueWarning = 'Titulo/eixos aprovados, mas o lembrete aos membros nao foi enfileirado.';
-        } else if (result.lembreteMembrosQueue && result.lembreteMembrosQueue.skipped === true) {
-          result.lembreteMembrosQueueWarning = 'Titulo/eixos aprovados, mas o lembrete aos membros nao estava elegivel: ' +
-            String(result.lembreteMembrosQueue.reason || 'MOTIVO_NAO_INFORMADO') + '.';
-        }
-      }
-    } catch (reminderErr) {
-      result.lembreteMembrosQueueWarning = 'Titulo/eixos aprovados, mas houve falha ao avaliar o lembrete aos membros.';
-      Logger.log('GEAPA-ATIVIDADES-V2 lembrete apos aprovacao: ' + atividadesV2_errorMessage_(reminderErr));
-    }
-    return {
-      ok: true,
-      message: 'Acao de apresentacao registrada com sucesso na base DEV.',
-      data: result
-    };
+    if (replayResponse) return replayResponse;
+    trace.idAtividade = result.idAtividade || trace.idAtividade;
+    trace.idApresentacao = result.idApresentacao || trace.idApresentacao;
+    atividadesV2_portalWriteMarkSecondaryPending_(trace);
+    atividadesV2_portalWriteAttachResult_(result, trace, 'REGISTRADO');
+    return atividadesV2_portalWriteSuccessResponse_(result, {
+      userMessage: 'Acao de apresentacao registrada com sucesso.',
+      entityId: result.idApresentacao || ''
+    });
   } catch (err) {
+    atividadesV2_portalWriteLogSafe_(atividadesV2_getDatabaseSpreadsheetDev_(), trace, 'ERRO', err && (err.code || err.errorCode) || 'ERRO_APRESENTACAO');
     try {
       atividadesV2_portalActionError_(atividadesV2_getDatabaseSpreadsheetDev_(), action, err);
     } catch (logErr) {}
-    return atividadesV2_portalActionErrorResponse_(err);
+    return atividadesV2_portalWriteErrorResponse_(err, 'ERRO_APRESENTACAO', atividadesV2_errorMessage_(err));
   }
 }
 
@@ -1055,29 +1042,23 @@ function atividadesV2_portalActionStart_(tipoAcao, payload, contexto) {
   var ctx = atividades_normalizePortalContext_(contexto || {});
   var cleanPayload = payload || {};
   return {
-    idAcao: atividadesV2_buildDeterministicId_('PACT', [tipoAcao, new Date().getTime(), ctx.email || ctx.idPessoa || ctx.rga || ctx.perfil]),
+    idAcao: atividadesV2_portalWriteActionId_('PACT', tipoAcao, cleanPayload, ctx),
     tipoAcao: String(tipoAcao || '').trim(),
     payload: cleanPayload,
     contexto: ctx,
-    startedAt: new Date()
+    startedAt: new Date(),
+    trace: null
   };
 }
 
 function atividadesV2_portalActionSuccess_(ss, acao, resultado) {
-  atividadesV2_portalAppendAcao_(ss, atividadesV2_buildPortalActionRow_(acao, 'CONCLUIDO', resultado, null));
-  atividadesV2_portalAppendLog_(ss, {
-    ACAO: acao.tipoAcao,
-    NIVEL: 'INFO',
-    STATUS: 'OK',
-    ID_ATIVIDADE: resultado && resultado.idAtividade || acao.payload.idAtividade || '',
-    ID_ENTIDADE: resultado && resultado.idApresentacao || acao.payload.idApresentacao || '',
-    TIPO_ENTIDADE: 'APRESENTACAO',
-    MENSAGEM: 'Acao de apresentacao processada pelo Portal GEAPA DEV.',
-    DETALHES_JSON: atividadesV2_safeLogData_({
-      tipoAcao: acao.tipoAcao,
-      valoresAnteriores: resultado && resultado.valoresAnteriores || undefined
-    })
-  });
+  var warnings = [];
+  try {
+    atividadesV2_portalAppendAcao_(ss, atividadesV2_buildPortalActionRow_(acao, ATIVIDADES_V2_PORTAL_POS_WRITE_PENDING_, resultado, null));
+  } catch (error) {
+    warnings.push({ code: 'POS_PROCESSAMENTO_NAO_ENFILEIRADO', message: 'A gravacao foi concluida, mas o pos-processamento nao entrou na fila operacional.' });
+  }
+  return warnings;
 }
 
 function atividadesV2_portalActionError_(ss, acao, erro) {
@@ -1138,7 +1119,10 @@ function atividadesV2_buildPortalActionRow_(acao, status, resultado, erro) {
     STATUS_PROCESSAMENTO: status,
     RESULTADO_JSON: resultado ? atividadesV2_safeLogData_({
       ok: true,
+      idAtividade: resultado.idAtividade || '',
+      idApresentacao: resultado.idApresentacao || '',
       status: resultado.statusTituloEixo || resultado.statusMaterial || resultado.statusFotoReuniao || resultado.statusArquivo || '',
+      performance: resultado.performance || null,
       valoresAnteriores: resultado.valoresAnteriores || undefined
     }) : '',
     ERRO_CODIGO: erro && erro.code || '',
@@ -1337,6 +1321,8 @@ function atividadesV2_sanitizePresentationActionPayload_(payload) {
   return {
     idAtividade: src.idAtividade || src.ID_ATIVIDADE || '',
     idApresentacao: src.idApresentacao || src.ID_APRESENTACAO || '',
+    requestId: src.requestId || '',
+    clientSubmittedAt: src.clientSubmittedAt || '',
     decisao: src.decisao || '',
     tituloInformado: atividades_sanitizePortalText_(src.tituloApresentacao || src.titulo, 120),
     temArquivo: !!(src.fileId || src.conteudoBase64 || src.linkArquivo || src.linkFoto || src.linkDrive),
@@ -1349,11 +1335,7 @@ function atividadesV2_portalActorToken_(contexto) {
 }
 
 function atividadesV2_portalActionErrorResponse_(err) {
-  return {
-    ok: false,
-    errorCode: err && err.code || 'ERRO_ACAO_APRESENTACAO',
-    message: atividadesV2_errorMessage_(err)
-  };
+  return atividadesV2_portalWriteErrorResponse_(err, 'ERRO_ACAO_APRESENTACAO', atividadesV2_errorMessage_(err));
 }
 
 function atividadesV2_portalActionException_(code, message) {

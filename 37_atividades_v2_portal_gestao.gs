@@ -8,7 +8,10 @@
 function atividadesV2_portalCriarAtividade_(payload, contexto) {
   var request = payload || {};
   var dryRun = request.dryRun !== false;
+  var trace = atividadesV2_portalWriteTraceStart_('ATIVIDADE_CRIADA', request);
   var ctx = atividades_normalizePortalContext_(contexto || {});
+  var portalAction = atividadesV2_portalWriteBuildAction_('AACT', 'ATIVIDADE_CRIADA', request, ctx);
+  portalAction.trace = trace;
   if (!atividadesV2_canCreateActivityFromPortal_(ctx)) {
     return {
       ok: false,
@@ -18,7 +21,9 @@ function atividadesV2_portalCriarAtividade_(payload, contexto) {
   }
 
   var activityPayload = request.atividade || request.activity || request;
-  var validation = atividadesV2_normalizarPayloadCriacaoAtividade_(activityPayload);
+  var validation = atividadesV2_portalWriteStage_(trace, 'VALIDACAO_PAYLOAD', function() {
+    return atividadesV2_normalizarPayloadCriacaoAtividade_(activityPayload);
+  });
   if (!validation.ok) {
     return {
       ok: false,
@@ -48,46 +53,48 @@ function atividadesV2_portalCriarAtividade_(payload, contexto) {
   }
 
   var creation;
+  var avisos = [];
   try {
     var ss = atividadesV2_getDatabaseSpreadsheetDev_();
-    var atividadesSheet = atividadesV2_getTargetSheet_(ss, ATIVIDADES_V2_SHEETS.ATIVIDADES);
-    atividadesV2_applyHeadersIfMissing_(atividadesSheet, ATIVIDADES_V2_SCHEMA.ATIVIDADES);
-    creation = atividadesV2_montarCriacaoAtividadePreview_(validation.data, ctx, ss);
-    atividadesV2_appendAtividadeV2Row_(atividadesSheet, creation.row);
-    atividadesV2_logAtividadeCriadaPortal_(ss, creation, ctx);
-    atividadesV2_appendPortalAcaoAtividadeCriada_(ss, creation, ctx);
+    var existingRequest = atividadesV2_portalWriteFindRequest_(ss, portalAction);
+    if (existingRequest) return atividadesV2_portalWriteReplayResponse_(existingRequest);
+    atividadesV2_portalWriteStage_(trace, 'ESCRITA_PLANILHA_OFICIAL', function() {
+      var atividadesSheet = atividadesV2_getTargetSheet_(ss, ATIVIDADES_V2_SHEETS.ATIVIDADES);
+      atividadesV2_applyHeadersIfMissing_(atividadesSheet, ATIVIDADES_V2_SCHEMA.ATIVIDADES);
+      creation = atividadesV2_montarCriacaoAtividadePreview_(validation.data, ctx, ss);
+      atividadesV2_appendAtividadeV2Row_(atividadesSheet, creation.row);
+    });
+    trace.idAtividade = creation.idAtividade;
+    try {
+      atividadesV2_portalWriteStage_(trace, 'ENFILEIRAMENTO_POS_PROCESSAMENTO', function() {
+        atividadesV2_appendPortalAcaoAtividadeCriada_(ss, creation, ctx, portalAction);
+      });
+    } catch (queueError) {
+      avisos.push(atividadesV2_portalWriteWarning_(trace, 'POS_PROCESSAMENTO_NAO_ENFILEIRADO', 'A atividade foi criada, mas o pos-processamento nao entrou na fila operacional.'));
+    }
   } catch (err) {
-    return {
-      ok: false,
-      errorCode: err && (err.code || err.errorCode) || 'ERRO_CRIAR_ATIVIDADE',
-      message: atividadesV2_errorMessage_(err)
-    };
+    atividadesV2_portalWriteLogSafe_(atividadesV2_getDatabaseSpreadsheetDev_(), trace, 'ERRO', err && (err.code || err.errorCode) || 'ERRO_CRIAR_ATIVIDADE');
+    return atividadesV2_portalWriteErrorResponse_(err, 'ERRO_CRIAR_ATIVIDADE', atividadesV2_errorMessage_(err));
   } finally {
     lock.releaseLock();
   }
 
-  var views = null;
-  var avisos = [];
-  try {
-    views = atividadesV2_refreshViewsAfterActivityCreate_({
-      idAtividade: creation.idAtividade,
-      reason: 'ATIVIDADE_CRIADA_PORTAL',
-      contexto: ctx
-    });
-    atividadesV2_invalidateCachesAfterActivityCreate_(creation.idAtividade, creation.row);
-  } catch (postErr) {
-    avisos.push('Atividade criada, mas houve falha ao atualizar views/cache: ' + atividadesV2_errorMessage_(postErr).slice(0, 300));
-    Logger.log('GEAPA-ATIVIDADES-V2-PORTAL criar atividade: pos-processamento com erro: ' + atividadesV2_safeLogData_({
-      idAtividade: creation.idAtividade,
-      erro: atividadesV2_errorMessage_(postErr).slice(0, 300)
-    }));
-  }
-  return atividadesV2_buildCriacaoAtividadeResponse_(false, creation, {
+  avisos.push(atividadesV2_portalWriteMarkSecondaryPending_(trace));
+  var response = atividadesV2_buildCriacaoAtividadeResponse_(false, creation, {
     dryRun: false,
     escrita: true,
-    viewsAtualizadas: views,
+    viewsAtualizadas: null,
     avisos: avisos
   });
+  response.status = 'REGISTRADO';
+  response.warnings = avisos;
+  response.data = atividadesV2_portalWriteAttachResult_(response.data, trace, 'REGISTRADO');
+  response.performance = response.data.performance;
+  response.code = 'REGISTRADO';
+  response.userMessage = response.message;
+  response.entityId = creation.idAtividade;
+  response.retrySafe = false;
+  return response;
 }
 
 function atividadesV2_runTesteCriarAtividadePortalDev_() {
@@ -338,10 +345,10 @@ function atividadesV2_logAtividadeCriadaPortal_(ss, creation, contexto) {
   });
 }
 
-function atividadesV2_appendPortalAcaoAtividadeCriada_(ss, creation, contexto) {
+function atividadesV2_appendPortalAcaoAtividadeCriada_(ss, creation, contexto, portalAction) {
   var now = new Date();
   atividadesV2_portalAppendAcao_(ss, {
-    ID_ACAO_PORTAL: atividadesV2_buildDeterministicId_('AACT', ['ATIVIDADE_CRIADA', creation.idAtividade, now.getTime()]),
+    ID_ACAO_PORTAL: portalAction && portalAction.idAcao || atividadesV2_buildDeterministicId_('AACT', ['ATIVIDADE_CRIADA', creation.idAtividade, now.getTime()]),
     DATA_HORA: now,
     USUARIO_EMAIL: contexto.email || '',
     USUARIO_NOME: contexto.nome || '',
@@ -358,8 +365,12 @@ function atividadesV2_appendPortalAcaoAtividadeCriada_(ss, creation, contexto) {
       visibilidadePortal: creation.row.VISIBILIDADE_PORTAL,
       origem: 'PORTAL_GESTAO_ATIVIDADES'
     }),
-    STATUS_PROCESSAMENTO: 'CONCLUIDO',
-    RESULTADO_JSON: atividadesV2_safeLogData_({ ok: true, idAtividade: creation.idAtividade }),
+    STATUS_PROCESSAMENTO: ATIVIDADES_V2_PORTAL_POS_WRITE_PENDING_,
+    RESULTADO_JSON: atividadesV2_safeLogData_({
+      ok: true,
+      idAtividade: creation.idAtividade,
+      performance: atividadesV2_portalWriteSummary_(portalAction && portalAction.trace, 'REGISTRADO', '')
+    }),
     ERRO_CODIGO: '',
     ERRO_MENSAGEM: '',
     PROCESSADO_EM: now,

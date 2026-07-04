@@ -144,32 +144,50 @@ function atividadesV2_portalValidarEdicaoAtividadeAdmin_(payload, contexto) {
 function atividadesV2_portalSalvarEdicaoAtividadeAdmin_(payload, contexto) {
   var ctx = atividades_normalizePortalContext_(contexto || {});
   if (!atividadesV2_adminCanManage_(ctx)) return atividadesV2_adminPermissionError_();
+  var trace = atividadesV2_portalWriteTraceStart_('ATIVIDADE_EDITADA', payload);
+  var portalAction = atividadesV2_portalWriteBuildAction_('AACT', 'ATIVIDADE_EDITADA', payload || {}, ctx);
+  portalAction.trace = trace;
   var lock = LockService.getScriptLock();
   if (!lock.tryLock(30000)) return atividadesV2_adminError_('LOCK_INDISPONIVEL', 'Outra alteracao esta em andamento. Tente novamente.');
 
   var result;
+  var warnings = [];
   try {
     var ss = atividadesV2_getDatabaseSpreadsheetDev_();
-    var validation = atividadesV2_adminValidateEdit_(ss, payload || {});
+    var existingRequest = atividadesV2_portalWriteFindRequest_(ss, portalAction);
+    if (existingRequest) return atividadesV2_portalWriteReplayResponse_(existingRequest);
+    var validation = atividadesV2_portalWriteStage_(trace, 'VALIDACAO_PAYLOAD', function() {
+      return atividadesV2_adminValidateEdit_(ss, payload || {});
+    });
     if (!validation.ok) return validation;
-    var beforeFull = Object.assign({}, validation.activity);
-    var before = atividadesV2_adminSnapshot_(beforeFull);
+    var before = atividadesV2_adminSnapshot_(validation.activity);
     validation.updates.ATUALIZADO_POR = atividadesV2_portalActorToken_(ctx);
-    atividadesV2_adminWriteRowBatch_(validation.sheet, validation.activity._rowNumber, validation.updates);
+    atividadesV2_portalWriteStage_(trace, 'ESCRITA_PLANILHA_OFICIAL', function() {
+      atividadesV2_adminWriteRowBatch_(validation.sheet, validation.activity._rowNumber, validation.updates);
+    });
     var after = Object.assign({}, validation.activity, validation.updates);
-    atividadesV2_adminLogMutation_(ss, 'ATIVIDADE_EDITADA', validation.idAtividade, before, atividadesV2_adminSnapshot_(after), ctx);
+    trace.idAtividade = validation.idAtividade;
+    warnings = atividadesV2_portalWriteStage_(trace, 'ENFILEIRAMENTO_POS_PROCESSAMENTO', function() {
+      return atividadesV2_adminLogMutation_(ss, 'ATIVIDADE_EDITADA', validation.idAtividade, before, atividadesV2_adminSnapshot_(after), ctx, portalAction);
+    });
     result = atividadesV2_adminSuccessMutation_('Atividade atualizada com sucesso.', after);
-    atividadesV2_adminInvalidateCaches_(validation.idAtividade, beforeFull, after);
   } catch (err) {
+    atividadesV2_portalWriteLogSafe_(atividadesV2_getDatabaseSpreadsheetDev_(), trace, 'ERRO', err && (err.code || err.errorCode) || 'ERRO_SALVAR_EDICAO_ATIVIDADE');
     result = atividadesV2_adminErrorResponse_(err, 'ERRO_SALVAR_EDICAO_ATIVIDADE', 'Nao foi possivel salvar a atividade.');
   } finally {
     lock.releaseLock();
   }
-  if (result && result.ok) result.meta = atividadesV2_adminRefreshViewsSafe_(
-    result.data && result.data.idAtividade,
-    'ATIVIDADE_EDITADA',
-    ctx
-  );
+  if (result && result.ok) {
+    warnings.push(atividadesV2_portalWriteMarkSecondaryPending_(trace));
+    result.status = 'REGISTRADO';
+    result.warnings = warnings;
+    result.data = atividadesV2_portalWriteAttachResult_(result.data, trace, 'REGISTRADO');
+    result.performance = result.data.performance;
+    result.code = 'REGISTRADO';
+    result.userMessage = result.message;
+    result.entityId = result.data.idAtividade || '';
+    result.retrySafe = false;
+  }
   return result;
 }
 
@@ -178,36 +196,52 @@ function atividadesV2_portalAlterarStatusAtividadeAdmin_(action, payload, contex
   if (!atividadesV2_adminCanManage_(ctx)) return atividadesV2_adminPermissionError_();
   var id = atividadesV2_adminNormalizeActivityId_(payload && (payload.idAtividade || payload.ID_ATIVIDADE));
   if (!id) return atividadesV2_adminError_('ID_ATIVIDADE_OBRIGATORIO', 'Informe a atividade.');
+  var trace = atividadesV2_portalWriteTraceStart_('ATIVIDADE_' + action, payload);
+  trace.idAtividade = id;
+  var portalAction = atividadesV2_portalWriteBuildAction_('AACT', 'ATIVIDADE_' + action, payload || {}, ctx);
+  portalAction.trace = trace;
 
   var lock = LockService.getScriptLock();
   if (!lock.tryLock(30000)) return atividadesV2_adminError_('LOCK_INDISPONIVEL', 'Outra alteracao esta em andamento. Tente novamente.');
   var result;
+  var warnings = [];
   try {
     var ss = atividadesV2_getDatabaseSpreadsheetDev_();
+    var existingRequest = atividadesV2_portalWriteFindRequest_(ss, portalAction);
+    if (existingRequest) return atividadesV2_portalWriteReplayResponse_(existingRequest);
     var sheet = atividadesV2_getTargetSheet_(ss, ATIVIDADES_V2_SHEETS.ATIVIDADES);
     var activity = atividadesV2_adminFindInRows_(atividadesV2_readSheetObjects_(sheet), id);
     if (!activity) return atividadesV2_adminError_('ATIVIDADE_NAO_ENCONTRADA', 'Atividade nao encontrada na base V2 DEV.');
-    var beforeFull = Object.assign({}, activity);
-    var before = atividadesV2_adminSnapshot_(beforeFull);
+    var before = atividadesV2_adminSnapshot_(activity);
     var updates = atividadesV2_adminBuildStatusUpdates_(action, payload || {}, activity);
     if (!updates.ok) return updates;
     updates.data.ATUALIZADO_POR = atividadesV2_portalActorToken_(ctx);
     updates.data.ATUALIZADO_EM = new Date();
-    atividadesV2_adminWriteRowBatch_(sheet, activity._rowNumber, updates.data);
+    atividadesV2_portalWriteStage_(trace, 'ESCRITA_PLANILHA_OFICIAL', function() {
+      atividadesV2_adminWriteRowBatch_(sheet, activity._rowNumber, updates.data);
+    });
     var after = Object.assign({}, activity, updates.data);
-    atividadesV2_adminLogMutation_(ss, 'ATIVIDADE_' + action, id, before, atividadesV2_adminSnapshot_(after), ctx);
-    atividadesV2_adminInvalidateCaches_(id, beforeFull, after);
+    warnings = atividadesV2_portalWriteStage_(trace, 'ENFILEIRAMENTO_POS_PROCESSAMENTO', function() {
+      return atividadesV2_adminLogMutation_(ss, 'ATIVIDADE_' + action, id, before, atividadesV2_adminSnapshot_(after), ctx, portalAction);
+    });
     result = atividadesV2_adminSuccessMutation_(updates.message, after);
   } catch (err) {
+    atividadesV2_portalWriteLogSafe_(atividadesV2_getDatabaseSpreadsheetDev_(), trace, 'ERRO', err && (err.code || err.errorCode) || 'ERRO_' + action + '_ATIVIDADE');
     result = atividadesV2_adminErrorResponse_(err, 'ERRO_' + action + '_ATIVIDADE', 'Nao foi possivel alterar o estado da atividade.');
   } finally {
     lock.releaseLock();
   }
-  if (result && result.ok) result.meta = atividadesV2_adminRefreshViewsSafe_(
-    result.data && result.data.idAtividade,
-    'ATIVIDADE_' + atividades_normalizeTextUpper_(action),
-    ctx
-  );
+  if (result && result.ok) {
+    warnings.push(atividadesV2_portalWriteMarkSecondaryPending_(trace));
+    result.status = 'REGISTRADO';
+    result.warnings = warnings;
+    result.data = atividadesV2_portalWriteAttachResult_(result.data, trace, 'REGISTRADO');
+    result.performance = result.data.performance;
+    result.code = 'REGISTRADO';
+    result.userMessage = result.message;
+    result.entityId = result.data.idAtividade || '';
+    result.retrySafe = false;
+  }
   return result;
 }
 
@@ -530,22 +564,28 @@ function atividadesV2_adminWriteRowBatch_(sheet, rowNumber, updates) {
   range.setValues([values]);
 }
 
-function atividadesV2_adminLogMutation_(ss, action, idAtividade, before, after, contexto) {
+function atividadesV2_adminLogMutation_(ss, action, idAtividade, before, after, contexto, portalAction) {
   var now = new Date();
   var details = { idAtividade: idAtividade, antes: before, depois: after };
-  atividadesV2_appendV2Log_(ss, {
-    FLUXO: 'PORTAL_ATIVIDADES_GESTAO_DEV', ACAO: action, NIVEL: 'INFO', STATUS: 'OK',
-    ID_ATIVIDADE: idAtividade, ID_ENTIDADE: idAtividade, TIPO_ENTIDADE: 'ATIVIDADE',
-    MENSAGEM: 'Acao administrativa concluida na atividade V2 DEV.', DETALHES_JSON: atividadesV2_safeLogData_(details)
-  });
-  atividadesV2_portalAppendAcao_(ss, {
-    ID_ACAO_PORTAL: atividadesV2_buildDeterministicId_('AACT', [action, idAtividade, now.getTime()]),
-    DATA_HORA: now, USUARIO_EMAIL: contexto.email || '', USUARIO_NOME: '', PERFIL_USUARIO: contexto.perfil || '',
-    TIPO_ACAO: action, ID_ATIVIDADE: idAtividade, ID_ENTIDADE: idAtividade, TIPO_ENTIDADE: 'ATIVIDADE',
-    PAYLOAD_JSON: atividadesV2_safeLogData_(details), STATUS_PROCESSAMENTO: 'CONCLUIDO',
-    RESULTADO_JSON: atividadesV2_safeLogData_({ ok: true, idAtividade: idAtividade }),
-    PROCESSADO_EM: now, PROCESSADO_POR: atividadesV2_portalActorToken_(contexto), ATIVO: 'SIM'
-  });
+  var warnings = [];
+  try {
+    atividadesV2_portalAppendAcao_(ss, {
+      ID_ACAO_PORTAL: portalAction && portalAction.idAcao || atividadesV2_buildDeterministicId_('AACT', [action, idAtividade, now.getTime()]),
+      DATA_HORA: now, USUARIO_EMAIL: contexto.email || '', USUARIO_NOME: '', PERFIL_USUARIO: contexto.perfil || '',
+      TIPO_ACAO: action, ID_ATIVIDADE: idAtividade, ID_ENTIDADE: idAtividade, TIPO_ENTIDADE: 'ATIVIDADE',
+      PAYLOAD_JSON: atividadesV2_safeLogData_(details), STATUS_PROCESSAMENTO: ATIVIDADES_V2_PORTAL_POS_WRITE_PENDING_,
+      RESULTADO_JSON: atividadesV2_safeLogData_({
+        ok: true,
+        idAtividade: idAtividade,
+        posProcessamento: 'PENDENTE',
+        performance: atividadesV2_portalWriteSummary_(portalAction && portalAction.trace, 'REGISTRADO', '')
+      }),
+      PROCESSADO_EM: now, PROCESSADO_POR: atividadesV2_portalActorToken_(contexto), ATIVO: 'SIM'
+    });
+  } catch (error) {
+    warnings.push({ code: 'POS_PROCESSAMENTO_NAO_ENFILEIRADO', message: 'A atividade foi alterada, mas o pos-processamento nao entrou na fila operacional.' });
+  }
+  return warnings;
 }
 
 function atividadesV2_adminSnapshot_(row) {
@@ -630,7 +670,16 @@ function atividadesV2_adminPermissionError_() {
 }
 
 function atividadesV2_adminError_(code, message, extra) {
-  return Object.assign({ ok: false, errorCode: code, message: message }, extra || {});
+  return Object.assign({
+    ok: false,
+    code: code,
+    errorCode: code,
+    message: message,
+    userMessage: message,
+    entityId: '',
+    warnings: [],
+    retrySafe: false
+  }, extra || {});
 }
 
 function atividadesV2_adminErrorResponse_(err, code, message) {

@@ -152,6 +152,10 @@ function atividades_criarAtividadePorModelo_(payload, contexto) {
   if (request.dryRun !== false) {
     return atividades_validarCriacaoAtividadePorModelo_(request, contexto || {});
   }
+  var trace = atividadesV2_portalWriteTraceStart_('ATIVIDADE_MODELO_CRIADA', request);
+  var portalContext = atividades_normalizePortalContext_(contexto || {});
+  var portalAction = atividadesV2_portalWriteBuildAction_('AACT', 'ATIVIDADE_MODELO_CRIADA', request, portalContext);
+  portalAction.trace = trace;
 
   var lock = LockService.getScriptLock();
   if (!lock.tryLock(30000)) {
@@ -160,14 +164,19 @@ function atividades_criarAtividadePorModelo_(payload, contexto) {
 
   var validated;
   var creation;
+  var warnings = [];
   try {
-    validated = atividades_modelosCriacaoValidate_(request, contexto || {}, { emitirConfirmacao: false });
+    validated = atividadesV2_portalWriteStage_(trace, 'VALIDACAO_PAYLOAD', function() {
+      return atividades_modelosCriacaoValidate_(request, contexto || {}, { emitirConfirmacao: false });
+    });
     if (!validated.ok) return validated;
 
+    var ss = atividadesV2_getDatabaseSpreadsheetDev_();
+    var existingRequest = atividadesV2_portalWriteFindRequest_(ss, portalAction);
+    if (existingRequest) return atividadesV2_portalWriteReplayResponse_(existingRequest);
     var tokenCheck = atividades_modelosCriacaoValidateConfirmation_(request.confirmacaoToken, validated.meta.fingerprint);
     if (!tokenCheck.ok) return tokenCheck;
 
-    var ss = atividadesV2_getDatabaseSpreadsheetDev_();
     var sheet = atividadesV2_getTargetSheet_(ss, ATIVIDADES_V2_SHEETS.ATIVIDADES);
     atividadesV2_applyHeadersIfMissing_(sheet, ATIVIDADES_V2_SCHEMA.ATIVIDADES);
     atividadesV2_applyHeadersIfMissing_(
@@ -179,43 +188,51 @@ function atividades_criarAtividadePorModelo_(payload, contexto) {
       ATIVIDADES_V2_SCHEMA.ENVOLVIDOS
     );
     creation = validated.meta.creation;
-    atividadesV2_appendAtividadeV2Row_(sheet, creation.row);
-    creation.apresentacao = atividades_modelosCriacaoAppendPresentationExtension_(ss, creation, validated.meta.model, validated.meta.contexto);
-    creation.envolvido = atividades_modelosCriacaoAppendPresenterInvolvement_(ss, creation, validated.meta.model);
-    atividades_modelosCriacaoAppendLogs_(ss, creation, validated.meta.model, validated.meta.contexto);
-    portalCacheRemove_(atividades_modelosCriacaoConfirmationCacheKey_(request.confirmacaoToken));
+    atividadesV2_portalWriteStage_(trace, 'ESCRITA_PLANILHA_OFICIAL', function() {
+      atividadesV2_appendAtividadeV2Row_(sheet, creation.row);
+      creation.apresentacao = atividades_modelosCriacaoAppendPresentationExtension_(ss, creation, validated.meta.model, validated.meta.contexto);
+      creation.envolvido = atividades_modelosCriacaoAppendPresenterInvolvement_(ss, creation, validated.meta.model);
+    });
+    trace.idAtividade = creation.idAtividade;
+    try {
+      atividadesV2_portalWriteStage_(trace, 'ENFILEIRAMENTO_POS_PROCESSAMENTO', function() {
+        atividades_modelosCriacaoAppendLogs_(ss, creation, validated.meta.model, validated.meta.contexto, portalAction);
+      });
+    } catch (queueError) {
+      warnings.push(atividadesV2_portalWriteWarning_(trace, 'POS_PROCESSAMENTO_NAO_ENFILEIRADO', 'A atividade foi criada, mas o pos-processamento nao entrou na fila operacional.'));
+    }
+    try {
+      portalCacheRemove_(atividades_modelosCriacaoConfirmationCacheKey_(request.confirmacaoToken));
+    } catch (cacheError) {
+      warnings.push(atividadesV2_portalWriteWarning_(trace, 'CACHE_INVALIDACAO_PENDENTE', 'A atividade foi criada, mas a confirmacao temporaria sera expirada pelo cache.'));
+    }
   } catch (err) {
+    atividadesV2_portalWriteLogSafe_(atividadesV2_getDatabaseSpreadsheetDev_(), trace, 'ERRO', err && (err.code || err.errorCode) || 'ERRO_CRIAR_ATIVIDADE_POR_MODELO');
     return atividades_modelosCriacaoError_('ERRO_CRIAR_ATIVIDADE_POR_MODELO', 'Nao foi possivel criar a atividade pelo modelo.', err);
   } finally {
     lock.releaseLock();
   }
 
-  var warnings = [];
-  var views = null;
-  try {
-    views = atividadesV2_refreshViewsAfterActivityCreate_({
-      idAtividade: creation.idAtividade,
-      reason: 'ATIVIDADE_CRIADA_POR_MODELO',
-      contexto: validated.meta.contexto
-    });
-    atividadesV2_invalidateCachesAfterActivityCreate_(creation.idAtividade, creation.row);
-  } catch (postErr) {
-    warnings.push('Atividade criada, mas houve falha ao atualizar views/cache. Execute a atualizacao manual das views.');
-    Logger.log('GEAPA-ATIVIDADES-V2-MODELOS pos-processamento: ' + atividadesV2_safeLogData_({
-      idAtividade: creation.idAtividade,
-      erro: atividadesV2_errorMessage_(postErr).slice(0, 300)
-    }));
-  }
+  warnings.push(atividadesV2_portalWriteMarkSecondaryPending_(trace));
+  var data = atividades_modelosCriacaoBuildResponseData_(creation, validated.meta.safeModel);
+  atividadesV2_portalWriteAttachResult_(data, trace, 'REGISTRADO');
 
   return {
     ok: true,
+    code: 'REGISTRADO',
+    status: 'REGISTRADO',
     message: 'Atividade criada pelo modelo homologado como rascunho.',
-    data: atividades_modelosCriacaoBuildResponseData_(creation, validated.meta.safeModel),
+    userMessage: 'Atividade criada pelo modelo homologado como rascunho.',
+    entityId: creation.idAtividade,
+    retrySafe: false,
+    data: data,
+    warnings: warnings,
+    performance: data.performance,
     meta: {
       dryRun: false,
       escrita: true,
       ambiente: 'DEV',
-      viewsAtualizadas: views,
+      viewsAtualizadas: null,
       avisos: warnings
     }
   };
@@ -974,7 +991,7 @@ function atividades_modelosCriacaoAppendPresenterInvolvement_(ss, creation, mode
   return { idEnvolvido: idEnvolvido, criado: true };
 }
 
-function atividades_modelosCriacaoAppendLogs_(ss, creation, model, contexto) {
+function atividades_modelosCriacaoAppendLogs_(ss, creation, model, contexto, portalAction) {
   var safeDetails = {
     idAtividade: creation.idAtividade,
     idApresentacao: creation.apresentacao ? creation.apresentacao.idApresentacao : '',
@@ -985,17 +1002,8 @@ function atividades_modelosCriacaoAppendLogs_(ss, creation, model, contexto) {
     statusPublicacaoPortal: creation.row.STATUS_PUBLICACAO_PORTAL,
     visibilidadePortal: creation.row.VISIBILIDADE_PORTAL
   };
-  atividadesV2_appendV2Log_(ss, {
-    FLUXO: 'PORTAL_ATIVIDADES_GESTAO_DEV',
-    ACAO: 'CRIAR_ATIVIDADE_POR_MODELO',
-    NIVEL: 'INFO',
-    STATUS: 'OK',
-    ID_ATIVIDADE: creation.idAtividade,
-    MENSAGEM: 'Atividade criada por modelo homologado em modo rascunho.',
-    DETALHES_JSON: atividadesV2_safeLogData_(safeDetails)
-  });
   atividadesV2_portalAppendAcao_(ss, {
-    ID_ACAO_PORTAL: atividadesV2_buildDeterministicId_('AACT', ['ATIVIDADE_MODELO_CRIADA', creation.idAtividade, new Date().getTime()]),
+    ID_ACAO_PORTAL: portalAction && portalAction.idAcao || atividadesV2_buildDeterministicId_('AACT', ['ATIVIDADE_MODELO_CRIADA', creation.idAtividade, new Date().getTime()]),
     DATA_HORA: new Date(),
     USUARIO_EMAIL: contexto.email || '',
     PERFIL_USUARIO: contexto.perfil || '',
@@ -1004,8 +1012,12 @@ function atividades_modelosCriacaoAppendLogs_(ss, creation, model, contexto) {
     ID_ENTIDADE: creation.idAtividade,
     TIPO_ENTIDADE: 'ATIVIDADE',
     PAYLOAD_JSON: atividadesV2_safeLogData_(safeDetails),
-    STATUS_PROCESSAMENTO: 'CONCLUIDO',
-    RESULTADO_JSON: atividadesV2_safeLogData_({ ok: true, idAtividade: creation.idAtividade }),
+    STATUS_PROCESSAMENTO: ATIVIDADES_V2_PORTAL_POS_WRITE_PENDING_,
+    RESULTADO_JSON: atividadesV2_safeLogData_({
+      ok: true,
+      idAtividade: creation.idAtividade,
+      performance: atividadesV2_portalWriteSummary_(portalAction && portalAction.trace, 'REGISTRADO', '')
+    }),
     PROCESSADO_EM: new Date(),
     PROCESSADO_POR: atividadesV2_portalActorToken_(contexto),
     OBSERVACOES: 'Criacao DEV por modelo homologado.',

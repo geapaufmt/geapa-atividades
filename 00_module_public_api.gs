@@ -465,6 +465,44 @@ function atividadesV2_jobPortal(options) {
   });
 }
 
+function atividadesV2_processarPosEscritasPortal(options) {
+  options = options || {};
+  return atividades_runWithOperationalGuard_('ATUALIZACAO_PORTAL_V2', null, function(guard) {
+    return atividadesV2_processarPosEscritasPortal_(atividadesV2_jobPortalOptions_(options, guard));
+  }, { entrypoint: 'atividadesV2_processarPosEscritasPortal', executionType: 'MANUAL' });
+}
+
+function atividadesV2_runTestePosEscritasPortalDryRun() {
+  return atividades_runWithOperationalGuard_('CONFERENCIA_V2', null, function() {
+    return atividadesV2_processarPosEscritasPortal_({ dryRun: true, limit: 10 });
+  }, { entrypoint: 'atividadesV2_runTestePosEscritasPortalDryRun' });
+}
+
+function atividadesV2_runTestePortalWriteRuntime() {
+  return atividadesV2_runTestePortalWriteRuntime_();
+}
+
+function atividadesV2_runProcessarPosEscritasPortalDev() {
+  return atividades_runWithOperationalGuard_('ATUALIZACAO_PORTAL_V2', null, function(guard) {
+    return atividadesV2_processarPosEscritasPortal_(atividadesV2_jobPortalOptions_({
+      dryRun: false,
+      executionType: 'MANUAL',
+      limit: 10
+    }, guard));
+  }, { entrypoint: 'atividadesV2_runProcessarPosEscritasPortalDev', executionType: 'MANUAL' });
+}
+
+function atividadesV2_runJobPortalDev() {
+  return atividades_runWithOperationalGuard_('ATUALIZACAO_PORTAL_V2', null, function(guard) {
+    return atividadesV2_jobPortal_(atividadesV2_jobPortalOptions_({
+      dryRun: false,
+      executionType: 'MANUAL',
+      stopOnError: false,
+      limit: 10
+    }, guard));
+  }, { entrypoint: 'atividadesV2_runJobPortalDev', executionType: 'MANUAL' });
+}
+
 function atividadesV2_conferirPortal(options) {
   return atividades_runWithOperationalGuard_('CONFERENCIA_V2', null, function() {
     return atividadesV2_conferirPortal_(options || {});

@@ -20,7 +20,7 @@ function atividadesV2_portalRegistrarFotoReuniao_(payload, contexto) {
     var config = atividadesV2_portalGetActivityConfig_(ss, bundle.atividade);
     var rules = atividadesV2_resolveFotoReuniaoRules_(bundle.atividade, config);
     atividadesV2_assertPodeRegistrarFotoReuniao_(bundle, action.contexto, rules);
-    return atividadesV2_registrarFotoReuniaoNoBundle_(ss, bundle, action.payload, action.contexto, rules);
+    return atividadesV2_registrarFotoReuniaoNoBundle_(ss, bundle, action.payload, action.contexto, rules, action.trace);
   });
 }
 
@@ -107,7 +107,7 @@ function atividadesV2_portalRevisarFotoReuniao_(payload, contexto) {
   });
 }
 
-function atividadesV2_registrarFotoReuniaoNoBundle_(ss, bundle, payload, contexto, rules) {
+function atividadesV2_registrarFotoReuniaoNoBundle_(ss, bundle, payload, contexto, rules, trace) {
   var fileId = String(payload.fileId || payload.idArquivo || '').trim();
   var driveLink = String(payload.linkArquivo || payload.linkFoto || payload.linkDrive || '').trim();
   var base64 = String(payload.conteudoBase64 || payload.base64 || '').trim();
@@ -125,26 +125,32 @@ function atividadesV2_registrarFotoReuniaoNoBundle_(ss, bundle, payload, context
     throw atividadesV2_portalActionException_('LINK_FOTO_NAO_PERMITIDO', 'O modelo nao permite envio por link de Drive.');
   }
 
-  var sourceFile = fileId ? DriveApp.getFileById(fileId) : null;
-  var originalName = String(payload.nomeArquivoOriginal || payload.nomeArquivo || (sourceFile ? sourceFile.getName() : 'foto-reuniao.jpg')).trim();
-  var mimeType = String(payload.mimeType || (sourceFile ? sourceFile.getMimeType() : '')).trim();
-  atividadesV2_assertFotoReuniaoFileAllowed_(originalName, mimeType, rules);
-  atividadesV2_assertArquivoSizeAllowed_(sourceFile, base64, rules.tamanhoMaxBytes, 'FOTO_REUNIAO_MUITO_GRANDE');
+  var upload = atividadesV2_portalWriteStage_(trace, 'UPLOAD_ANEXO', function() {
+    var sourceFile = fileId ? DriveApp.getFileById(fileId) : null;
+    var originalName = String(payload.nomeArquivoOriginal || payload.nomeArquivo || (sourceFile ? sourceFile.getName() : 'foto-reuniao.jpg')).trim();
+    var mimeType = String(payload.mimeType || (sourceFile ? sourceFile.getMimeType() : '')).trim();
+    atividadesV2_assertFotoReuniaoFileAllowed_(originalName, mimeType, rules);
+    atividadesV2_assertArquivoSizeAllowed_(sourceFile, base64, rules.tamanhoMaxBytes, 'FOTO_REUNIAO_MUITO_GRANDE');
 
-  var activityFolderInfo = atividadesV2_garantirPastaAtividade_(bundle.atividade.ID_ATIVIDADE, { spreadsheet: ss });
-  var activityFolder = DriveApp.getFolderById(activityFolderInfo.folderId);
-  var photosFolderIterator = activityFolder.getFoldersByName('Fotos');
-  var photosFolder = photosFolderIterator.hasNext() ? photosFolderIterator.next() : activityFolder.createFolder('Fotos');
-  var extension = atividadesV2_getFileExtension_(originalName) || atividadesV2_photoExtensionFromMime_(mimeType);
-  var baseName = atividadesV2_sanitizeDriveFileName_([
-    bundle.atividade.ID_ATIVIDADE,
-    bundle.apresentacao.ID_APRESENTACAO,
-    'Foto da reuniao'
-  ].join(' - ')) + extension;
-  var versioned = atividadesV2_resolveMaterialFileName_(photosFolder, baseName);
-  var targetFile = sourceFile
-    ? sourceFile.makeCopy(versioned.nomeArquivo, photosFolder)
-    : atividadesV2_createMaterialFileFromBase64_(photosFolder, versioned.nomeArquivo, base64, mimeType || 'image/jpeg');
+    var activityFolderInfo = atividadesV2_garantirPastaAtividade_(bundle.atividade.ID_ATIVIDADE, { spreadsheet: ss });
+    var activityFolder = DriveApp.getFolderById(activityFolderInfo.folderId);
+    var photosFolderIterator = activityFolder.getFoldersByName('Fotos');
+    var photosFolder = photosFolderIterator.hasNext() ? photosFolderIterator.next() : activityFolder.createFolder('Fotos');
+    var extension = atividadesV2_getFileExtension_(originalName) || atividadesV2_photoExtensionFromMime_(mimeType);
+    var baseName = atividadesV2_sanitizeDriveFileName_([
+      bundle.atividade.ID_ATIVIDADE,
+      bundle.apresentacao.ID_APRESENTACAO,
+      'Foto da reuniao'
+    ].join(' - ')) + extension;
+    var versioned = atividadesV2_resolveMaterialFileName_(photosFolder, baseName);
+    var targetFile = sourceFile
+      ? sourceFile.makeCopy(versioned.nomeArquivo, photosFolder)
+      : atividadesV2_createMaterialFileFromBase64_(photosFolder, versioned.nomeArquivo, base64, mimeType || 'image/jpeg');
+    return { mimeType: mimeType, targetFile: targetFile, versioned: versioned };
+  });
+  var mimeType = upload.mimeType;
+  var targetFile = upload.targetFile;
+  var versioned = upload.versioned;
 
   var filesSheet = atividadesV2_getArquivosSheetForWrite_(ss);
   var existing = atividadesV2_findLatestArquivoAtividade_(
@@ -155,14 +161,15 @@ function atividadesV2_registrarFotoReuniaoNoBundle_(ss, bundle, payload, context
   );
   var now = new Date();
   var actor = atividadesV2_portalActorToken_(contexto);
-  if (existing && existing._rowNumber) {
-    atividadesV2_updateRowByHeaders_(filesSheet, existing._rowNumber, {
-      STATUS_ARQUIVO: 'HISTORICO',
-      ATUALIZADO_POR: actor,
-      ATUALIZADO_EM: now
-    });
-  }
-  var row = atividadesV2_appendArquivoAtividade_(filesSheet, {
+  var row = atividadesV2_portalWriteStage_(trace, 'ESCRITA_PLANILHA_OFICIAL', function() {
+    if (existing && existing._rowNumber) {
+      atividadesV2_updateRowByHeaders_(filesSheet, existing._rowNumber, {
+        STATUS_ARQUIVO: 'HISTORICO',
+        ATUALIZADO_POR: actor,
+        ATUALIZADO_EM: now
+      });
+    }
+    return atividadesV2_appendArquivoAtividade_(filesSheet, {
     ID_ARQUIVO_ATIVIDADE: atividadesV2_buildArquivoAtividadeId_(bundle.atividade.ID_ATIVIDADE, bundle.apresentacao.ID_APRESENTACAO, ATIVIDADES_V2_TIPO_ARQUIVO_FOTO_),
     ID_ATIVIDADE: bundle.atividade.ID_ATIVIDADE,
     ID_APRESENTACAO: bundle.apresentacao.ID_APRESENTACAO,
@@ -187,7 +194,8 @@ function atividadesV2_registrarFotoReuniaoNoBundle_(ss, bundle, payload, context
     CRIADO_POR: actor,
     CRIADO_EM: now,
     ATUALIZADO_POR: actor,
-    ATUALIZADO_EM: now
+      ATUALIZADO_EM: now
+    });
   });
   return atividadesV2_buildArquivoActionResult_(bundle, contexto, {
     statusArquivo: row.STATUS_ARQUIVO,

@@ -52,6 +52,10 @@ function atividadesV2_jobPortal_(options) {
     }
   };
 
+  atividadesV2_jobRunStep_(result, 'PROCESSAR_POS_ESCRITAS_PORTAL', function() {
+    return atividadesV2_processarPosEscritasPortal_(opts);
+  });
+
   atividadesV2_jobRunStep_(result, 'ATUALIZAR_VIEWS_PORTAL', function() {
     return atividadesV2_atualizarViewsPortal_(opts);
   });

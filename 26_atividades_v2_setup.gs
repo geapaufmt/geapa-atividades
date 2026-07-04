@@ -1992,6 +1992,7 @@ function atividadesV2_isCanonicalActivityId_(value) {
 function atividadesV2_appendV2Log_(ss, payload) {
   var sheet = ss.getSheetByName(ATIVIDADES_V2_SHEETS.LOG);
   if (!sheet) return null;
+  var details = String(payload && payload.DETALHES_JSON || '').slice(0, 8000);
   var row = {
     ID_LOG: atividadesV2_buildDeterministicId_('LOGV2', [new Date().getTime(), payload && payload.ACAO]),
     DATA_HORA: new Date(),
@@ -2001,8 +2002,11 @@ function atividadesV2_appendV2Log_(ss, payload) {
     NIVEL: payload && payload.NIVEL ? payload.NIVEL : 'INFO',
     STATUS: payload && payload.STATUS ? payload.STATUS : '',
     ID_ATIVIDADE: payload && payload.ID_ATIVIDADE ? payload.ID_ATIVIDADE : '',
-    MENSAGEM: payload && payload.MENSAGEM ? payload.MENSAGEM : '',
-    DETALHES_JSON: payload && payload.DETALHES_JSON ? payload.DETALHES_JSON : '',
+    ID_ENTIDADE: payload && payload.ID_ENTIDADE ? payload.ID_ENTIDADE : '',
+    TIPO_ENTIDADE: payload && payload.TIPO_ENTIDADE ? payload.TIPO_ENTIDADE : '',
+    USUARIO: payload && payload.USUARIO ? String(payload.USUARIO).slice(0, 120) : '',
+    MENSAGEM: payload && payload.MENSAGEM ? String(payload.MENSAGEM).slice(0, 500) : '',
+    DETALHES_JSON: details,
     ORIGEM: 'APPS_SCRIPT',
     CRIADO_EM: new Date()
   };

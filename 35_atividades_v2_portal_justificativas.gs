@@ -49,7 +49,9 @@ function atividadesV2_portalEnviarJustificativa_(payload, contexto) {
     payload,
     contexto,
     function(ss, action) {
-      var bundle = atividadesV2_resolveJustificativaSubmissionBundle_(ss, action.payload, action.contexto);
+      var bundle = atividadesV2_portalWriteStage_(action.trace, 'VALIDACAO_USUARIO_PERMISSAO', function() {
+        return atividadesV2_resolveJustificativaSubmissionBundle_(ss, action.payload, action.contexto);
+      });
       var now = new Date();
       var user = atividadesV2_justificativaActorToken_(action.contexto);
       var existing = bundle.existingActive;
@@ -57,8 +59,12 @@ function atividadesV2_portalEnviarJustificativa_(payload, contexto) {
       var idJustificativa = existing
         ? String(existing.ID_JUSTIFICATIVA || '').trim()
         : atividadesV2_buildNextJustificativaIdForRecord_(bundle.justificativas, bundle.presenca, bundle.atividade);
-      var normalized = atividadesV2_validateJustificativaSubmissionPayload_(action.payload, bundle.prazo);
-      var uploadResult = atividadesV2_processJustificativaDocumentoUpload_(ss, action.payload, bundle, idJustificativa);
+      var normalized = atividadesV2_portalWriteStage_(action.trace, 'VALIDACAO_PAYLOAD', function() {
+        return atividadesV2_validateJustificativaSubmissionPayload_(action.payload, bundle.prazo);
+      });
+      var uploadResult = atividadesV2_portalWriteStage_(action.trace, 'UPLOAD_ANEXO', function() {
+        return atividadesV2_processJustificativaDocumentoUpload_(ss, action.payload, bundle, idJustificativa);
+      });
       if (uploadResult && uploadResult.linkDocumentoComprobatorio) {
         normalized.possuiDocumentoComprobatorio = 'SIM';
         normalized.linkDocumentoComprobatorio = uploadResult.linkDocumentoComprobatorio;
@@ -80,24 +86,26 @@ function atividadesV2_portalEnviarJustificativa_(payload, contexto) {
         observacaoForaPrazo: observacaoForaPrazo
       });
 
-      if (existing) {
-        atividadesV2_updateRowByHeaders_(bundle.justificativasSheet, existing._rowNumber, row);
-      } else {
-        atividadesV2_appendObjectByHeaders_(bundle.justificativasSheet, row);
-      }
+      atividadesV2_portalWriteStage_(action.trace, 'ESCRITA_PLANILHA_OFICIAL', function() {
+        if (existing) {
+          atividadesV2_updateRowByHeaders_(bundle.justificativasSheet, existing._rowNumber, row);
+        } else {
+          atividadesV2_appendObjectByHeaders_(bundle.justificativasSheet, row);
+        }
 
-      if (!bundle.isPrevia) {
-        atividadesV2_updateRowByHeaders_(bundle.presencasSheet, bundle.presenca._rowNumber, {
-          ID_JUSTIFICATIVA: idJustificativa,
-          STATUS_JUSTIFICATIVA: 'ENVIADA',
-          ATUALIZADO_POR: user,
-          ATUALIZADO_EM: now,
-          OBSERVACOES: atividadesV2_joinObservacoes_(
-            bundle.presenca.OBSERVACOES,
-            bundle.prazo.envioForaDoPrazo === 'SIM' ? 'Justificativa enviada fora do prazo pelo Portal.' : 'Justificativa enviada pelo Portal.'
-          )
-        });
-      }
+        if (!bundle.isPrevia) {
+          atividadesV2_updateRowByHeaders_(bundle.presencasSheet, bundle.presenca._rowNumber, {
+            ID_JUSTIFICATIVA: idJustificativa,
+            STATUS_JUSTIFICATIVA: 'ENVIADA',
+            ATUALIZADO_POR: user,
+            ATUALIZADO_EM: now,
+            OBSERVACOES: atividadesV2_joinObservacoes_(
+              bundle.presenca.OBSERVACOES,
+              bundle.prazo.envioForaDoPrazo === 'SIM' ? 'Justificativa enviada fora do prazo pelo Portal.' : 'Justificativa enviada pelo Portal.'
+            )
+          });
+        }
+      });
 
       return {
         idJustificativa: idJustificativa,
@@ -1261,35 +1269,50 @@ function atividadesV2_sortJustificativasPortalByDate_(a, b) {
 
 function atividadesV2_portalRunJustificativaAction_(tipoAcao, payload, contexto, callback) {
   var action = atividadesV2_portalJustificativaActionStart_(tipoAcao, payload, contexto);
+  var trace = atividadesV2_portalWriteTraceStart_(tipoAcao, payload);
+  action.trace = trace;
+  var replayResponse = null;
   try {
     var result = atividadesV2_portalWithLock_('JUSTIFICATIVAS_PORTAL_V2', function(ss) {
-      var data = callback(ss, action);
-      atividadesV2_portalJustificativaActionSuccess_(ss, action, data);
+      var existing = atividadesV2_portalWriteFindRequest_(ss, action);
+      if (existing) {
+        replayResponse = atividadesV2_portalWriteReplayResponse_(existing);
+        return null;
+      }
+      var data = atividadesV2_portalWriteStage_(trace, 'VALIDACAO_E_ESCRITA_OFICIAL', function() {
+        return callback(ss, action);
+      });
+      data.performance = atividadesV2_portalWriteSummary_(trace, 'REGISTRADO', '');
+      var auditWarnings = atividadesV2_portalWriteStage_(trace, 'ENFILEIRAMENTO_POS_PROCESSAMENTO', function() {
+        return atividadesV2_portalJustificativaActionSuccess_(ss, action, data) || [];
+      });
+      auditWarnings.forEach(function(warning) {
+        atividadesV2_portalWriteWarning_(trace, warning.code, warning.message);
+      });
       return data;
     });
-    atividadesV2_refreshJustificativasPortalViews_();
-    atividadesV2_invalidateJustificativasPortalCaches_(action.contexto, result);
-    atividadesV2_mailAttachQueueResult_(
-      result,
-      atividadesV2_mailQueuePortalAction_(tipoAcao, action.payload, action.contexto, result)
-    );
-    return {
-      ok: true,
-      message: 'Justificativa processada com sucesso na base DEV.',
-      data: result
-    };
+    if (replayResponse) return replayResponse;
+    trace.idAtividade = result.idAtividade || trace.idAtividade;
+    trace.idJustificativa = result.idJustificativa || trace.idJustificativa;
+    atividadesV2_portalWriteMarkSecondaryPending_(trace);
+    atividadesV2_portalWriteAttachResult_(result, trace, 'REGISTRADO');
+    return atividadesV2_portalWriteSuccessResponse_(result, {
+      userMessage: 'Justificativa recebida e registrada.',
+      entityId: result.idJustificativa || ''
+    });
   } catch (err) {
+    atividadesV2_portalWriteLogSafe_(atividadesV2_getDatabaseSpreadsheetDev_(), trace, 'ERRO', err && (err.code || err.errorCode) || 'ERRO_JUSTIFICATIVA');
     try {
       atividadesV2_portalJustificativaActionError_(atividadesV2_getDatabaseSpreadsheetDev_(), action, err);
     } catch (logErr) {}
-    return atividadesV2_portalActionErrorResponse_(err);
+    return atividadesV2_portalWriteErrorResponse_(err, 'ERRO_JUSTIFICATIVA', atividadesV2_errorMessage_(err));
   }
 }
 
 function atividadesV2_portalJustificativaActionStart_(tipoAcao, payload, contexto) {
   var ctx = atividades_normalizePortalContext_(contexto || {});
   return {
-    idAcao: atividadesV2_buildDeterministicId_('JACT', [tipoAcao, new Date().getTime(), ctx.email || ctx.idPessoa || ctx.rga || ctx.perfil]),
+    idAcao: atividadesV2_portalWriteActionId_('JACT', tipoAcao, payload || {}, ctx),
     tipoAcao: tipoAcao,
     payload: payload || {},
     contexto: ctx,
@@ -1298,21 +1321,13 @@ function atividadesV2_portalJustificativaActionStart_(tipoAcao, payload, context
 }
 
 function atividadesV2_portalJustificativaActionSuccess_(ss, acao, resultado) {
-  atividadesV2_portalAppendAcao_(ss, atividadesV2_buildPortalJustificativaActionRow_(acao, 'CONCLUIDO', resultado, null));
-  atividadesV2_appendV2Log_(ss, {
-    FLUXO: 'JUSTIFICATIVAS_PORTAL_V2',
-    ACAO: acao.tipoAcao,
-    NIVEL: 'INFO',
-    STATUS: 'OK',
-    ID_ATIVIDADE: resultado && resultado.idAtividade || acao.payload.idAtividade || '',
-    MENSAGEM: 'Acao de justificativa processada pelo Portal GEAPA DEV.',
-    DETALHES_JSON: atividadesV2_safeLogData_({
-      idJustificativa: resultado && resultado.idJustificativa || '',
-      idRegistroPresenca: resultado && resultado.idRegistroPresenca || '',
-      status: resultado && (resultado.statusAnalise || resultado.decisaoAplicada) || '',
-      envioForaDoPrazo: resultado && resultado.envioForaDoPrazo || ''
-    })
-  });
+  var warnings = [];
+  try {
+    atividadesV2_portalAppendAcao_(ss, atividadesV2_buildPortalJustificativaActionRow_(acao, ATIVIDADES_V2_PORTAL_POS_WRITE_PENDING_, resultado, null));
+  } catch (error) {
+    warnings.push({ code: 'POS_PROCESSAMENTO_NAO_ENFILEIRADO', message: 'A justificativa foi registrada, mas o pos-processamento nao entrou na fila operacional.' });
+  }
+  return warnings;
 }
 
 function atividadesV2_portalJustificativaActionError_(ss, acao, erro) {
@@ -1344,7 +1359,10 @@ function atividadesV2_buildPortalJustificativaActionRow_(acao, status, resultado
     STATUS_PROCESSAMENTO: status,
     RESULTADO_JSON: resultado ? atividadesV2_safeLogData_({
       ok: true,
+      idAtividade: resultado.idAtividade || '',
+      idJustificativa: resultado.idJustificativa || '',
       status: resultado.statusAnalise || resultado.decisaoAplicada || '',
+      performance: resultado.performance || null,
       envioForaDoPrazo: resultado.envioForaDoPrazo || ''
     }) : '',
     ERRO_CODIGO: erro && (erro.code || erro.errorCode) || '',
@@ -1361,6 +1379,8 @@ function atividadesV2_sanitizeJustificativaActionPayload_(payload) {
     idJustificativa: payload && payload.idJustificativa || '',
     idRegistroPresenca: payload && payload.idRegistroPresenca || '',
     idAtividade: payload && payload.idAtividade || '',
+    requestId: payload && payload.requestId || '',
+    clientSubmittedAt: payload && payload.clientSubmittedAt || '',
     motivoDeclarado: atividades_sanitizePortalText_(payload && payload.motivoDeclarado, 120),
     decisao: payload && payload.decisao || '',
     possuiDocumentoComprobatorio: payload && payload.possuiDocumentoComprobatorio || '',

@@ -154,6 +154,7 @@ function atividadesV2_buildNomeMaterialApresentacao_(atividade, apresentacao, ar
 function atividadesV2_registrarMaterialApresentacao_(payload, contexto) {
   payload = payload || {};
   contexto = contexto || {};
+  var trace = contexto._portalWriteTrace || null;
   var idAtividade = String(payload.idAtividade || payload.ID_ATIVIDADE || '').trim();
   var idApresentacao = String(payload.idApresentacao || payload.ID_APRESENTACAO || '').trim();
   var fileId = String(payload.fileId || payload.idArquivo || payload.ID_ARQUIVO || '').trim();
@@ -168,6 +169,11 @@ function atividadesV2_registrarMaterialApresentacao_(payload, contexto) {
 
   try {
     var ss = atividadesV2_getDatabaseSpreadsheetDev_();
+    var portalAction = contexto._portalWriteAction || null;
+    var existingRequest = portalAction ? atividadesV2_portalWriteFindRequest_(ss, portalAction) : null;
+    if (existingRequest) {
+      return { _idempotentReplayResponse: atividadesV2_portalWriteReplayResponse_(existingRequest) };
+    }
     var atividadesSheet = atividadesV2_getTargetSheet_(ss, ATIVIDADES_V2_SHEETS.ATIVIDADES);
     var apresentacoesSheet = atividadesV2_getTargetSheet_(ss, ATIVIDADES_V2_SHEETS.APRESENTACOES);
     atividadesV2_applyHeadersIfMissing_(atividadesSheet, ATIVIDADES_V2_SCHEMA.ATIVIDADES);
@@ -193,22 +199,32 @@ function atividadesV2_registrarMaterialApresentacao_(payload, contexto) {
       throw new Error('LINK_MATERIAL_NAO_PERMITIDO: o modelo nao permite arquivo informado por link/ID.');
     }
 
-    var folderInfo = atividadesV2_garantirPastaAtividade_(idAtividade, { spreadsheet: ss });
-    var folder = DriveApp.getFolderById(folderInfo.folderId);
-    var sourceFile = fileId ? DriveApp.getFileById(fileId) : null;
-    var originalName = payload.nomeArquivoOriginal || payload.nomeArquivo || (sourceFile ? sourceFile.getName() : 'material.pdf');
-    var mimeType = payload.mimeType || (sourceFile ? sourceFile.getMimeType() : '');
-    atividadesV2_assertMaterialFileAllowed_(originalName, mimeType, materialConfig);
-    atividadesV2_assertMaterialFileSizeAllowed_(sourceFile, payload, materialConfig);
-    var nomeBase = atividadesV2_buildNomeMaterialApresentacao_(atividade, apresentacao, {
-      name: originalName
+    var upload = atividadesV2_portalWriteStage_(trace, 'UPLOAD_ANEXO', function() {
+      var folderInfo = atividadesV2_garantirPastaAtividade_(idAtividade, { spreadsheet: ss });
+      var folder = DriveApp.getFolderById(folderInfo.folderId);
+      var sourceFile = fileId ? DriveApp.getFileById(fileId) : null;
+      var originalName = payload.nomeArquivoOriginal || payload.nomeArquivo || (sourceFile ? sourceFile.getName() : 'material.pdf');
+      var mimeType = payload.mimeType || (sourceFile ? sourceFile.getMimeType() : '');
+      atividadesV2_assertMaterialFileAllowed_(originalName, mimeType, materialConfig);
+      atividadesV2_assertMaterialFileSizeAllowed_(sourceFile, payload, materialConfig);
+      var nomeBase = atividadesV2_buildNomeMaterialApresentacao_(atividade, apresentacao, {
+        name: originalName
+      });
+      var nameVersion = atividadesV2_resolveMaterialFileName_(folder, nomeBase);
+      var targetFile = sourceFile
+        ? (payload.moverArquivo === true
+          ? atividadesV2_moveAndRenameDriveFile_(sourceFile, folder, nameVersion.nomeArquivo)
+          : sourceFile.makeCopy(nameVersion.nomeArquivo, folder))
+        : atividadesV2_createMaterialFileFromBase64_(folder, nameVersion.nomeArquivo, payload.conteudoBase64 || payload.base64, mimeType);
+      return {
+        mimeType: mimeType,
+        nameVersion: nameVersion,
+        targetFile: targetFile
+      };
     });
-    var nameVersion = atividadesV2_resolveMaterialFileName_(folder, nomeBase);
-    var targetFile = sourceFile
-      ? (payload.moverArquivo === true
-        ? atividadesV2_moveAndRenameDriveFile_(sourceFile, folder, nameVersion.nomeArquivo)
-        : sourceFile.makeCopy(nameVersion.nomeArquivo, folder))
-      : atividadesV2_createMaterialFileFromBase64_(folder, nameVersion.nomeArquivo, payload.conteudoBase64 || payload.base64, mimeType);
+    var mimeType = upload.mimeType;
+    var nameVersion = upload.nameVersion;
+    var targetFile = upload.targetFile;
 
     var now = new Date();
     var alreadyHadMaterial = !!String(apresentacao.ID_ARQUIVO_MATERIAL || apresentacao.LINK_MATERIAL_APRESENTACAO || '').trim();
@@ -235,28 +251,13 @@ function atividadesV2_registrarMaterialApresentacao_(payload, contexto) {
       ATUALIZADO_EM: now
     };
 
-    atividadesV2_updateRowByHeaders_(apresentacoesSheet, apresentacao._rowNumber, updates);
-    var arquivoRecord = typeof atividadesV2_registrarSlideEmArquivos_ === 'function'
-      ? atividadesV2_registrarSlideEmArquivos_(ss, atividade, apresentacao, targetFile, statusMaterial, contexto, nameVersion.versao)
-      : null;
-    if (typeof atividadesV2_limparCachePortalDev_ === 'function') atividadesV2_limparCachePortalDev_();
-
-    atividadesV2_appendV2Log_(ss, {
-      FLUXO: 'MATERIAIS_V2',
-      ACAO: 'REGISTRAR_MATERIAL_APRESENTACAO',
-      NIVEL: 'INFO',
-      STATUS: 'OK',
-      ID_ATIVIDADE: idAtividade,
-      MENSAGEM: 'Slide/material de apresentacao registrado na base V2 DEV.',
-      DETALHES_JSON: JSON.stringify({
-        idAtividade: idAtividade,
-        idApresentacao: idApresentacao,
-        versaoMaterial: nameVersion.versao,
-        idArquivoAtividade: arquivoRecord && arquivoRecord.ID_ARQUIVO_ATIVIDADE || ''
-      })
+    var arquivoRecord = atividadesV2_portalWriteStage_(trace, 'ESCRITA_PLANILHA_OFICIAL', function() {
+      atividadesV2_updateRowByHeaders_(apresentacoesSheet, apresentacao._rowNumber, updates);
+      return typeof atividadesV2_registrarSlideEmArquivos_ === 'function'
+        ? atividadesV2_registrarSlideEmArquivos_(ss, atividade, apresentacao, targetFile, statusMaterial, contexto, nameVersion.versao)
+        : null;
     });
-
-    return {
+    var response = {
       ok: true,
       modo: 'DEV',
       idAtividade: idAtividade,
@@ -272,6 +273,13 @@ function atividadesV2_registrarMaterialApresentacao_(payload, contexto) {
       email: apresentacao.EMAIL_MEMBRO || atividade.EMAIL_PESSOA_PRINCIPAL || '',
       rga: apresentacao.RGA || atividade.RGA_PESSOA_PRINCIPAL || ''
     };
+    response.performance = atividadesV2_portalWriteSummary_(trace, 'REGISTRADO', '');
+    response._auditWarnings = portalAction
+      ? atividadesV2_portalWriteStage_(trace, 'ENFILEIRAMENTO_POS_PROCESSAMENTO', function() {
+        return atividadesV2_portalActionSuccess_(ss, portalAction, response);
+      })
+      : [];
+    return response;
   } catch (err) {
     try {
       atividadesV2_appendV2Log_(atividadesV2_getDatabaseSpreadsheetDev_(), {
