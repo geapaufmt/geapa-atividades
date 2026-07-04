@@ -110,7 +110,9 @@ Cada falta justificavel informa prazo, situacao de prazo, se exige ciencia por f
 
 `atividadesV2_portalGetMinhaFrequencia(contexto)` le a aba operacional `Atividades_Presencas_Registros`, filtra no backend pelo usuario logado e retorna registros agrupados pelo `CICLO` institucional completo. `ANO` e `SEMESTRE` permanecem metadados dos registros, mas nao dividem o calculo da frequencia.
 
-O retorno traz `contrato = MINHA_FREQUENCIA_DETALHADA_V2`, `agrupamento = CICLO` e usa cache versionado (`frequencia_detalhada_v3`) para evitar reaproveitar payloads antigos separados por semestre.
+O retorno traz `contrato = MINHA_FREQUENCIA_DETALHADA_V2`, `agrupamento = CICLO` e usa cache versionado (`frequencia_detalhada_v4`) para evitar reaproveitar payloads antigos separados por semestre ou com prazo de justificativa aplicado indevidamente a presencas.
+
+Campos de prazo (`dataLimiteJustificativa`, `statusPrazo`, `envioForaDoPrazo` e `exigeCienciaForaPrazo`) so sao preenchidos quando o registro e uma ausencia justificavel e a atividade permite justificativa. Presencas nunca recebem selo ou prazo de justificativa.
 
 Esta rota e sempre de escopo proprio. Mesmo quando o usuario tem perfil `DIRETORIA`, `SECRETARIO` ou `ADMIN_TECNICO`, `Meu Vinculo -> Minha frequencia` retorna somente os registros vinculados ao `idPessoa`, `rga` ou `email` do usuario logado. Contextos sem identificador pessoal retornam erro controlado `USUARIO_NAO_IDENTIFICADO`, nunca todos os registros.
 

@@ -51,10 +51,10 @@ function atividadesV2_portalGetMinhaFrequencia_(contexto) {
         tempoTotalMs: noIdentityPerf ? noIdentityPerf.totalMs : ''
       }, noIdentityPerf);
     }
-    var cacheKey = portalCacheBuildKey_('frequencia_detalhada_v3', portalCacheContextToken_(ctx));
+    var cacheKey = portalCacheBuildKey_('frequencia_detalhada_v4', portalCacheContextToken_(ctx));
     var cached = portalCacheGetJson_(cacheKey);
     if (cached && atividadesV2_isMinhaFrequenciaDetailedResponse_(cached)) {
-      portalPerfMark_(perf, 'cache_hit_frequencia_detalhada_v3');
+      portalPerfMark_(perf, 'cache_hit_frequencia_detalhada_v4');
       return portalPerfAttachDiagnostics_(cached, portalPerfEnd_(perf));
     }
     if (cached) portalCacheRemove_(cacheKey);
@@ -218,12 +218,18 @@ function atividadesV2_mapRegistroFrequenciaPortal_(record, atividade, justificat
 
 function atividadesV2_frequencyJustificativaAction_(record, atividade, justificativa) {
   var statusJust = atividades_normalizeTextUpper_(justificativa && justificativa.STATUS_ANALISE || record.STATUS_JUSTIFICATIVA || '');
-  var prazo = atividadesV2_classificarPrazoJustificativaPresenca_(record, atividade || {}, new Date());
-  var prazoFields = {
+  var justificavel = atividadesV2_isPresenceJustificavel_(record) && atividadesV2_activityAllowsJustificativa_(atividade || {});
+  var prazo = justificavel ? atividadesV2_classificarPrazoJustificativaPresenca_(record, atividade || {}, new Date()) : null;
+  var prazoFields = prazo ? {
     dataLimiteJustificativa: atividades_formatPortalDateIso_(prazo.deadline),
     statusPrazo: prazo.statusPrazo,
     envioForaDoPrazo: prazo.envioForaDoPrazo,
     exigeCienciaForaPrazo: prazo.envioForaDoPrazo === 'SIM'
+  } : {
+    dataLimiteJustificativa: '',
+    statusPrazo: '',
+    envioForaDoPrazo: 'NAO',
+    exigeCienciaForaPrazo: false
   };
   if (justificativa) {
     return Object.assign({
@@ -234,7 +240,7 @@ function atividadesV2_frequencyJustificativaAction_(record, atividade, justifica
       mensagemPortal: statusJust === 'AJUSTE_SOLICITADO' ? 'Ajuste solicitado pela Diretoria/Secretaria.' : ''
     }, prazoFields);
   }
-  if (!atividadesV2_isPresenceJustificavel_(record) || !atividadesV2_activityAllowsJustificativa_(atividade || {})) {
+  if (!justificavel) {
     return Object.assign({
       podeEnviarJustificativa: false,
       podeVerJustificativa: false,
@@ -475,6 +481,7 @@ function atividadesV2_runTesteMinhaFrequenciaDetalhadaDev_(contexto) {
   portalCacheRemove_(portalCacheBuildKey_('frequencia', token));
   portalCacheRemove_(portalCacheBuildKey_('frequencia_detalhada_v2', token));
   portalCacheRemove_(portalCacheBuildKey_('frequencia_detalhada_v3', token));
+  portalCacheRemove_(portalCacheBuildKey_('frequencia_detalhada_v4', token));
 
   var response = atividadesV2_portalGetMinhaFrequencia_(ctx);
   var data = response && response.data || {};
@@ -486,9 +493,19 @@ function atividadesV2_runTesteMinhaFrequenciaDetalhadaDev_(contexto) {
   var ciclosAgrupadosCorretamente = ciclos.every(function(ciclo) {
     return String(ciclo.ciclo || '').trim() === String(ciclo.cicloOperacional || '').trim();
   });
+  var presencasComPrazoIndevido = [];
+  ciclos.forEach(function(ciclo) {
+    (ciclo.registros || []).forEach(function(registro) {
+      var status = atividades_normalizeTextUpper_(registro.statusPresenca || registro.codigoPresenca || '');
+      var presente = ['P', 'R', 'PRESENTE', 'PRESENTE_PRESENCIAL', 'PRESENTE_REMOTO'].indexOf(status) >= 0;
+      if (presente && (registro.dataLimiteJustificativa || registro.envioForaDoPrazo === 'SIM' || registro.exigeCienciaForaPrazo === true)) {
+        presencasComPrazoIndevido.push(registro.idRegistroPresenca || registro.idAtividade || 'REGISTRO_SEM_ID');
+      }
+    });
+  });
 
   return {
-    ok: !!(response && response.ok && data.agrupamento === 'CICLO' && ciclosAgrupadosCorretamente && Array.isArray(data.ciclos) && (!ciclos.length || Array.isArray(cicloAtual.registros))),
+    ok: !!(response && response.ok && data.agrupamento === 'CICLO' && ciclosAgrupadosCorretamente && presencasComPrazoIndevido.length === 0 && Array.isArray(data.ciclos) && (!ciclos.length || Array.isArray(cicloAtual.registros))),
     contrato: response && response.contrato || data.contrato || '',
     origem: response && response.origem || '',
     errorCode: response && response.errorCode || '',
@@ -496,6 +513,8 @@ function atividadesV2_runTesteMinhaFrequenciaDetalhadaDev_(contexto) {
     payloadAntigoDetectado: payloadAntigo,
     agrupamento: data.agrupamento || '',
     ciclosAgrupadosCorretamente: ciclosAgrupadosCorretamente,
+    totalPresencasComPrazoIndevido: presencasComPrazoIndevido.length,
+    exemplosPresencasComPrazoIndevido: presencasComPrazoIndevido.slice(0, 5),
     totalCiclos: ciclos.length,
     cicloAtual: data.cicloAtual || '',
     totalRegistrosCicloAtual: registros.length,
