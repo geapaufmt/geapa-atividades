@@ -49,9 +49,12 @@ Uma gravacao concluida cria uma linha com
 O worker tenta:
 
 1. invalidar caches;
-2. sincronizar o read model Firestore;
-3. enfileirar o Mail Hub;
-4. enfileirar lembretes aplicaveis.
+2. enfileirar o Mail Hub;
+3. enfileirar lembretes aplicaveis.
+
+O Firestore e sincronizado pelo job somente depois da atualizacao das views.
+Com pendencias, o mesmo ciclo renova a colecao completa, o snapshot agregado e
+a reconciliacao de documentos obsoletos.
 
 Falhas secundarias geram `CONCLUIDO_COM_AVISOS`, sem transformar uma escrita
 oficial bem-sucedida em erro para o usuario.

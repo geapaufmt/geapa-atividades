@@ -100,11 +100,62 @@ function atividadesV2_runTesteFirestoreCalendarioDryRun() {
 }
 
 function atividadesV2_runSyncFirestoreCalendarioCompletoDev() {
-  return atividadesV2_firestoreSyncCalendarioDev({ dryRun: false });
+  return atividadesV2_firestoreSyncCalendarioDev({
+    dryRun: false,
+    forceRefresh: true,
+    compareExisting: true,
+    reason: 'MANUTENCAO_MANUAL_COMPLETA'
+  });
 }
 
 function atividadesV2_runSyncFirestoreCalendarioSnapshotDev() {
   return atividadesV2_firestoreSyncCalendarioSnapshotDev({ dryRun: false });
+}
+
+function atividadesV2_runTesteRepararFirestorePortalDryRun() {
+  return atividades_runWithOperationalGuard_('CONFERENCIA_V2', null, function() {
+    var sync = atividadesV2_firestoreSyncCalendarioDev_({
+      dryRun: true,
+      forceRefresh: true,
+      compareExisting: true,
+      reason: 'REPARO_MANUAL_DRY_RUN'
+    });
+    var reconciliation = atividadesV2_firestoreAplicarReconciliacaoCalendarioDev_({
+      dryRun: true,
+      mode: 'MARK_STALE'
+    });
+    return {
+      ok: sync && sync.ok === true && reconciliation && reconciliation.ok === true,
+      dryRun: true,
+      sync: sync,
+      reconciliation: reconciliation
+    };
+  }, { entrypoint: 'atividadesV2_runTesteRepararFirestorePortalDryRun', executionType: 'MANUAL' });
+}
+
+function atividadesV2_runRepararFirestorePortalDev() {
+  return atividades_runWithOperationalGuard_('ATUALIZACAO_PORTAL_V2', null, function(guard) {
+    var dryRun = guard && String(guard.modeRead || '').trim().toUpperCase() === 'DRY_RUN';
+    var sync = atividadesV2_firestoreSyncCalendarioDev_({
+      dryRun: dryRun,
+      forceRefresh: true,
+      compareExisting: true,
+      reason: 'REPARO_MANUAL_COMPLETO'
+    });
+    var reconciliation = sync && sync.ok === true
+      ? atividadesV2_firestoreAplicarReconciliacaoCalendarioDev_({ dryRun: dryRun, mode: 'MARK_STALE' })
+      : { ok: false, skipped: true, errorCode: 'SYNC_COMPLETO_FALHOU' };
+    if (!dryRun && sync && sync.ok === true) atividadesV2_jobPortalMarkFirestoreMaintenance_();
+    return {
+      ok: sync && sync.ok === true && reconciliation && reconciliation.ok === true,
+      dryRun: dryRun,
+      sync: sync,
+      reconciliation: reconciliation,
+      mensagem: dryRun
+        ? 'Reparo calculado sem escrita por configuracao DRY_RUN.'
+        : 'Colecao, snapshot e reconciliacao do Firestore processados.'
+    };
+  }, { entrypoint: 'atividadesV2_runRepararFirestorePortalDev', executionType: 'MANUAL' });
 }
 
 function atividadesV2_portalGetMinhaFrequencia(contexto) {

@@ -20,6 +20,7 @@ var ATIVIDADES_V2_FIRESTORE_HASH_IGNORED_FIELDS = Object.freeze([
 var ATIVIDADES_V2_FIRESTORE_SNAPSHOT_HASH_IGNORED_FIELDS = Object.freeze([
   'cacheUpdatedAt', 'sourceHash', 'sourceVersion'
 ]);
+var ATIVIDADES_V2_FIRESTORE_DOCUMENT_REFRESH_MAX_AGE_MS = 4 * 60 * 60 * 1000;
 
 function atividadesV2_firestoreOptions_(options) {
   options = options || {};
@@ -284,9 +285,15 @@ function atividadesV2_firestoreReadExistingIndex_(spec, prepared) {
   return index;
 }
 
-function atividadesV2_firestoreDocumentIsIdentical_(desired, existing) {
+function atividadesV2_firestoreDocumentIsIdentical_(desired, existing, options) {
+  var opts = options || {};
   if (!existing || existing.sourceVersion !== desired.sourceVersion ||
       existing.ativoNoReadModel === false || existing.stale === true) return false;
+  if (opts.forceRefresh === true) return false;
+  var existingUpdatedAt = atividades_parseDateOrNull_(existing.cacheUpdatedAt || existing.sourceUpdatedAt);
+  if (!existingUpdatedAt || new Date().getTime() - existingUpdatedAt.getTime() >= ATIVIDADES_V2_FIRESTORE_DOCUMENT_REFRESH_MAX_AGE_MS) {
+    return false;
+  }
   if (String(desired.syncScope || '') === 'ID') return true;
   return existing.datasetComplete === desired.datasetComplete &&
     String(existing.syncScope || '') === String(desired.syncScope || '');
@@ -336,7 +343,7 @@ function atividadesV2_firestoreSyncReadModelBySpec_(spec, options) {
   var skipped = 0;
   var writeItems = [];
   prepared.selected.forEach(function(item) {
-    if (atividadesV2_firestoreDocumentIsIdentical_(item.document, existingIndex[item.id])) {
+    if (atividadesV2_firestoreDocumentIsIdentical_(item.document, existingIndex[item.id], prepared.opts)) {
       skipped++;
       return;
     }

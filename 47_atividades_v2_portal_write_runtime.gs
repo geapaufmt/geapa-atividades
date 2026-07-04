@@ -268,15 +268,6 @@ function atividadesV2_processarPosEscritasPortal_(options) {
       atividadesV2_portalWriteRunSecondary_(warnings, 'CACHE_INVALIDACAO_PENDENTE', function() {
         atividadesV2_portalWriteInvalidateCaches_(row, context, result);
       });
-      atividadesV2_portalWriteRunSecondary_(warnings, 'FIRESTORE_SYNC_PENDENTE', function() {
-        if (idAtividade && typeof atividadesV2_firestoreSyncCalendarioPorAtividadeSafe_ === 'function') {
-          var sync = atividadesV2_firestoreSyncCalendarioPorAtividadeSafe_(idAtividade, {
-            reason: row.TIPO_ACAO || 'PORTAL_WRITE_RUNTIME_V2',
-            contexto: context
-          });
-          if (sync && sync.ok === false) throw new Error(sync.errorCode || 'FIRESTORE_SYNC_FALHOU');
-        }
-      });
       atividadesV2_portalWriteRunSecondary_(warnings, 'MAIL_HUB_PENDENTE', function() {
         if (typeof atividadesV2_mailQueuePortalAction_ === 'function') {
           var mail = atividadesV2_mailQueuePortalAction_(row.TIPO_ACAO, payload, context, result);

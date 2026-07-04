@@ -16,6 +16,33 @@ documento publico agregado `portalActivityCalendarSnapshots/current`, com
 reutiliza exclusivamente os documentos produzidos pelo builder publico do
 calendario; nao ha um segundo mapeamento com campos privados.
 
+## Manutencao automatizada pelo job do Portal
+
+O Firestore nao e atualizado dentro da resposta interativa de uma gravacao.
+Depois que a escrita oficial entra em `Portal_Acoes`, o trigger manualmente
+instalado executa `atividadesV2_jobPortalTrigger` a cada 15 minutos.
+
+Quando ha pendencias, o job processa a fila, atualiza as views `PORTAL_*`,
+sincroniza a colecao completa e o snapshot, marca documentos removidos como
+`stale` e confere a consistencia. A ordem garante que o Firestore nunca seja
+alimentado por uma view anterior a gravacao.
+
+Sem pendencias, as etapas pesadas sao puladas. Uma manutencao completa e
+forcada a cada quatro horas para manter `cacheUpdatedAt` dentro do TTL de seis
+horas. O marcador usa somente `CacheService`; se ele for removido antes, ocorre
+apenas uma manutencao extra segura.
+
+O trigger nao e criado automaticamente. Para substituir uma agenda diaria
+antiga pela agenda de 15 minutos, execute manualmente:
+
+```javascript
+atividadesV2_instalarTriggerJobPortal()
+```
+
+O fluxo `ATIVIDADES / ATUALIZACAO_PORTAL_V2` precisa estar em `ON`. Em
+`DRY_RUN`, o trigger calcula sem escrever; em `MANUAL` ou `OFF`, o guard
+operacional impede a execucao automatica.
+
 ## Motor reutilizavel
 
 O arquivo `45_atividades_v2_firestore_read_models.gs` separa o contrato do
@@ -59,6 +86,21 @@ Executa toda a view elegivel:
 atividadesV2_runSyncFirestoreCalendarioCompletoDev()
 ```
 
+Essa funcao aplica `forceRefresh=true`: renova todos os documentos elegiveis e
+reconstroi `portalActivityCalendarSnapshots/current`, mesmo quando os hashes de
+conteudo nao mudaram.
+
+Para diagnosticar e reparar colecao, snapshot e documentos obsoletos com
+funcoes sem argumentos no editor do Apps Script:
+
+```javascript
+atividadesV2_runTesteRepararFirestorePortalDryRun()
+atividadesV2_runRepararFirestorePortalDev()
+```
+
+A primeira nunca escreve. A segunda respeita `MODULOS_CONFIG`: em `DRY_RUN`
+continua sem escrita; em modo manual permitido executa o reparo completo.
+
 Os documentos recebem `datasetComplete=true`, `syncScope=FULL`,
 `ativoNoReadModel=true` e `stale=false`. Documentos com `sourceVersion` e
 metadados identicos sao pulados. Quando o conjunto e completo e nao vazio, a
@@ -93,11 +135,10 @@ Atualiza somente o documento da atividade com `datasetComplete=false` e
 `syncScope=ID`. Se o conteudo for identico a um documento completo vigente, a
 escrita e pulada e o marcador `FULL` existente e preservado.
 
-O helper `atividadesV2_firestoreSyncCalendarioPorAtividadeSafe_` e usado depois
-da atualizacao das views em criacao, edicao, publicacao, ocultacao, cancelamento,
-reabertura e acoes de titulo/eixo, material e foto. Falhas retornam
-`FIRESTORE_INCREMENTAL_SYNC_FALHOU`, sao registradas como warning e nunca
-revertem a escrita oficial em Sheets.
+O helper `atividadesV2_firestoreSyncCalendarioPorAtividadeSafe_` permanece
+disponivel para manutencoes pontuais. Nas escritas do Portal, a sincronizacao e
+consolidada pelo job depois da atualizacao das views. Falhas nunca revertem a
+escrita oficial em Sheets.
 
 Quando uma acao remove a atividade da view, o sync por ID marca o documento
 existente como stale em vez de deixa-lo publicavel.

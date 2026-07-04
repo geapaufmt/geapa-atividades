@@ -9,8 +9,11 @@ var ATIVIDADES_V2_JOB_PORTAL = Object.freeze({
   flow: 'ATUALIZACAO_PORTAL_V2',
   conferFlow: 'CONFERENCIA_V2',
   handler: 'atividadesV2_jobPortalTrigger',
-  hour: 5
+  hour: 5,
+  intervalMinutes: 15,
+  firestoreMaintenanceSeconds: 4 * 60 * 60
 });
+var ATIVIDADES_V2_JOB_PORTAL_FIRESTORE_CACHE_KEY_ = 'ATV_V2_FIRESTORE_MAINTENANCE_OK';
 
 function atividadesV2_jobPortalOptions_(options, guard) {
   options = options || {};
@@ -25,7 +28,8 @@ function atividadesV2_jobPortalOptions_(options, guard) {
     executionType: executionType,
     nonDestructive: true,
     stopOnError: options.stopOnError !== false,
-    limit: Math.max(1, Number(options.limit || 5))
+    limit: Math.max(1, Number(options.limit || 5)),
+    forceFirestoreRefresh: options.forceFirestoreRefresh === true
   };
 }
 
@@ -52,20 +56,54 @@ function atividadesV2_jobPortal_(options) {
     }
   };
 
+  var postWriteResult = null;
   atividadesV2_jobRunStep_(result, 'PROCESSAR_POS_ESCRITAS_PORTAL', function() {
-    return atividadesV2_processarPosEscritasPortal_(opts);
+    postWriteResult = atividadesV2_processarPosEscritasPortal_(opts);
+    return postWriteResult;
   });
 
-  atividadesV2_jobRunStep_(result, 'ATUALIZAR_VIEWS_PORTAL', function() {
-    return atividadesV2_atualizarViewsPortal_(opts);
-  });
+  var maintenanceDue = atividadesV2_jobPortalFirestoreMaintenanceDue_();
+  var hasPendingWrites = Number(postWriteResult && postWriteResult.totalPendentes || 0) > 0;
+  var shouldMaterialize = opts.dryRun === true || result.executionType !== 'TRIGGER' || hasPendingWrites || maintenanceDue;
+  if (shouldMaterialize) {
+    atividadesV2_jobRunStep_(result, 'ATUALIZAR_VIEWS_PORTAL', function() {
+      return atividadesV2_atualizarViewsPortal_(opts);
+    });
 
-  atividadesV2_jobRunStep_(result, 'CONFERIR_PORTAL', function() {
-    return atividadesV2_conferirPortal_(Object.assign({}, opts, {
-      dryRun: true,
-      includeSamples: false
-    }));
-  });
+    var firestoreResult = null;
+    atividadesV2_jobRunStep_(result, 'SINCRONIZAR_FIRESTORE_CALENDARIO', function() {
+      firestoreResult = atividadesV2_firestoreSyncCalendarioDev_({
+        dryRun: opts.dryRun === true,
+        forceRefresh: opts.forceFirestoreRefresh === true || maintenanceDue,
+        compareExisting: true,
+        reason: hasPendingWrites ? 'JOB_PORTAL_POS_ESCRITA' : 'JOB_PORTAL_MANUTENCAO'
+      });
+      return firestoreResult;
+    });
+
+    atividadesV2_jobRunStep_(result, 'RECONCILIAR_FIRESTORE_CALENDARIO', function() {
+      return atividadesV2_firestoreAplicarReconciliacaoCalendarioDev_({
+        dryRun: opts.dryRun === true,
+        mode: 'MARK_STALE'
+      });
+    });
+
+    if (opts.dryRun !== true && firestoreResult && firestoreResult.ok === true) {
+      atividadesV2_jobPortalMarkFirestoreMaintenance_();
+    }
+
+    atividadesV2_jobRunStep_(result, 'CONFERIR_PORTAL', function() {
+      return atividadesV2_conferirPortal_(Object.assign({}, opts, {
+        dryRun: true,
+        includeSamples: false
+      }));
+    });
+  } else {
+    atividadesV2_jobAddSkippedStep_(result, 'ATUALIZAR_VIEWS_PORTAL', 'SEM_PENDENCIAS_E_FIRESTORE_VIGENTE');
+    atividadesV2_jobAddSkippedStep_(result, 'SINCRONIZAR_FIRESTORE_CALENDARIO', 'SEM_PENDENCIAS_E_FIRESTORE_VIGENTE');
+    atividadesV2_jobAddSkippedStep_(result, 'RECONCILIAR_FIRESTORE_CALENDARIO', 'SEM_PENDENCIAS_E_FIRESTORE_VIGENTE');
+    atividadesV2_jobAddSkippedStep_(result, 'CONFERIR_PORTAL', 'SEM_PENDENCIAS_E_FIRESTORE_VIGENTE');
+  }
 
   result.finishedAt = new Date();
   result.durationMs = result.finishedAt.getTime() - startedAt.getTime();
@@ -288,6 +326,38 @@ function atividadesV2_jobStepError_(stepName, err) {
   };
 }
 
+function atividadesV2_jobAddSkippedStep_(result, stepName, reason) {
+  result.steps.push({
+    step: stepName,
+    ok: true,
+    status: 'SKIPPED',
+    skipped: true,
+    dryRun: result.dryRun === true,
+    errors: 0,
+    warnings: 0,
+    message: atividadesV2_jobSafeMessage_(reason),
+    detail: {}
+  });
+}
+
+function atividadesV2_jobPortalFirestoreMaintenanceDue_() {
+  try {
+    return CacheService.getScriptCache().get(ATIVIDADES_V2_JOB_PORTAL_FIRESTORE_CACHE_KEY_) !== 'OK';
+  } catch (error) {
+    return true;
+  }
+}
+
+function atividadesV2_jobPortalMarkFirestoreMaintenance_() {
+  try {
+    CacheService.getScriptCache().put(
+      ATIVIDADES_V2_JOB_PORTAL_FIRESTORE_CACHE_KEY_,
+      'OK',
+      ATIVIDADES_V2_JOB_PORTAL.firestoreMaintenanceSeconds
+    );
+  } catch (error) {}
+}
+
 function atividadesV2_jobSafeMessage_(message) {
   return String(message || '')
     .replace(/[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}/g, '[email]')
@@ -323,18 +393,20 @@ function atividadesV2_jobBuildSummary_(result) {
 function atividadesV2_instalarTriggerJobPortal_(options) {
   options = options || {};
   var hour = Math.max(0, Math.min(23, Number(options.hour == null ? ATIVIDADES_V2_JOB_PORTAL.hour : options.hour)));
+  var allowedIntervals = [1, 5, 10, 15, 30];
+  var intervalMinutes = Number(options.intervalMinutes || ATIVIDADES_V2_JOB_PORTAL.intervalMinutes);
+  if (allowedIntervals.indexOf(intervalMinutes) === -1) intervalMinutes = ATIVIDADES_V2_JOB_PORTAL.intervalMinutes;
+  var daily = atividades_normalizeTextUpper_(options.schedule) === 'DAILY';
   var removed = atividadesV2_removerTriggerJobPortal_();
-  ScriptApp.newTrigger(ATIVIDADES_V2_JOB_PORTAL.handler)
-    .timeBased()
-    .everyDays(1)
-    .atHour(hour)
-    .create();
+  var builder = ScriptApp.newTrigger(ATIVIDADES_V2_JOB_PORTAL.handler).timeBased();
+  if (daily) builder.everyDays(1).atHour(hour).create();
+  else builder.everyMinutes(intervalMinutes).create();
   return {
     ok: true,
     installed: true,
     deletedBeforeInstall: removed.deleted,
     handler: ATIVIDADES_V2_JOB_PORTAL.handler,
-    schedule: 'Todo dia as ' + hour + 'h',
+    schedule: daily ? 'Todo dia as ' + hour + 'h' : 'A cada ' + intervalMinutes + ' minutos',
     note: 'Instalador manual. O handler respeita MODULOS_CONFIG em ATIVIDADES / ATUALIZACAO_PORTAL_V2.'
   };
 }
