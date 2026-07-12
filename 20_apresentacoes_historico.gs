@@ -584,7 +584,9 @@ function atividades_ensureMembersSummaryHeaders_() {
     throw new Error('A aba MEMBERS_ATUAIS precisa possuir a coluna RGA.');
   }
 
-  var periodCol = ensureHeader('PERIODO_ULTIMA_APRESENTACAO');
+  var periodCol = GEAPA_CORE.coreGetCol(headerMap, 'CICLO_ULTIMA_APRESENTACAO') ||
+    GEAPA_CORE.coreGetCol(headerMap, 'PERIODO_ULTIMA_APRESENTACAO') ||
+    ensureHeader('CICLO_ULTIMA_APRESENTACAO');
   var countCol = ensureHeader('QTD_APRESENTACOES_REALIZADAS');
   var legacyPeriodCol = GEAPA_CORE.coreGetCol(headerMap, 'PERIODO_ULTIMA_APRESENTACAO_BASE_LEGADO');
   var legacyCountCol = GEAPA_CORE.coreGetCol(headerMap, 'QTD_APRESENTACOES_REALIZADAS_BASE_LEGADO');

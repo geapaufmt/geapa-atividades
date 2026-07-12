@@ -1,5 +1,7 @@
 # GEAPA - Modulo de Atividades
 
+`CICLO_ULTIMA_APRESENTACAO` e o cabecalho canonico do resumo de apresentacoes em `MEMBERS_ATUAIS`; durante a transicao, `PERIODO_ULTIMA_APRESENTACAO` continua sendo reconhecido sem criar uma coluna duplicada.
+
 Modulo responsavel pelo dominio `ATIVIDADES`, com foco inicial em:
 
 - cadastro de atividades formativas, academicas, tecnicas, organizacionais ou certificaveis do grupo;
