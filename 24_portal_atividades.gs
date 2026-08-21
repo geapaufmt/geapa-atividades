@@ -1,13 +1,20 @@
 /**
  * Contrato publico de leitura segura para o Portal GEAPA.
  *
- * Este arquivo nao escreve em planilhas. Ele le views PORTAL_* da base v2 DEV,
+ * Este arquivo nao escreve em planilhas. Ele le views PORTAL_* da base v2 do ambiente resolvido,
  * aplica filtros de visibilidade e devolve objetos sanitizados para consumo
  * pelo portal.
  */
 
 function atividades_normalizePortalContext_(contexto) {
   var raw = contexto || {};
+  var backendEnvironment = String(raw.ambienteBackend || '').trim().toUpperCase();
+  if (backendEnvironment) {
+    if (backendEnvironment !== 'DEV' && backendEnvironment !== 'PROD') {
+      throw new Error('CONTEXTO_PORTAL_AMBIENTE_INVALIDO');
+    }
+    ATIVIDADES_V2_EXECUTION_ENVIRONMENT_ = backendEnvironment;
+  }
   var perfil = atividades_normalizeTextUpper_(
     raw.perfil ||
     raw.perfilPortalEfetivo ||
@@ -27,6 +34,7 @@ function atividades_normalizePortalContext_(contexto) {
     email: String(raw.email || '').trim(),
     perfisPortal: Array.isArray(raw.perfisPortal) ? raw.perfisPortal.slice() : [],
     permissoes: Array.isArray(raw.permissoes) ? raw.permissoes.slice() : [],
+    ambienteBackend: backendEnvironment || atividadesV2_resolveEnvironment_({}),
     somenteVisiveis: raw.somenteVisiveis === false ? false : true
   };
 }
@@ -59,7 +67,7 @@ function atividadesV2_portalGetMinhaFrequencia_(contexto) {
     }
     if (cached) portalCacheRemove_(cacheKey);
 
-    var ss = atividadesV2_getDatabaseSpreadsheetDev_();
+    var ss = atividadesV2_getDatabaseSpreadsheet_();
     portalPerfMark_(perf, 'abrir_planilha_v2_dev');
     var data = atividadesV2_buildMinhaFrequenciaPortalData_(ss, ctx, perf);
     var perfResult = portalPerfEnd_(perf);
@@ -364,7 +372,7 @@ function atividadesV2_portalGetMinhasApresentacoes_(contexto) {
       };
     }
 
-    var ss = atividadesV2_getDatabaseSpreadsheetDev_();
+    var ss = atividadesV2_getDatabaseSpreadsheet_();
     portalPerfMark_(perf, 'abrir_planilha_v2_dev');
     var apresentacoes = atividadesV2_readOwnPresentationRecordsDev_(ss, ctx, perf);
 
@@ -474,7 +482,7 @@ function atividadesV2_runTesteMinhaFrequenciaDetalhadaDev_(contexto) {
   if (!contextoInformado && !ctx.idPessoa && !ctx.rga && !ctx.email) {
     var sample = atividadesV2_findSamplePresenceContextForFrequencyTest_();
     ctx = atividades_normalizePortalContext_(sample);
-    avisos.push('Contexto nao informado; usado primeiro registro de presenca com identificador disponivel na V2 DEV.');
+    avisos.push('Contexto nao informado; usado primeiro registro de presenca com identificador disponivel na V2 do ambiente resolvido.');
   }
 
   var token = portalCacheContextToken_(ctx);
@@ -531,7 +539,7 @@ function atividadesV2_runTesteMinhaFrequenciaDetalhadaDev_(contexto) {
 }
 
 function atividadesV2_findSamplePresenceContextForFrequencyTest_() {
-  var ss = atividadesV2_getDatabaseSpreadsheetDev_();
+  var ss = atividadesV2_getDatabaseSpreadsheet_();
   var sheet = atividadesV2_getTargetSheet_(ss, ATIVIDADES_V2_SHEETS.PRESENCAS_REGISTROS);
   var records = atividadesV2_readSheetObjects_(sheet);
   for (var i = 0; i < records.length; i++) {
@@ -625,7 +633,7 @@ function atividadesV2_portalReadPrivilegedView_(config, contexto) {
 }
 
 function atividadesV2_portalReadViewRecords_(sheetName, perf) {
-  var ss = atividadesV2_getDatabaseSpreadsheetDev_();
+  var ss = atividadesV2_getDatabaseSpreadsheet_();
   var sheet = atividadesV2_getTargetSheet_(ss, sheetName);
   var records = atividadesV2_readSheetObjects_(sheet)
     .filter(function(record) {
@@ -1376,11 +1384,11 @@ function atividades_readPortalActivityRecords_() {
 }
 
 function atividades_readPortalActivityRecordsV2Dev_(spreadsheet, perf) {
-  var ss = spreadsheet || atividadesV2_getDatabaseSpreadsheetDev_();
+  var ss = spreadsheet || atividadesV2_getDatabaseSpreadsheet_();
   var sheet = ss.getSheetByName(ATIVIDADES_V2_SHEETS.PORTAL_ATIVIDADES_CALENDARIO);
 
   if (!sheet) {
-    throw new Error('Aba PORTAL_ATIVIDADES_CALENDARIO nao encontrada na base v2 DEV.');
+    throw new Error('Aba PORTAL_ATIVIDADES_CALENDARIO nao encontrada na base v2 do ambiente resolvido.');
   }
 
   var records = atividades_readPortalSheetRecordsFast_(
@@ -1396,7 +1404,7 @@ function atividades_readPortalActivityDetailRecordsV2Dev_(spreadsheet, perf) {
 }
 
 function atividades_readPortalActivityDetailSourceV2Dev_(spreadsheet, perf) {
-  var ss = spreadsheet || atividadesV2_getDatabaseSpreadsheetDev_();
+  var ss = spreadsheet || atividadesV2_getDatabaseSpreadsheet_();
   var viewRecords = atividades_tryReadPortalActivityDetailViewV2Dev_(ss, perf);
 
   if (viewRecords && viewRecords.length) {
@@ -1416,7 +1424,7 @@ function atividades_readPortalActivityDetailSourceV2Dev_(spreadsheet, perf) {
 
   var sheet = ss.getSheetByName(ATIVIDADES_V2_SHEETS.ATIVIDADES);
   if (!sheet) {
-    throw new Error('Aba Atividades nao encontrada na base v2 DEV.');
+    throw new Error('Aba Atividades nao encontrada na base v2 do ambiente resolvido.');
   }
 
   var records = GEAPA_CORE.coreReadSheetRecords(sheet, { headerRow: 1 });
@@ -1434,7 +1442,7 @@ function atividades_readPortalActivityDetailViewRecordsV2Dev_(spreadsheet, perf)
 }
 
 function atividades_tryReadPortalActivityDetailViewV2Dev_(spreadsheet, perf) {
-  var ss = spreadsheet || atividadesV2_getDatabaseSpreadsheetDev_();
+  var ss = spreadsheet || atividadesV2_getDatabaseSpreadsheet_();
   var sheet = ss.getSheetByName(ATIVIDADES_V2_SHEETS.PORTAL_ATIVIDADES_DETALHES);
   if (!sheet || sheet.getLastRow() < 2) return null;
   var records = atividades_readPortalSheetRecordsFast_(
@@ -1525,7 +1533,7 @@ function atividadesV2_portalGetCalendario_(contexto) {
       }, cachedPerf);
     }
 
-    var ss = atividadesV2_getDatabaseSpreadsheetDev_();
+    var ss = atividadesV2_getDatabaseSpreadsheet_();
     portalPerfMark_(perf, 'abrir_planilha_v2_dev');
     var records = atividades_readPortalActivityRecordsV2Dev_(ss, perf);
     var visiveis = records
@@ -1654,7 +1662,7 @@ function atividades_buscarDetalheParaPortal_(idAtividade, contexto) {
 
     portalPerfMark_(perf, 'contexto_normalizado');
     var target = null;
-    var ss = atividadesV2_getDatabaseSpreadsheetDev_();
+    var ss = atividadesV2_getDatabaseSpreadsheet_();
     portalPerfMark_(perf, 'abrir_planilha_v2_dev');
     var source = atividades_readPortalActivityDetailSourceV2Dev_(ss, perf);
     var records = source.records;
@@ -1740,7 +1748,7 @@ function atividadesV2_portalGetAtividadesDetalhes_(contexto) {
     }
 
     portalPerfMark_(perf, 'contexto_normalizado');
-    var ss = atividadesV2_getDatabaseSpreadsheetDev_();
+    var ss = atividadesV2_getDatabaseSpreadsheet_();
     portalPerfMark_(perf, 'abrir_planilha_v2_dev');
     var source = atividades_readPortalActivityDetailSourceV2Dev_(ss, perf);
     var records = source.records;

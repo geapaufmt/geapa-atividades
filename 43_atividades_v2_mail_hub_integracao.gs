@@ -11,7 +11,6 @@ var ATIVIDADES_V2_MAIL_ADMIN_CONFIG_KEYS_ = Object.freeze([
 ]);
 var ATIVIDADES_V2_MAIL_RECIPIENT_CACHE_TTL_SECONDS_ = 300;
 var ATIVIDADES_V2_MAIL_ADMIN_RESOLVER_CACHE_VERSION_ = 'v3';
-var ATIVIDADES_V2_MAIL_REGISTRY_DEV_CACHE_ = null;
 
 var ATIVIDADES_V2_MAIL_EVENTS_ = Object.freeze({
   APRESENTACAO_TITULO_EIXO_ENVIADO: Object.freeze({
@@ -421,12 +420,12 @@ function atividadesV2_mailEvaluateAdministrativeRecipientsV2_(reference) {
   var refDate = atividades_parseDateOrNull_(reference.referenceDate) || new Date();
   var readReport = { sources: {}, warnings: [], errors: [] };
   var data = {
-    pessoas: atividadesV2_mailReadV2RecordsSafe_('PESSOAS_V2_BASE', readReport),
-    identificadores: atividadesV2_mailReadV2RecordsSafe_('PESSOAS_V2_IDENTIFICADORES', readReport),
-    vinculos: atividadesV2_mailReadV2RecordsSafe_('PESSOAS_V2_VINCULOS_GEAPA', readReport),
-    diretorias: atividadesV2_mailReadV2RecordsSafe_('VIGENCIAS_V2_DIRETORIAS', readReport),
-    cargos: atividadesV2_mailReadV2RecordsSafe_('VIGENCIAS_V2_CARGOS_CONFIG', readReport),
-    funcoes: atividadesV2_mailReadV2RecordsSafe_('VIGENCIAS_V2_FUNCOES', readReport)
+    pessoas: atividadesV2_mailReadDomainRecordsSafe_('PESSOAS', 'BASE', readReport),
+    identificadores: atividadesV2_mailReadDomainRecordsSafe_('PESSOAS', 'IDENTIFICADORES', readReport),
+    vinculos: atividadesV2_mailReadDomainRecordsSafe_('PESSOAS', 'VINCULOS', readReport),
+    diretorias: atividadesV2_mailReadDomainRecordsSafe_('VIGENCIAS', 'DIRETORIAS', readReport),
+    cargos: atividadesV2_mailReadDomainRecordsSafe_('VIGENCIAS', 'CARGOS_CONFIG', readReport),
+    funcoes: atividadesV2_mailReadDomainRecordsSafe_('VIGENCIAS', 'FUNCOES', readReport)
   };
   var stats = {
     totalPessoas: data.pessoas.length,
@@ -565,7 +564,7 @@ function atividadesV2_mailResolveActivityReference_(options) {
 
   if (idAtividade || idApresentacao || idJustificativa) {
     try {
-      var ss = atividadesV2_getDatabaseSpreadsheetDev_();
+      var ss = atividadesV2_getDatabaseSpreadsheet_();
       var atividades = atividadesV2_readSheetObjects_(atividadesV2_getTargetSheet_(ss, ATIVIDADES_V2_SHEETS.ATIVIDADES));
       var apresentacoes = idApresentacao
         ? atividadesV2_readSheetObjects_(atividadesV2_getTargetSheet_(ss, ATIVIDADES_V2_SHEETS.APRESENTACOES))
@@ -578,7 +577,7 @@ function atividadesV2_mailResolveActivityReference_(options) {
       justificativa = atividadesV2_mailFindByField_(justificativas, 'ID_JUSTIFICATIVA', idJustificativa) || {};
       idAtividade = idAtividade || String(apresentacao.ID_ATIVIDADE || justificativa.ID_ATIVIDADE || '').trim();
       atividade = atividadesV2_mailFindByField_(atividades, 'ID_ATIVIDADE', idAtividade) || {};
-      if (idAtividade && !atividade.ID_ATIVIDADE) warnings.push('Atividade de referencia nao encontrada na base V2 DEV.');
+      if (idAtividade && !atividade.ID_ATIVIDADE) warnings.push('Atividade de referencia nao encontrada na base V2 do ambiente resolvido.');
     } catch (err) {
       warnings.push('Nao foi possivel carregar o contexto da atividade V2: ' + atividadesV2_errorMessage_(err));
     }
@@ -606,92 +605,33 @@ function atividadesV2_mailResolveActivityReference_(options) {
   };
 }
 
-function atividadesV2_mailReadV2Records_(key, readReport) {
-  var coreError = null;
-  if (typeof GEAPA_CORE !== 'undefined' && GEAPA_CORE && typeof GEAPA_CORE.coreReadRecordsByKey === 'function') {
-    try {
-      var records = GEAPA_CORE.coreReadRecordsByKey(key, { skipBlankRows: true }) || [];
-      if (records.length) {
-        if (readReport) readReport.sources[key] = 'GEAPA_CORE';
-        return records;
-      }
-      coreError = new Error('Core retornou zero registros para a key.');
-    } catch (err) {
-      coreError = err;
-    }
-  } else {
-    coreError = new Error('GEAPA_CORE.coreReadRecordsByKey indisponivel.');
+function atividadesV2_mailReadDomainRecords_(domain, logicalSheet, readReport) {
+  atividades_assertCoreLibrary_();
+  if (typeof GEAPA_CORE.coreGetDomainSheet !== 'function') {
+    throw new Error('GEAPA_CORE_DESATUALIZADO: coreGetDomainSheet indisponivel.');
   }
-
-  try {
-    var entry = atividadesV2_mailGetRegistryEntryDev_(key);
-    if (!entry) throw new Error('Key DEV nao encontrada no Registry.');
-    if (entry.ativo === false) throw new Error('Key DEV inativa no Registry.');
-    if (String(entry.ambiente || '').trim().toUpperCase() !== 'DEV') throw new Error('Key nao pertence ao ambiente DEV.');
-    var ss = SpreadsheetApp.openById(String(entry.id || '').trim());
-    var sheet = ss.getSheetByName(String(entry.sheet || '').trim());
-    if (!sheet) throw new Error('Aba nao encontrada: ' + String(entry.sheet || '').trim() + '.');
-    if (readReport) {
-      readReport.sources[key] = 'REGISTRY_DEV_DIRECT';
-      readReport.warnings.push('LEITURA_DEV_DIRETA_APOS_CORE_INDISPONIVEL:' + key);
-    }
-    return atividadesV2_readSheetObjects_(sheet);
-  } catch (directError) {
-    throw new Error(
-      'Falha ao ler ' + key + ' pelo Core (' + atividadesV2_errorMessage_(coreError) +
-      ') e pelo Registry DEV (' + atividadesV2_errorMessage_(directError) + ').'
-    );
-  }
+  var environment = atividadesV2_resolveEnvironment_({});
+  var sourceKey = domain + '/' + logicalSheet;
+  var sheet = GEAPA_CORE.coreGetDomainSheet(domain, logicalSheet, { ambiente: environment });
+  if (readReport) readReport.sources[sourceKey] = 'GEAPA_CORE_DOMAIN/' + environment;
+  return atividadesV2_readSheetObjects_(sheet);
 }
 
-function atividadesV2_mailGetRegistryEntryDev_(key) {
-  var wanted = String(key || '').trim().toUpperCase();
-  if (!wanted) return null;
-  if (!ATIVIDADES_V2_MAIL_REGISTRY_DEV_CACHE_) {
-    var registrySs = SpreadsheetApp.openById(ATIVIDADES_V2_REGISTRY_FALLBACK.SPREADSHEET_ID);
-    var registrySheet = registrySs.getSheetByName(ATIVIDADES_V2_REGISTRY_FALLBACK.SHEET_NAME);
-    if (!registrySheet) throw new Error('Aba Registry nao encontrada para leitura DEV.');
-    var values = registrySheet.getDataRange().getValues();
-    if (!values.length) throw new Error('Registry vazio.');
-    var headers = values[0].map(function(header) { return String(header || '').trim(); });
-    var headerMap = {};
-    headers.forEach(function(header, index) { if (header) headerMap[header] = index; });
-    ['KEY', 'SPREADSHEET_ID', 'SHEET_NAME', 'ATIVO', 'AMBIENTE'].forEach(function(header) {
-      if (headerMap[header] === undefined) throw new Error('Registry sem cabecalho ' + header + '.');
-    });
-    var entries = {};
-    for (var i = 1; i < values.length; i++) {
-      var row = values[i];
-      var rowKey = String(row[headerMap.KEY] || '').trim().toUpperCase();
-      var environment = String(row[headerMap.AMBIENTE] || '').trim().toUpperCase();
-      if (!rowKey || environment !== 'DEV') continue;
-      entries[rowKey] = {
-        key: rowKey,
-        id: String(row[headerMap.SPREADSHEET_ID] || '').trim(),
-        sheet: String(row[headerMap.SHEET_NAME] || '').trim(),
-        ativo: String(row[headerMap.ATIVO] || '').trim().toUpperCase() === 'SIM',
-        ambiente: environment
-      };
-    }
-    ATIVIDADES_V2_MAIL_REGISTRY_DEV_CACHE_ = entries;
-  }
-  return ATIVIDADES_V2_MAIL_REGISTRY_DEV_CACHE_[wanted] || null;
-}
-
-function atividadesV2_mailReadV2RecordsSafe_(key, readReport) {
+function atividadesV2_mailReadDomainRecordsSafe_(domain, logicalSheet, readReport) {
+  var sourceKey = domain + '/' + logicalSheet;
   try {
-    return atividadesV2_mailReadV2Records_(key, readReport);
+    return atividadesV2_mailReadDomainRecords_(domain, logicalSheet, readReport);
   } catch (err) {
-    readReport.sources[key] = 'ERRO';
-    readReport.errors.push({ key: key, errorCode: 'ERRO_LEITURA_V2', message: atividadesV2_errorMessage_(err).slice(0, 300) });
+    readReport.sources[sourceKey] = 'ERRO';
+    readReport.errors.push({ key: sourceKey, errorCode: 'ERRO_LEITURA_V2', message: atividadesV2_errorMessage_(err).slice(0, 300) });
     return [];
   }
 }
 
 function atividadesV2_mailResolvePersonEmailV2_(idPessoa, warnings) {
   try {
-    var pessoas = atividadesV2_mailReadV2Records_('PESSOAS_V2_BASE');
-    var identificadores = atividadesV2_mailReadV2Records_('PESSOAS_V2_IDENTIFICADORES');
+    var pessoas = atividadesV2_mailReadDomainRecords_('PESSOAS', 'BASE');
+    var identificadores = atividadesV2_mailReadDomainRecords_('PESSOAS', 'IDENTIFICADORES');
     var pessoa = atividadesV2_mailFindByField_(pessoas, 'ID_PESSOA', idPessoa) || {};
     var identifiers = identificadores.filter(function(record) {
       return String(record.ID_PESSOA || '').trim() === String(idPessoa || '').trim();
@@ -988,7 +928,7 @@ function atividadesV2_mailLog_(level, eventCode, context, result, message) {
     saidaId: result && result.saidaId || ''
   };
   try {
-    atividadesV2_appendV2Log_(atividadesV2_getDatabaseSpreadsheetDev_(), {
+    atividadesV2_appendV2Log_(atividadesV2_getDatabaseSpreadsheet_(), {
       FLUXO: 'MAIL_HUB_PORTAL_V2',
       ACAO: 'MAIL_HUB_' + String(eventCode || 'EVENTO').slice(0, 120),
       NIVEL: level || 'INFO',
@@ -1020,7 +960,7 @@ function atividadesV2_diagnosticarMailHubIntegracao_() {
   var correlationAvailable = typeof GEAPA_CORE !== 'undefined' && GEAPA_CORE && typeof GEAPA_CORE.coreMailBuildCorrelationKey === 'function';
   return {
     ok: !!queueAvailable,
-    modo: 'DEV',
+    modo: atividadesV2_resolveEnvironment_({}),
     mailHubDisponivel: !!queueAvailable,
     processadorDisponivel: !!processAvailable,
     correlationKeyCoreDisponivel: !!correlationAvailable,
@@ -1043,7 +983,7 @@ function atividadesV2_diagnosticarMailHubEventosPortalDev_(options) {
   var eventCodes = requestedEvent ? [requestedEvent] : Object.keys(ATIVIDADES_V2_MAIL_EVENTS_);
   var report = {
     ok: true,
-    modo: 'DEV',
+    modo: atividadesV2_resolveEnvironment_({}),
     dryRun: true,
     eventosAvaliados: 0,
     eventosOk: 0,
@@ -1149,7 +1089,7 @@ function atividadesV2_diagnosticarDestinatariosAdministrativosV2Dev_(options) {
   var stats = evaluation.stats;
   return {
     ok: evaluation.readErrors.length === 0 && evaluation.to.length > 0,
-    modo: 'DEV',
+    modo: atividadesV2_resolveEnvironment_({}),
     dryRun: true,
     eventCode: atividades_normalizeTextUpper_(opts.eventCode || ''),
     referenceDate: reference.referenceDate,
@@ -1208,7 +1148,7 @@ function atividadesV2_limparCacheDestinatariosMailHubDev_(options) {
   else CacheService.getScriptCache().remove(cacheKey);
   return {
     ok: true,
-    modo: 'DEV',
+    modo: atividadesV2_resolveEnvironment_({}),
     cacheScope: 'MAIL_ADMIN_RECIPIENTS_V2',
     referenceDate: reference.referenceDate,
     ciclo: reference.ciclo,

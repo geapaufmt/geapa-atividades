@@ -33,7 +33,7 @@ function atividadesV2_portalListarAtividadesAdmin_(filtros, contexto) {
   if (!atividadesV2_adminCanManage_(ctx)) return atividadesV2_adminPermissionError_();
 
   try {
-    var ss = atividadesV2_getDatabaseSpreadsheetDev_();
+    var ss = atividadesV2_getDatabaseSpreadsheet_();
     var activities = atividadesV2_readSheetObjects_(
       atividadesV2_getTargetSheet_(ss, ATIVIDADES_V2_SHEETS.ATIVIDADES)
     );
@@ -79,9 +79,9 @@ function atividadesV2_portalGetDetalheAtividadeAdmin_(idAtividade, contexto) {
   if (!id) return atividadesV2_adminError_('ID_ATIVIDADE_OBRIGATORIO', 'Informe a atividade.');
 
   try {
-    var ss = atividadesV2_getDatabaseSpreadsheetDev_();
+    var ss = atividadesV2_getDatabaseSpreadsheet_();
     var activity = atividadesV2_adminFindByActivityId_(ss, ATIVIDADES_V2_SHEETS.ATIVIDADES, id);
-    if (!activity) return atividadesV2_adminError_('ATIVIDADE_NAO_ENCONTRADA', 'Atividade nao encontrada na base V2 DEV.');
+    if (!activity) return atividadesV2_adminError_('ATIVIDADE_NAO_ENCONTRADA', 'Atividade nao encontrada na base V2 do ambiente resolvido.');
 
     var presentations = atividadesV2_readSheetObjects_(
       atividadesV2_getTargetSheet_(ss, ATIVIDADES_V2_SHEETS.APRESENTACOES)
@@ -111,7 +111,7 @@ function atividadesV2_portalGetDetalheAtividadeAdmin_(idAtividade, contexto) {
         camposBloqueados: ATIVIDADES_V2_ADMIN_SENSITIVE_FIELDS_.slice(),
         podePublicar: atividades_normalizeTextUpper_(activity.STATUS_OPERACIONAL) !== 'CANCELADA',
         podeReabrir: ['CANCELADA', 'ARQUIVADA'].indexOf(atividades_normalizeTextUpper_(activity.STATUS_OPERACIONAL)) >= 0,
-        modo: 'DEV'
+        modo: atividadesV2_resolveEnvironment_({})
       }
     };
   } catch (err) {
@@ -123,7 +123,7 @@ function atividadesV2_portalValidarEdicaoAtividadeAdmin_(payload, contexto) {
   var ctx = atividades_normalizePortalContext_(contexto || {});
   if (!atividadesV2_adminCanManage_(ctx)) return atividadesV2_adminPermissionError_();
   try {
-    var ss = atividadesV2_getDatabaseSpreadsheetDev_();
+    var ss = atividadesV2_getDatabaseSpreadsheet_();
     var validation = atividadesV2_adminValidateEdit_(ss, payload || {});
     if (!validation.ok) return validation;
     return {
@@ -153,7 +153,7 @@ function atividadesV2_portalSalvarEdicaoAtividadeAdmin_(payload, contexto) {
   var result;
   var warnings = [];
   try {
-    var ss = atividadesV2_getDatabaseSpreadsheetDev_();
+    var ss = atividadesV2_getDatabaseSpreadsheet_();
     var existingRequest = atividadesV2_portalWriteFindRequest_(ss, portalAction);
     if (existingRequest) return atividadesV2_portalWriteReplayResponse_(existingRequest);
     var validation = atividadesV2_portalWriteStage_(trace, 'VALIDACAO_PAYLOAD', function() {
@@ -172,7 +172,7 @@ function atividadesV2_portalSalvarEdicaoAtividadeAdmin_(payload, contexto) {
     });
     result = atividadesV2_adminSuccessMutation_('Atividade atualizada com sucesso.', after);
   } catch (err) {
-    atividadesV2_portalWriteLogSafe_(atividadesV2_getDatabaseSpreadsheetDev_(), trace, 'ERRO', err && (err.code || err.errorCode) || 'ERRO_SALVAR_EDICAO_ATIVIDADE');
+    atividadesV2_portalWriteLogSafe_(atividadesV2_getDatabaseSpreadsheet_(), trace, 'ERRO', err && (err.code || err.errorCode) || 'ERRO_SALVAR_EDICAO_ATIVIDADE');
     result = atividadesV2_adminErrorResponse_(err, 'ERRO_SALVAR_EDICAO_ATIVIDADE', 'Nao foi possivel salvar a atividade.');
   } finally {
     lock.releaseLock();
@@ -206,12 +206,12 @@ function atividadesV2_portalAlterarStatusAtividadeAdmin_(action, payload, contex
   var result;
   var warnings = [];
   try {
-    var ss = atividadesV2_getDatabaseSpreadsheetDev_();
+    var ss = atividadesV2_getDatabaseSpreadsheet_();
     var existingRequest = atividadesV2_portalWriteFindRequest_(ss, portalAction);
     if (existingRequest) return atividadesV2_portalWriteReplayResponse_(existingRequest);
     var sheet = atividadesV2_getTargetSheet_(ss, ATIVIDADES_V2_SHEETS.ATIVIDADES);
     var activity = atividadesV2_adminFindInRows_(atividadesV2_readSheetObjects_(sheet), id);
-    if (!activity) return atividadesV2_adminError_('ATIVIDADE_NAO_ENCONTRADA', 'Atividade nao encontrada na base V2 DEV.');
+    if (!activity) return atividadesV2_adminError_('ATIVIDADE_NAO_ENCONTRADA', 'Atividade nao encontrada na base V2 do ambiente resolvido.');
     var before = atividadesV2_adminSnapshot_(activity);
     var updates = atividadesV2_adminBuildStatusUpdates_(action, payload || {}, activity);
     if (!updates.ok) return updates;
@@ -226,7 +226,7 @@ function atividadesV2_portalAlterarStatusAtividadeAdmin_(action, payload, contex
     });
     result = atividadesV2_adminSuccessMutation_(updates.message, after);
   } catch (err) {
-    atividadesV2_portalWriteLogSafe_(atividadesV2_getDatabaseSpreadsheetDev_(), trace, 'ERRO', err && (err.code || err.errorCode) || 'ERRO_' + action + '_ATIVIDADE');
+    atividadesV2_portalWriteLogSafe_(atividadesV2_getDatabaseSpreadsheet_(), trace, 'ERRO', err && (err.code || err.errorCode) || 'ERRO_' + action + '_ATIVIDADE');
     result = atividadesV2_adminErrorResponse_(err, 'ERRO_' + action + '_ATIVIDADE', 'Nao foi possivel alterar o estado da atividade.');
   } finally {
     lock.releaseLock();
@@ -250,7 +250,7 @@ function atividadesV2_adminValidateEdit_(ss, payload) {
   if (!id) return atividadesV2_adminError_('ID_ATIVIDADE_OBRIGATORIO', 'Informe a atividade.');
   var sheet = atividadesV2_getTargetSheet_(ss, ATIVIDADES_V2_SHEETS.ATIVIDADES);
   var activity = atividadesV2_adminFindInRows_(atividadesV2_readSheetObjects_(sheet), id);
-  if (!activity) return atividadesV2_adminError_('ATIVIDADE_NAO_ENCONTRADA', 'Atividade nao encontrada na base V2 DEV.');
+  if (!activity) return atividadesV2_adminError_('ATIVIDADE_NAO_ENCONTRADA', 'Atividade nao encontrada na base V2 do ambiente resolvido.');
   if (atividades_normalizeTextUpper_(activity.BLOQUEADO_PARA_EDICAO) === 'SIM') {
     return atividadesV2_adminError_('ATIVIDADE_BLOQUEADA', 'Esta atividade esta bloqueada para edicao.');
   }
@@ -630,7 +630,7 @@ function atividadesV2_adminSuccessMutation_(message, activity) {
     data: {
       atividade: atividadesV2_adminBuildListItem_(activity, null),
       idAtividade: String(activity.ID_ATIVIDADE || '').trim(),
-      modo: 'DEV'
+      modo: atividadesV2_resolveEnvironment_({})
     }
   };
 }
@@ -712,6 +712,6 @@ function atividadesV2_runTesteGestaoAtividadesAdminDev_() {
     detalhe: atividadesV2_portalGetDetalheAtividadeAdmin_(id, ctx),
     validacaoSemEscrita: atividadesV2_portalValidarEdicaoAtividadeAdmin_({ idAtividade: id, campos: {} }, ctx),
     escritaRealizada: false,
-    modo: 'DEV'
+    modo: atividadesV2_resolveEnvironment_({})
   };
 }

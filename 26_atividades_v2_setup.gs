@@ -7,15 +7,10 @@
  */
 
 var ATIVIDADES_V2_SETUP_RUN_ID = '';
-var ATIVIDADES_V2_REGISTRY_FALLBACK = Object.freeze({
-  SPREADSHEET_ID: '1KQ_-GcFuvLA-jrPVQsfE3_TuaR8AM0yM4X41AzEGXGI',
-  SHEET_NAME: 'Registry'
-});
-
 var ATIVIDADES_V2_VIGENCIA_SEMESTRE_CACHE = {};
 
 function atividadesV2_setupDatabaseDev() {
-  var spreadsheet = atividadesV2_getDatabaseSpreadsheetDev_();
+  var spreadsheet = atividadesV2_getDatabaseSpreadsheet_({ ambiente: 'DEV' });
   var result = {
     ok: true,
     spreadsheetId: spreadsheet.getId(),
@@ -28,7 +23,7 @@ function atividadesV2_setupDatabaseDev() {
     erros: []
   };
 
-  atividadesV2_logSetup_('INFO', 'Iniciando setup da base ATIVIDADES v2 DEV.', {
+  atividadesV2_logSetup_('INFO', 'Iniciando setup da base ATIVIDADES v2 do ambiente resolvido.', {
     spreadsheetId: result.spreadsheetId
   });
 
@@ -60,14 +55,14 @@ function atividadesV2_setupDatabaseDev() {
     } catch (e) {
       result.ok = false;
       result.erros.push(sheetName + ': ' + (e && e.message ? e.message : e));
-      atividadesV2_logSetup_('ERROR', 'Falha ao preparar aba da base ATIVIDADES v2 DEV.', {
+      atividadesV2_logSetup_('ERROR', 'Falha ao preparar aba da base ATIVIDADES v2 do ambiente resolvido.', {
         sheetName: sheetName,
         error: e && e.message ? e.message : String(e)
       });
     }
   });
 
-  atividadesV2_logSetup_(result.ok ? 'INFO' : 'WARN', 'Setup da base ATIVIDADES v2 DEV finalizado.', {
+  atividadesV2_logSetup_(result.ok ? 'INFO' : 'WARN', 'Setup da base ATIVIDADES v2 do ambiente resolvido finalizado.', {
     spreadsheetId: result.spreadsheetId,
     abasCriadas: result.abasCriadas.length,
     abasExistentes: result.abasExistentes.length,
@@ -79,7 +74,7 @@ function atividadesV2_setupDatabaseDev() {
 }
 
 function atividadesV2_removerColunaPeriodoReferenciaDev() {
-  var spreadsheet = atividadesV2_getDatabaseSpreadsheetDev_();
+  var spreadsheet = atividadesV2_getDatabaseSpreadsheet_({ ambiente: 'DEV' });
   var result = {
     ok: true,
     spreadsheetId: spreadsheet.getId(),
@@ -121,7 +116,7 @@ function atividadesV2_removerColunaPeriodoReferenciaDev() {
     }
   });
 
-  atividadesV2_logSetup_(result.ok ? 'INFO' : 'WARN', 'Remocao da coluna PERIODO_REFERENCIA na base v2 DEV finalizada.', {
+  atividadesV2_logSetup_(result.ok ? 'INFO' : 'WARN', 'Remocao da coluna PERIODO_REFERENCIA na base v2 do ambiente resolvido finalizada.', {
     spreadsheetId: result.spreadsheetId,
     abasComRemocao: Object.keys(result.colunasRemovidas).length,
     erros: result.erros.length
@@ -131,10 +126,10 @@ function atividadesV2_removerColunaPeriodoReferenciaDev() {
 }
 
 /**
- * Valida a estrutura atual da base v2 DEV sem escrever em nenhuma aba.
+ * Valida a estrutura atual da base v2 do ambiente resolvido sem escrever em nenhuma aba.
  */
 function atividadesV2_validarDatabaseDev() {
-  var spreadsheet = atividadesV2_getDatabaseSpreadsheetDev_();
+  var spreadsheet = atividadesV2_getDatabaseSpreadsheet_({ ambiente: 'DEV' });
   var result = {
     ok: true,
     readOnly: true,
@@ -158,7 +153,7 @@ function atividadesV2_validarDatabaseDev() {
     var sheetName = sheet.getName();
     if (!expectedByName[sheetName]) {
       result.extraSheets.push(sheetName);
-      result.avisos.push('Aba nao prevista na v2 DEV: ' + sheetName + '. Nenhuma acao automatica sera tomada.');
+      result.avisos.push('Aba nao prevista na v2 do ambiente resolvido: ' + sheetName + '. Nenhuma acao automatica sera tomada.');
     }
   });
 
@@ -186,7 +181,7 @@ function atividadesV2_validarDatabaseDev() {
     }));
   });
 
-  atividadesV2_logSetup_(result.ok ? 'INFO' : 'WARN', 'Validacao read-only da base ATIVIDADES v2 DEV finalizada.', {
+  atividadesV2_logSetup_(result.ok ? 'INFO' : 'WARN', 'Validacao read-only da base ATIVIDADES v2 do ambiente resolvido finalizada.', {
     spreadsheetId: result.spreadsheetId,
     missingSheets: result.missingSheets.length,
     extraSheets: result.extraSheets.length,
@@ -203,7 +198,7 @@ function atividadesV2_validarDatabaseDev() {
 function atividadesV2_planejarMigracaoTeste() {
   atividades_assertCoreLibrary_();
 
-  var targetSpreadsheet = atividadesV2_getDatabaseSpreadsheetDev_();
+  var targetSpreadsheet = atividadesV2_getDatabaseSpreadsheet_({ ambiente: 'DEV' });
   var operationalHolder = atividades_getOperationalHolder_();
   var sourceSpreadsheet = operationalHolder.spreadsheet;
   var result = {
@@ -296,14 +291,14 @@ function atividadesV2_planejarMigracaoTeste() {
 }
 
 /**
- * Simula a migracao V1 -> v2 DEV sem escrever dados.
+ * Simula a migracao V1 -> v2 do ambiente resolvido sem escrever dados.
  */
 function atividadesV2_migrarTesteDevDryRun() {
   return atividadesV2_migrarTesteDev_({ dryRun: true });
 }
 
 /**
- * Migra dados da V1 para a base v2 DEV sem alterar a base original.
+ * Migra dados da V1 para a base v2 do ambiente resolvido sem alterar a base original.
  *
  * A rotina e idempotente por chave natural de cada aba v2 e nao limpa dados:
  * insere registros novos e atualiza apenas colunas presentes no payload de
@@ -314,7 +309,7 @@ function atividadesV2_migrarTesteDev() {
 }
 
 /**
- * Sincroniza para a v2 DEV apenas registros brutos que ainda faltam.
+ * Sincroniza para a v2 do ambiente resolvido apenas registros brutos que ainda faltam.
  *
  * Diferente da migracao de teste completa, esta rotina preserva registros ja
  * existentes por padrao. Isso evita sobrescrever campos curados na v2, como
@@ -338,7 +333,7 @@ function atividadesV2_sincronizarBrutasDev_(options) {
         ok: false,
         dryRun: false,
         errorCode: 'LOCK_INDISPONIVEL',
-        message: 'Nao foi possivel obter lock para sincronizar bases brutas v2 DEV.'
+        message: 'Nao foi possivel obter lock para sincronizar bases brutas v2 do ambiente resolvido.'
       };
     }
   }
@@ -379,7 +374,7 @@ function atividadesV2_sincronizarBrutasEViewsDev_(options) {
  * Simula a migracao da modelagem de apresentacoes para Atividades/Envolvidos.
  *
  * Use antes da execucao real para revisar conflitos e contadores sem escrever
- * em nenhuma aba da base v2 DEV.
+ * em nenhuma aba da base v2 do ambiente resolvido.
  */
 function atividadesV2_migrarApresentacoesParaAtividadesDevDryRun_() {
   return atividadesV2_migrarApresentacoesParaAtividadesDev_({ dryRun: true });
@@ -401,7 +396,7 @@ function atividadesV2_migrarApresentacoesParaAtividadesDev_(options) {
         ok: false,
         dryRun: false,
         errorCode: 'LOCK_INDISPONIVEL',
-        message: 'Nao foi possivel obter lock para migrar apresentacoes para Atividades v2 DEV.'
+        message: 'Nao foi possivel obter lock para migrar apresentacoes para Atividades v2 do ambiente resolvido.'
       };
     }
   }
@@ -417,7 +412,7 @@ function atividadesV2_migrarApresentacoesParaAtividadesDev_(options) {
 
 function atividadesV2_migrarApresentacoesParaAtividadesDevSemLock_(opts) {
   var dryRun = opts.dryRun === true;
-  var ss = atividadesV2_getDatabaseSpreadsheetDev_();
+  var ss = atividadesV2_getDatabaseSpreadsheet_({ ambiente: 'DEV' });
   var atividadesSheet = atividadesV2_getTargetSheet_(ss, ATIVIDADES_V2_SHEETS.ATIVIDADES);
   var apresentacoesSheet = atividadesV2_getTargetSheet_(ss, ATIVIDADES_V2_SHEETS.APRESENTACOES);
   var envolvidosSheet = atividadesV2_getTargetSheet_(ss, ATIVIDADES_V2_SHEETS.ENVOLVIDOS);
@@ -442,7 +437,7 @@ function atividadesV2_migrarApresentacoesParaAtividadesDevSemLock_(opts) {
   var report = {
     ok: true,
     dryRun: dryRun,
-    modo: 'DEV',
+    modo: atividadesV2_resolveEnvironment_({}),
     totalApresentacoesLidas: apresentacoes.length,
     totalAtividadesEncontradas: 0,
     totalAtividadesAtualizadas: 0,
@@ -653,10 +648,10 @@ function atividadesV2_migrationPresentationRef_(apresentacao) {
 }
 
 /**
- * Diagnostica os IDs atuais da v2 DEV sem alterar dados.
+ * Diagnostica os IDs atuais da v2 do ambiente resolvido sem alterar dados.
  */
 function atividadesV2_diagnosticarIdsDev() {
-  var ss = atividadesV2_getDatabaseSpreadsheetDev_();
+  var ss = atividadesV2_getDatabaseSpreadsheet_({ ambiente: 'DEV' });
   var atividadesSheet = atividadesV2_getTargetSheet_(ss, ATIVIDADES_V2_SHEETS.ATIVIDADES);
   var atividades = atividadesV2_readSheetObjects_(atividadesSheet);
   var activityMap = atividadesV2_buildActivityIdNormalizationMap_(atividades);
@@ -712,7 +707,7 @@ function atividadesV2_diagnosticarIdsDev() {
     result.ok = false;
   }
 
-  atividadesV2_logSetup_(result.ok ? 'INFO' : 'WARN', 'Diagnostico read-only de IDs v2 DEV finalizado.', {
+  atividadesV2_logSetup_(result.ok ? 'INFO' : 'WARN', 'Diagnostico read-only de IDs v2 do ambiente resolvido finalizado.', {
     atividades: result.idsAtuais.length,
     naoNormalizaveis: result.naoNormalizaveis.length,
     inconsistencias: result.inconsistenciasEntreAbas.length
@@ -722,10 +717,10 @@ function atividadesV2_diagnosticarIdsDev() {
 }
 
 /**
- * Normaliza IDs da v2 DEV para o padrao ATV-AAAA-S-NNNN e propaga referencias.
+ * Normaliza IDs da v2 do ambiente resolvido para o padrao ATV-AAAA-S-NNNN e propaga referencias.
  */
 function atividadesV2_normalizarIdsDev() {
-  var ss = atividadesV2_getDatabaseSpreadsheetDev_();
+  var ss = atividadesV2_getDatabaseSpreadsheet_({ ambiente: 'DEV' });
   var result = {
     ok: true,
     spreadsheetId: ss.getId(),
@@ -786,7 +781,7 @@ function atividadesV2_normalizarIdsDev() {
 
     atividadesV2_appendV2Log_(ss, {
       FLUXO: 'NORMALIZACAO_IDS_DEV',
-      ACAO: 'Normalizar IDs estruturais da v2 DEV',
+      ACAO: 'Normalizar IDs estruturais da v2 do ambiente resolvido',
       NIVEL: result.ok ? 'INFO' : 'WARN',
       STATUS: result.ok ? 'OK' : 'ERRO',
       MENSAGEM: 'IDs normalizados para padrao ATV-AAAA-S-NNNN.',
@@ -797,7 +792,7 @@ function atividadesV2_normalizarIdsDev() {
     result.erros.push(e && e.message ? e.message : String(e));
   }
 
-  atividadesV2_logSetup_(result.ok ? 'INFO' : 'WARN', 'Normalizacao de IDs v2 DEV finalizada.', {
+  atividadesV2_logSetup_(result.ok ? 'INFO' : 'WARN', 'Normalizacao de IDs v2 do ambiente resolvido finalizada.', {
     atividadesAtualizadas: result.atividadesAtualizadas,
     apresentacoesAtualizadas: result.apresentacoesAtualizadas,
     presencasAtualizadas: result.presencasAtualizadas,
@@ -816,7 +811,7 @@ function atividadesV2_sincronizarBrutasDevSemLock_(opts) {
 
   var dryRun = opts.dryRun === true;
   var insertOnly = opts.atualizarExistentes !== true;
-  var targetSpreadsheet = atividadesV2_getDatabaseSpreadsheetDev_();
+  var targetSpreadsheet = atividadesV2_getDatabaseSpreadsheet_({ ambiente: 'DEV' });
   var sourceSpreadsheet = atividades_getOperationalHolder_().spreadsheet;
   var activityIdMap = {};
   var result = {
@@ -906,10 +901,10 @@ function atividadesV2_sincronizarBrutasDevSemLock_(opts) {
   if (!dryRun && result.ok) {
     atividadesV2_appendV2Log_(targetSpreadsheet, {
       FLUXO: 'MIGRACAO_V2_DEV',
-      ACAO: 'Sincronizar bases brutas faltantes da v2 DEV',
+      ACAO: 'Sincronizar bases brutas faltantes da v2 do ambiente resolvido',
       NIVEL: result.avisos.length ? 'WARN' : 'INFO',
       STATUS: 'OK',
-      MENSAGEM: 'Bases brutas v2 DEV sincronizadas a partir da V1 sem alterar a origem.',
+      MENSAGEM: 'Bases brutas v2 do ambiente resolvido sincronizadas a partir da V1 sem alterar a origem.',
       DETALHES_JSON: atividadesV2_safeLogData_({
         mode: result.mode,
         inserts: result.totals.inserts,
@@ -923,7 +918,7 @@ function atividadesV2_sincronizarBrutasDevSemLock_(opts) {
     }
   }
 
-  atividadesV2_logSetup_(result.ok ? 'INFO' : 'WARN', 'Sincronizacao incremental V1 -> bases brutas v2 DEV finalizada.', {
+  atividadesV2_logSetup_(result.ok ? 'INFO' : 'WARN', 'Sincronizacao incremental V1 -> bases brutas v2 do ambiente resolvido finalizada.', {
     dryRun: dryRun,
     mode: result.mode,
     inserts: result.totals.inserts,
@@ -955,7 +950,7 @@ function atividadesV2_migrarTesteDev_(opts) {
   atividades_assertCoreLibrary_();
 
   var dryRun = opts.dryRun !== false;
-  var targetSpreadsheet = atividadesV2_getDatabaseSpreadsheetDev_();
+  var targetSpreadsheet = atividadesV2_getDatabaseSpreadsheet_({ ambiente: 'DEV' });
   var sourceSpreadsheet = atividades_getOperationalHolder_().spreadsheet;
   var activityIdMap = {};
   var result = {
@@ -1038,7 +1033,7 @@ function atividadesV2_migrarTesteDev_(opts) {
     }));
   });
 
-  atividadesV2_logSetup_(result.ok ? 'INFO' : 'WARN', 'Migracao de teste V1 -> v2 DEV finalizada.', {
+  atividadesV2_logSetup_(result.ok ? 'INFO' : 'WARN', 'Migracao de teste V1 -> v2 do ambiente resolvido finalizada.', {
     dryRun: dryRun,
     sourceSpreadsheetId: result.sourceSpreadsheetId,
     targetSpreadsheetId: result.targetSpreadsheetId,
@@ -1050,133 +1045,54 @@ function atividadesV2_migrarTesteDev_(opts) {
   return result;
 }
 
-var ATIVIDADES_V2_DATABASE_SPREADSHEET_DEV_CACHE_ = null;
+var ATIVIDADES_V2_DATABASE_SPREADSHEET_CACHE_ = {};
+var ATIVIDADES_V2_EXECUTION_ENVIRONMENT_ = '';
 
-function atividadesV2_getDatabaseSpreadsheetDev_() {
-  var perf = typeof portalPerfStart_ === 'function'
-    ? portalPerfStart_('atividadesV2_getDatabaseSpreadsheetDev')
-    : null;
+function atividadesV2_resolveEnvironment_(options) {
+  options = options || {};
   atividades_assertCoreLibrary_();
+  var raw = options.ambiente || options.environment || ATIVIDADES_V2_EXECUTION_ENVIRONMENT_ || '';
+  if (!raw) {
+    if (typeof GEAPA_CORE.coreGetCurrentEnv !== 'function') {
+      throw new Error('GEAPA_CORE_SEM_RESOLUCAO_DE_AMBIENTE');
+    }
+    raw = GEAPA_CORE.coreGetCurrentEnv();
+  }
+  var environment = String(raw || '').trim().toUpperCase();
+  if (environment !== 'DEV' && environment !== 'PROD') {
+    throw new Error('AMBIENTE_ATIVIDADES_V2_INVALIDO: ' + environment + '. Use DEV ou PROD.');
+  }
+  return environment;
+}
 
-  if (ATIVIDADES_V2_DATABASE_SPREADSHEET_DEV_CACHE_) {
+function atividadesV2_getDatabaseSpreadsheet_(options) {
+  options = options || {};
+  var perf = typeof portalPerfStart_ === 'function'
+    ? portalPerfStart_('atividadesV2_getDatabaseSpreadsheet')
+    : null;
+  var environment = atividadesV2_resolveEnvironment_(options);
+  if (ATIVIDADES_V2_DATABASE_SPREADSHEET_CACHE_[environment]) {
     if (perf) {
-      portalPerfMark_(perf, 'cache_execucao_planilha_v2_dev');
+      portalPerfMark_(perf, 'cache_execucao_planilha_v2', { ambiente: environment });
       portalPerfEnd_(perf);
     }
-    return ATIVIDADES_V2_DATABASE_SPREADSHEET_DEV_CACHE_;
+    return ATIVIDADES_V2_DATABASE_SPREADSHEET_CACHE_[environment];
   }
-
-  var key = ATIVIDADES_V2_REGISTRY_KEYS.DB;
-  var entry = atividadesV2_getRegistryEntryDevByKey_(key);
-  if (perf) portalPerfMark_(perf, 'abrir_registry_e_resolver_key', { key: key });
-
-  if (!entry) {
-    throw new Error('Key ATIVIDADES_V2_DB não encontrada no Registry. Cadastre manualmente a planilha v2 no Registry antes de executar o setup.');
+  if (typeof GEAPA_CORE.coreGetDomainSpreadsheet !== 'function') {
+    throw new Error('GEAPA_CORE_DESATUALIZADO: coreGetDomainSpreadsheet indisponivel.');
   }
-
-  if (entry.ativo === false || String(entry.ativo || 'SIM').trim().toUpperCase() === 'NAO') {
-    throw new Error('A key ATIVIDADES_V2_DB está inativa no Registry.');
-  }
-
-  if (String(entry.ambiente || 'DEV').trim().toUpperCase() !== 'DEV') {
-    throw new Error('A key ATIVIDADES_V2_DB deve estar cadastrada como AMBIENTE=DEV nesta fase.');
-  }
-
-  var spreadsheetId = String(entry.id || '').trim();
-  if (!spreadsheetId) {
-    throw new Error('A key ATIVIDADES_V2_DB nao possui SPREADSHEET_ID no Registry.');
-  }
-
-  var spreadsheet = SpreadsheetApp.openById(spreadsheetId);
-  ATIVIDADES_V2_DATABASE_SPREADSHEET_DEV_CACHE_ = spreadsheet;
+  var spreadsheet = GEAPA_CORE.coreGetDomainSpreadsheet('ATIVIDADES', { ambiente: environment });
+  ATIVIDADES_V2_DATABASE_SPREADSHEET_CACHE_[environment] = spreadsheet;
   if (perf) {
-    portalPerfMark_(perf, 'abrir_planilha_por_id');
+    portalPerfMark_(perf, 'resolver_dominio_atividades', { ambiente: environment, origem: 'ATIVIDADES_V2_DB' });
     portalPerfEnd_(perf);
   }
   return spreadsheet;
 }
 
-function atividadesV2_getRegistryEntryDevByKey_(key) {
-  var wanted = String(key || '').trim().toUpperCase();
-  if (!wanted) return null;
-
-  try {
-    if (typeof GEAPA_CORE.coreGetRegistryMetaByKey === 'function') {
-      var entry = GEAPA_CORE.coreGetRegistryMetaByKey(wanted);
-      if (entry && String(entry.ambiente || '').trim().toUpperCase() === 'DEV') {
-        return entry;
-      }
-    }
-  } catch (e) {
-    atividadesV2_logSetup_('WARN', 'Busca padrao do GEAPA_CORE nao encontrou a key v2 DEV; tentando leitura direta do Registry.', {
-      key: wanted,
-      error: e && e.message ? e.message : String(e)
-    });
-  }
-
-  return atividadesV2_readRegistryEntryDevDirect_(wanted);
-}
-
-function atividadesV2_readRegistryEntryDevDirect_(key) {
-  var ss = SpreadsheetApp.openById(ATIVIDADES_V2_REGISTRY_FALLBACK.SPREADSHEET_ID);
-  var sheet = ss.getSheetByName(ATIVIDADES_V2_REGISTRY_FALLBACK.SHEET_NAME);
-  if (!sheet) {
-    throw new Error('Aba Registry nao encontrada na planilha geral do Registry.');
-  }
-
-  var lastRow = sheet.getLastRow();
-  var lastColumn = sheet.getLastColumn();
-  if (lastRow < 2 || lastColumn < 1) return null;
-
-  var headers = sheet.getRange(1, 1, 1, lastColumn).getValues()[0].map(function(header) {
-    return String(header || '').trim();
-  });
-  var headerMap = {};
-  headers.forEach(function(header, index) {
-    if (header && !headerMap[header]) headerMap[header] = index + 1;
-  });
-
-  var colKey = atividadesV2_requiredRegistryCol_(headerMap, 'KEY');
-  var colId = atividadesV2_requiredRegistryCol_(headerMap, 'SPREADSHEET_ID');
-  var colSheet = atividadesV2_requiredRegistryCol_(headerMap, 'SHEET_NAME');
-  var colAtivo = atividadesV2_requiredRegistryCol_(headerMap, 'ATIVO');
-  var colAmbiente = atividadesV2_requiredRegistryCol_(headerMap, 'AMBIENTE');
-  var colDisplay = headerMap.DISPLAY_NAME || 0;
-  var colType = headerMap.TYPE || 0;
-  var colNotas = headerMap.NOTAS || 0;
-
-  var values = sheet.getRange(2, 1, lastRow - 1, lastColumn).getValues();
-  var foundOtherEnv = null;
-
-  for (var i = 0; i < values.length; i++) {
-    var row = values[i];
-    var rowKey = String(row[colKey - 1] || '').trim().toUpperCase();
-    if (rowKey !== key) continue;
-
-    var ambiente = String(row[colAmbiente - 1] || '').trim().toUpperCase();
-    if (ambiente !== 'DEV') {
-      foundOtherEnv = foundOtherEnv || ambiente || '(vazio)';
-      continue;
-    }
-
-    return Object.freeze({
-      key: rowKey,
-      id: String(row[colId - 1] || '').trim(),
-      sheet: String(row[colSheet - 1] || '').trim(),
-      displayName: colDisplay ? String(row[colDisplay - 1] || '').trim() : '',
-      ativo: String(row[colAtivo - 1] || '').trim().toUpperCase() === 'SIM',
-      ambiente: ambiente,
-      type: colType ? String(row[colType - 1] || '').trim().toUpperCase() : '',
-      notas: colNotas ? String(row[colNotas - 1] || '').trim() : '',
-      lineNo: i + 2
-    });
-  }
-
-  if (foundOtherEnv) {
-    throw new Error('A key ATIVIDADES_V2_DB deve estar cadastrada como AMBIENTE=DEV nesta fase.');
-  }
-
-  return null;
+/** @deprecated Somente para testes e migracoes explicitamente DEV. */
+function atividadesV2_getDatabaseSpreadsheetDev_() {
+  return atividadesV2_getDatabaseSpreadsheet_({ ambiente: 'DEV' });
 }
 
 function atividadesV2_requiredRegistryCol_(headerMap, header) {

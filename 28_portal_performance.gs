@@ -131,6 +131,7 @@ function portalApproxPayloadBytes_(value) {
 function portalCacheContextToken_(contexto) {
   var ctx = atividades_normalizePortalContext_(contexto || {});
   return [
+    atividadesV2_sanitizeIdToken_(ctx.ambienteBackend || atividadesV2_resolveEnvironment_({})),
     atividadesV2_sanitizeIdToken_(ctx.perfil || 'MEMBRO'),
     ctx.somenteVisiveis ? 'VISIVEIS' : 'TODAS',
     portalCacheHash_([ctx.idPessoa || '', ctx.email || '', ctx.rga || ''].join('|'))
@@ -138,7 +139,7 @@ function portalCacheContextToken_(contexto) {
 }
 
 function atividadesV2_getPortalConfigCached_() {
-  var cacheKey = portalCacheBuildKey_('portal_config', 'operacional');
+  var cacheKey = portalCacheBuildKey_('portal_config', 'operacional:' + atividadesV2_resolveEnvironment_({}));
   var cached = portalCacheGetJson_(cacheKey);
   if (cached) return cached;
 

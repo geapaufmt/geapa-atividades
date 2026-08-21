@@ -183,7 +183,7 @@ function atividadesV2_firestoreCalendarEligibility_(record) {
 
 function atividadesV2_firestorePrepareCalendar_(options) {
   var opts = atividadesV2_firestoreOptions_(options);
-  var ss = atividadesV2_getDatabaseSpreadsheetDev_();
+  var ss = atividadesV2_getDatabaseSpreadsheet_();
   var records = atividades_readPortalActivityRecordsV2Dev_(ss);
   var reasons = {};
   var selected = [];

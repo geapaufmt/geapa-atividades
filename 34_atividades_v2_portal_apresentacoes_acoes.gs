@@ -1,5 +1,5 @@
 /**
- * Acoes operacionais de apresentacoes pelo Portal GEAPA na Atividades V2 DEV.
+ * Acoes operacionais de apresentacoes pelo Portal GEAPA na Atividades V2 do ambiente resolvido.
  *
  * Este pacote nao implementa chamada/presenca automatica. As escritas ocorrem
  * apenas nas abas-base da V2 e as views PORTAL_* continuam materializadas.
@@ -340,9 +340,9 @@ function atividadesV2_portalRegistrarMaterialApresentacao_(payload, contexto) {
       entityId: materialResult.idApresentacao || ''
     });
   } catch (err) {
-    atividadesV2_portalWriteLogSafe_(atividadesV2_getDatabaseSpreadsheetDev_(), trace, 'ERRO', err && (err.code || err.errorCode) || 'ERRO_MATERIAL');
+    atividadesV2_portalWriteLogSafe_(atividadesV2_getDatabaseSpreadsheet_(), trace, 'ERRO', err && (err.code || err.errorCode) || 'ERRO_MATERIAL');
     try {
-      atividadesV2_portalActionError_(atividadesV2_getDatabaseSpreadsheetDev_(), result, err);
+      atividadesV2_portalActionError_(atividadesV2_getDatabaseSpreadsheet_(), result, err);
     } catch (logErr) {}
     return atividadesV2_portalActionErrorResponse_(err);
   }
@@ -396,7 +396,7 @@ function atividadesV2_atualizarStatusRealizacaoApresentacoesDev_(options) {
   }
 
   try {
-    var ss = atividadesV2_getDatabaseSpreadsheetDev_();
+    var ss = atividadesV2_getDatabaseSpreadsheet_();
     var atividadesSheet = atividadesV2_getTargetSheet_(ss, ATIVIDADES_V2_SHEETS.ATIVIDADES);
     var apresentacoesSheet = atividadesV2_getTargetSheet_(ss, ATIVIDADES_V2_SHEETS.APRESENTACOES);
     atividadesV2_applyHeadersIfMissing_(atividadesSheet, ATIVIDADES_V2_SCHEMA.ATIVIDADES);
@@ -934,7 +934,7 @@ function atividadesV2_isPresentationPendingType_(tipo) {
 }
 
 function atividadesV2_diagnosticarFluxoApresentacoesPortalDev_() {
-  var ss = atividadesV2_getDatabaseSpreadsheetDev_();
+  var ss = atividadesV2_getDatabaseSpreadsheet_();
   var data = atividadesV2_readPortalViewsSourceData_(ss);
   var atividadesById = atividadesV2_indexByField_(data.atividades, 'ID_ATIVIDADE');
   var stats = {
@@ -977,7 +977,7 @@ function atividadesV2_diagnosticarFluxoApresentacoesPortalDev_() {
       }
     }
   });
-  return { ok: true, modo: 'DEV', stats: stats, avisos: avisos };
+  return { ok: true, modo: atividadesV2_resolveEnvironment_({}), stats: stats, avisos: avisos };
 }
 
 function atividadesV2_runTestePortalApresentacoesAcoesDev_() {
@@ -1030,9 +1030,9 @@ function atividadesV2_portalRunPresentationAction_(tipoAcao, payload, contexto, 
       entityId: result.idApresentacao || ''
     });
   } catch (err) {
-    atividadesV2_portalWriteLogSafe_(atividadesV2_getDatabaseSpreadsheetDev_(), trace, 'ERRO', err && (err.code || err.errorCode) || 'ERRO_APRESENTACAO');
+    atividadesV2_portalWriteLogSafe_(atividadesV2_getDatabaseSpreadsheet_(), trace, 'ERRO', err && (err.code || err.errorCode) || 'ERRO_APRESENTACAO');
     try {
-      atividadesV2_portalActionError_(atividadesV2_getDatabaseSpreadsheetDev_(), action, err);
+      atividadesV2_portalActionError_(atividadesV2_getDatabaseSpreadsheet_(), action, err);
     } catch (logErr) {}
     return atividadesV2_portalWriteErrorResponse_(err, 'ERRO_APRESENTACAO', atividadesV2_errorMessage_(err));
   }
@@ -1096,7 +1096,7 @@ function atividadesV2_portalWithLock_(label, callback) {
     throw atividadesV2_portalActionException_('LOCK_INDISPONIVEL', 'Nao foi possivel obter lock para ' + label + '.');
   }
   try {
-    return callback(atividadesV2_getDatabaseSpreadsheetDev_());
+    return callback(atividadesV2_getDatabaseSpreadsheet_());
   } finally {
     lock.releaseLock();
   }
@@ -1144,13 +1144,13 @@ function atividadesV2_portalResolvePresentationActionBundle_(ss, payload) {
   atividadesV2_applyHeadersIfMissing_(apresentacoesSheet, ATIVIDADES_V2_SCHEMA.APRESENTACOES);
 
   var apresentacao = atividadesV2_findApresentacaoV2ById_(apresentacoesSheet, idApresentacao);
-  if (!apresentacao) throw atividadesV2_portalActionException_('APRESENTACAO_NAO_ENCONTRADA', 'Apresentacao nao encontrada na V2 DEV.');
+  if (!apresentacao) throw atividadesV2_portalActionException_('APRESENTACAO_NAO_ENCONTRADA', 'Apresentacao nao encontrada na V2 do ambiente resolvido.');
   if (atividades_normalizeTextUpper_(apresentacao.ATIVO || 'SIM') === 'NAO') {
     throw atividadesV2_portalActionException_('APRESENTACAO_INATIVA', 'Apresentacao inativa.');
   }
   var idAtividade = String(payload.idAtividade || payload.ID_ATIVIDADE || apresentacao.ID_ATIVIDADE || '').trim();
   var atividade = atividadesV2_findAtividadeV2ById_(atividadesSheet, idAtividade);
-  if (!atividade) throw atividadesV2_portalActionException_('ATIVIDADE_NAO_ENCONTRADA', 'Atividade vinculada nao encontrada na V2 DEV.');
+  if (!atividade) throw atividadesV2_portalActionException_('ATIVIDADE_NAO_ENCONTRADA', 'Atividade vinculada nao encontrada na V2 do ambiente resolvido.');
   if (atividades_normalizeTextUpper_(atividade.ATIVO || 'SIM') === 'NAO') {
     throw atividadesV2_portalActionException_('ATIVIDADE_INATIVA', 'Atividade inativa.');
   }

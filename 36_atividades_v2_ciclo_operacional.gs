@@ -42,7 +42,7 @@ function atividadesV2_atualizarCicloAtividadesDev_(options) {
     return {
       ok: false,
       dryRun: false,
-      modo: 'DEV',
+      modo: atividadesV2_resolveEnvironment_({}),
       errorCode: 'LOCK_INDISPONIVEL',
       message: 'Nao foi possivel obter lock para atualizar ciclo operacional das atividades.'
     };
@@ -63,7 +63,7 @@ function atividadesV2_atualizarCicloAtividadesDev_(options) {
 
 function atividadesV2_avaliarCicloAtividadesDev_(options, idAtividadeUnico) {
   var opts = options || {};
-  var ss = atividadesV2_getDatabaseSpreadsheetDev_();
+  var ss = atividadesV2_getDatabaseSpreadsheet_();
   var atividadesSheet = atividadesV2_getTargetSheet_(ss, ATIVIDADES_V2_SHEETS.ATIVIDADES);
   atividadesV2_applyHeadersIfMissing_(atividadesSheet, ATIVIDADES_V2_SCHEMA.ATIVIDADES);
   var atividades = atividadesV2_readSheetObjects_(atividadesSheet);
@@ -77,7 +77,7 @@ function atividadesV2_avaliarCicloAtividadesDev_(options, idAtividadeUnico) {
   var result = {
     ok: true,
     dryRun: opts.dryRun !== false,
-    modo: 'DEV',
+    modo: atividadesV2_resolveEnvironment_({}),
     colunaStatus: 'STATUS_OPERACIONAL',
     statusProtegidos: ATIVIDADES_V2_STATUS_OPERACIONAL_PROTEGIDOS.slice(),
     criteriosRealizada: [
@@ -229,7 +229,7 @@ function atividadesV2_indexPresencasOficiaisPorAtividade_(presencas) {
 }
 
 function atividadesV2_aplicarAlteracoesCicloAtividades_(result) {
-  var ss = atividadesV2_getDatabaseSpreadsheetDev_();
+  var ss = atividadesV2_getDatabaseSpreadsheet_();
   var sheet = atividadesV2_getTargetSheet_(ss, ATIVIDADES_V2_SHEETS.ATIVIDADES);
   var headers = atividadesV2_getSheetHeaders_(sheet);
   var headerMap = atividadesV2_simpleHeaderMap_(headers);
@@ -317,7 +317,7 @@ function atividadesV2_reconciliarChamadasDev_(options) {
     var lockResult = {
       ok: false,
       dryRun: false,
-      modo: 'DEV',
+      modo: atividadesV2_resolveEnvironment_({}),
       errorCode: 'LOCK_INDISPONIVEL',
       message: 'Nao foi possivel obter lock para reconciliar chamadas.'
     };
@@ -344,7 +344,7 @@ function atividadesV2_reconciliarChamadasDev_(options) {
 
 function atividadesV2_avaliarReconciliacaoChamadasDev_(options) {
   var opts = options || {};
-  var ss = atividadesV2_getDatabaseSpreadsheetDev_();
+  var ss = atividadesV2_getDatabaseSpreadsheet_();
   var atividades = atividadesV2_readSheetObjects_(atividadesV2_getTargetSheet_(ss, ATIVIDADES_V2_SHEETS.ATIVIDADES));
   var presencas = atividadesV2_readSheetObjects_(atividadesV2_getTargetSheet_(ss, ATIVIDADES_V2_SHEETS.PRESENCAS_REGISTROS));
   var atividadesById = atividadesV2_indexByField_(atividades, 'ID_ATIVIDADE');
@@ -355,7 +355,7 @@ function atividadesV2_avaliarReconciliacaoChamadasDev_(options) {
   var result = {
     ok: true,
     dryRun: opts.dryRun !== false,
-    modo: 'DEV',
+    modo: atividadesV2_resolveEnvironment_({}),
     totalAtividadesAnalisadas: filtroId ? 1 : atividades.length,
     totalComPresencasOficiais: 0,
     totalInconsistentes: 0,
@@ -590,7 +590,7 @@ function atividadesV2_readChamadaActionStatusContext_(ss) {
 }
 
 function atividadesV2_aplicarReconciliacaoChamadas_(result, options) {
-  var ss = atividadesV2_getDatabaseSpreadsheetDev_();
+  var ss = atividadesV2_getDatabaseSpreadsheet_();
   (result.itens || []).forEach(function(item) {
     if (!item.seguroParaFinalizar) return;
     var activity = atividadesV2_getChamadaActivity_(ss, item.idAtividade, null);

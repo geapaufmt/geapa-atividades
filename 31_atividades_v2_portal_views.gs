@@ -1,15 +1,15 @@
 /**
  * Rotinas manuais de atualizacao e conferencia das views PORTAL_* da base
- * ATIVIDADES v2 DEV.
+ * ATIVIDADES v2 do ambiente resolvido.
  *
  * Nenhuma funcao aqui altera producao, cria triggers ou escreve em bases V1.
  */
 
 function atividadesV2_diagnostico_() {
-  var ss = atividadesV2_getDatabaseSpreadsheetDev_();
+  var ss = atividadesV2_getDatabaseSpreadsheet_();
   var result = {
     ok: true,
-    modo: 'DEV',
+    modo: atividadesV2_resolveEnvironment_({}),
     spreadsheetId: ss.getId(),
     url: ss.getUrl(),
     sheets: {},
@@ -51,7 +51,7 @@ function atividadesV2_diagnostico_() {
 
 function atividadesV2_conferirConsistencia_(options) {
   var opts = options || {};
-  var ss = atividadesV2_getDatabaseSpreadsheetDev_();
+  var ss = atividadesV2_getDatabaseSpreadsheet_();
   var data = atividadesV2_readPortalViewsSourceData_(ss);
   var issues = [];
   var now = new Date();
@@ -194,7 +194,7 @@ function atividadesV2_conferirConsistencia_(options) {
 
   return {
     ok: issues.filter(function(issue) { return issue.severity === 'ERRO'; }).length === 0,
-    modo: 'DEV',
+    modo: atividadesV2_resolveEnvironment_({}),
     totalIssues: issues.length,
     erros: issues.filter(function(issue) { return issue.severity === 'ERRO'; }).length,
     avisos: issues.filter(function(issue) { return issue.severity !== 'ERRO'; }).length,
@@ -204,7 +204,7 @@ function atividadesV2_conferirConsistencia_(options) {
 
 function atividadesV2_conferirContratoPortalAtivo_(options) {
   var opts = options || {};
-  var ss = atividadesV2_getDatabaseSpreadsheetDev_();
+  var ss = atividadesV2_getDatabaseSpreadsheet_();
   var detalhesSheet = atividadesV2_getTargetSheet_(ss, ATIVIDADES_V2_SHEETS.PORTAL_ATIVIDADES_DETALHES);
   var calendarioSheet = atividadesV2_getTargetSheet_(ss, ATIVIDADES_V2_SHEETS.PORTAL_ATIVIDADES_CALENDARIO);
   var atividadesSheet = atividadesV2_getTargetSheet_(ss, ATIVIDADES_V2_SHEETS.ATIVIDADES);
@@ -253,7 +253,7 @@ function atividadesV2_conferirContratoPortalAtivo_(options) {
   return {
     ok: failed.length === 0,
     dryRun: true,
-    modo: 'DEV',
+    modo: atividadesV2_resolveEnvironment_({}),
     contratoAtivoPortal: [
       ATIVIDADES_V2_SHEETS.PORTAL_ATIVIDADES_CALENDARIO,
       ATIVIDADES_V2_SHEETS.PORTAL_ATIVIDADES_DETALHES
@@ -279,14 +279,14 @@ function atividadesV2_conferirContratoPortalAtivo_(options) {
 }
 
 function atividadesV2_diagnosticarCicloSemestrePortalDev_() {
-  var ss = atividadesV2_getDatabaseSpreadsheetDev_();
+  var ss = atividadesV2_getDatabaseSpreadsheet_();
   var targets = [
     ATIVIDADES_V2_SHEETS.PORTAL_ATIVIDADES_CALENDARIO,
     ATIVIDADES_V2_SHEETS.PORTAL_ATIVIDADES_DETALHES
   ];
   var result = {
     ok: true,
-    modo: 'DEV',
+    modo: atividadesV2_resolveEnvironment_({}),
     totalAnalisadas: 0,
     totalInvalidas: 0,
     invalidas: [],
@@ -596,7 +596,7 @@ function atividadesV2_atualizarPortalStatus_(options) {
       ULTIMO_PROCESSAMENTO: now,
       ULTIMO_ERRO: '',
       STATUS_GERAL: 'OK',
-      OBSERVACOES: 'Atualizado por rotina manual v2 DEV.'
+      OBSERVACOES: 'Atualizado por rotina manual v2 do ambiente resolvido.'
     }];
     return atividadesV2_finishPortalViewUpdate_(ss, opts, ATIVIDADES_V2_SHEETS.PORTAL_STATUS_ATIVIDADES, ATIVIDADES_V2_SCHEMA.PORTAL_STATUS_ATIVIDADES, rows, {
       abasLidas: atividadesV2_getPortalViewSourceSheetNames_().concat([ATIVIDADES_V2_SHEETS.PORTAL_PENDENCIAS_DIRETORIA]),
@@ -647,14 +647,14 @@ function atividadesV2_runTesteAtualizacaoPortalDev_() {
 function atividadesV2_updatePortalViewWithLock_(flow, options, fn) {
   var opts = options || {};
   if (opts.dryRun === true) {
-    return fn(atividadesV2_getDatabaseSpreadsheetDev_(), opts);
+    return fn(atividadesV2_getDatabaseSpreadsheet_(), opts);
   }
   var lock = LockService.getScriptLock();
   if (!lock.tryLock(30000)) {
     return { ok: false, dryRun: false, flow: flow, errorCode: 'LOCK_INDISPONIVEL', message: 'Nao foi possivel obter lock para atualizar view v2.' };
   }
   try {
-    return fn(atividadesV2_getDatabaseSpreadsheetDev_(), opts);
+    return fn(atividadesV2_getDatabaseSpreadsheet_(), opts);
   } finally {
     lock.releaseLock();
   }
@@ -675,7 +675,7 @@ function atividadesV2_finishPortalViewUpdate_(ss, opts, sheetName, headers, rows
   var result = Object.assign({
     ok: true,
     dryRun: dryRun,
-    modo: 'DEV',
+    modo: atividadesV2_resolveEnvironment_({}),
     destino: sheetName,
     abasLidas: extra && extra.abasLidas || [],
     abasEscritas: dryRun ? [] : [sheetName],
@@ -785,9 +785,9 @@ function atividadesV2_repararDesalinhamentoViewsPortalDev_(options) {
       return {
         ok: false,
         dryRun: false,
-        modo: 'DEV',
+        modo: atividadesV2_resolveEnvironment_({}),
         errorCode: 'LOCK_INDISPONIVEL',
-        message: 'Nao foi possivel obter lock para reparar views PORTAL_* v2 DEV.'
+        message: 'Nao foi possivel obter lock para reparar views PORTAL_* v2 do ambiente resolvido.'
       };
     }
   }
@@ -800,11 +800,11 @@ function atividadesV2_repararDesalinhamentoViewsPortalDev_(options) {
 }
 
 function atividadesV2_repararDesalinhamentoViewsPortalDevSemLock_(opts, dryRun) {
-  var ss = atividadesV2_getDatabaseSpreadsheetDev_();
+  var ss = atividadesV2_getDatabaseSpreadsheet_();
   var result = {
     ok: true,
     dryRun: dryRun,
-    modo: 'DEV',
+    modo: atividadesV2_resolveEnvironment_({}),
     diagnosticoOnly: opts.diagnosticoOnly === true,
     sheets: {},
     totalSheetsAnalisadas: 0,
@@ -859,7 +859,7 @@ function atividadesV2_repararDesalinhamentoViewsPortalDevSemLock_(opts, dryRun) 
       ACAO: 'Reparar desalinhamento de views PORTAL_* por cabecalho',
       NIVEL: result.totalSheetsComDesalinhamento ? 'WARN' : 'INFO',
       STATUS: result.ok ? 'OK' : 'ERRO',
-      MENSAGEM: 'Reparo de views v2 DEV concluido.',
+      MENSAGEM: 'Reparo de views v2 do ambiente resolvido concluido.',
       DETALHES_JSON: atividadesV2_safeLogData_({
         sheetsComDesalinhamento: result.totalSheetsComDesalinhamento,
         linhasReparadas: result.totalLinhasReparadas,

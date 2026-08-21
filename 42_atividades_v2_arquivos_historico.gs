@@ -1,5 +1,5 @@
 /**
- * Repopulacao historica de Atividades_Arquivos na base V2 DEV.
+ * Repopulacao historica de Atividades_Arquivos na base V2 do ambiente resolvido.
  *
  * A rotina apenas cataloga metadados. Nenhum arquivo e movido, renomeado ou
  * apagado no Drive, e nenhuma aba operacional legada e alterada.
@@ -57,7 +57,7 @@ function atividades_repopularAtividadesArquivosHistorico_(options) {
 }
 
 function atividadesV2_historicoBuildAndApplyPlan_(dryRun, startedAt) {
-  var ss = atividadesV2_getDatabaseSpreadsheetDev_();
+  var ss = atividadesV2_getDatabaseSpreadsheet_();
   var atividadesSheet = atividadesV2_getTargetSheet_(ss, ATIVIDADES_V2_SHEETS.ATIVIDADES);
   var apresentacoesSheet = atividadesV2_getTargetSheet_(ss, ATIVIDADES_V2_SHEETS.APRESENTACOES);
   var arquivosSheet = ss.getSheetByName(ATIVIDADES_V2_SHEETS.ARQUIVOS);
@@ -172,7 +172,7 @@ function atividadesV2_historicoBuildAndApplyPlan_(dryRun, startedAt) {
         ACAO: 'REPOPULAR_ATIVIDADES_ARQUIVOS_HISTORICO',
         NIVEL: report.erros.length ? 'WARN' : 'INFO',
         STATUS: report.erros.length ? 'PARCIAL' : 'OK',
-        MENSAGEM: 'Catalogacao historica de arquivos concluida na base V2 DEV.',
+        MENSAGEM: 'Catalogacao historica de arquivos concluida na base V2 do ambiente resolvido.',
         DETALHES_JSON: atividadesV2_safeLogData_({
           atividades: report.totalAtividadesAvaliadas,
           apresentacoes: report.totalApresentacoesAvaliadas,
@@ -522,7 +522,7 @@ function atividadesV2_historicoBuildId_(idAtividade, idApresentacao, tipo, token
 function atividadesV2_historicoNewReport_(dryRun, startedAt) {
   return {
     ok: true,
-    modo: 'DEV',
+    modo: atividadesV2_resolveEnvironment_({}),
     dryRun: dryRun,
     origem: 'ATIVIDADES_V2_DB',
     destino: ATIVIDADES_V2_SHEETS.ARQUIVOS,

@@ -2,7 +2,7 @@
  * Materializacao DEV das views publicas de atividades para o Portal GEAPA.
  *
  * Esta rotina le as abas base Atividades e Atividades_Apresentacoes da base
- * v2 DEV e escreve somente na aba PORTAL_ATIVIDADES_CALENDARIO da mesma base.
+ * v2 do ambiente resolvido e escreve somente na aba PORTAL_ATIVIDADES_CALENDARIO da mesma base.
  * Nao altera producao, nao envia e-mails, nao instala triggers e nao registra
  * presenca.
  */
@@ -15,7 +15,7 @@ function atividadesV2_sincronizarPortalAtividadesCalendarioDev_() {
   };
 
   try {
-    var ss = atividadesV2_getDatabaseSpreadsheetDev_();
+    var ss = atividadesV2_getDatabaseSpreadsheet_();
     portalPerfMark_(perf, 'abrir_planilha_v2_dev');
     var sourceSheet = atividadesV2_getTargetSheet_(ss, ATIVIDADES_V2_SHEETS.ATIVIDADES);
     var apresentacoesSheet = atividadesV2_getTargetSheet_(ss, ATIVIDADES_V2_SHEETS.APRESENTACOES);
@@ -103,7 +103,7 @@ function atividadesV2_runTestePortalAtividadesCalendarioDev_() {
     };
   }
 
-  var ss = atividadesV2_getDatabaseSpreadsheetDev_();
+  var ss = atividadesV2_getDatabaseSpreadsheet_();
   var sheet = atividadesV2_getTargetSheet_(ss, ATIVIDADES_V2_SHEETS.PORTAL_ATIVIDADES_CALENDARIO);
   var records = atividadesV2_readSheetObjects_(sheet);
   var idsInvalidos = records.filter(function(record) {
@@ -141,7 +141,7 @@ function atividadesV2_atualizarPortalAtividadesDetalhesDev_() {
   };
 
   try {
-    var ss = atividadesV2_getDatabaseSpreadsheetDev_();
+    var ss = atividadesV2_getDatabaseSpreadsheet_();
     portalPerfMark_(perf, 'abrir_planilha_v2_dev');
 
     var atividadesSheet = atividadesV2_getTargetSheet_(ss, ATIVIDADES_V2_SHEETS.ATIVIDADES);

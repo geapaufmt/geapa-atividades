@@ -370,22 +370,13 @@ function atividadesV2_readParametrosOperacionais_(options) {
       } catch (registryCoreErr) {
         report.warnings.push('REGISTRY_CORE_INDISPONIVEL_PARA_PARAMETROS');
       }
-      if (!entry && typeof atividadesV2_mailGetRegistryEntryDev_ === 'function') {
-        entry = atividadesV2_mailGetRegistryEntryDev_(ATIVIDADES_V2_PARAMETROS_OPERACIONAIS_KEY_);
-      }
       if (!entry || !entry.id) throw new Error('Key nao encontrada no Registry.');
       if (entry.ativo === false) throw new Error('Key inativa no Registry.');
-      var ss;
-      try {
-        ss = atividades_openSpreadsheetByIdCached_(entry.id);
-      } catch (openCoreErr) {
-        ss = SpreadsheetApp.openById(String(entry.id || '').trim());
-        report.warnings.push('ABERTURA_DIRETA_PARAMETROS_APOS_CORE_INDISPONIVEL');
-      }
+      var ss = atividades_openSpreadsheetByIdCached_(entry.id);
       var sheet = ss.getSheetByName(entry.sheet || '') || ss.getSheetByName(ATIVIDADES_V2_PARAMETROS_OPERACIONAIS_SHEET_);
       if (!sheet) throw new Error('Aba PARAMETROS_OPERACIONAIS nao encontrada.');
       rawRecords = atividadesV2_readSheetObjects_(sheet);
-      report.source = entry.ambiente === 'DEV' ? 'REGISTRY_DEV_DIRECT' : 'REGISTRY';
+      report.source = 'REGISTRY_ENV';
     } catch (registryErr) {
       report.errors.push('ERRO_LER_PARAMETROS_OPERACIONAIS:' + atividadesV2_errorMessage_(registryErr).slice(0, 240));
     }
@@ -529,7 +520,7 @@ function atividadesV2_mailJobsEnabled_(config, key) {
 }
 
 function atividadesV2_mailJobsReadData_() {
-  var ss = atividadesV2_getDatabaseSpreadsheetDev_();
+  var ss = atividadesV2_getDatabaseSpreadsheet_();
   var atividadesSheet = atividadesV2_getTargetSheet_(ss, ATIVIDADES_V2_SHEETS.ATIVIDADES);
   var apresentacoesSheet = atividadesV2_getTargetSheet_(ss, ATIVIDADES_V2_SHEETS.APRESENTACOES);
   var envolvidosSheet = atividadesV2_getTargetSheet_(ss, ATIVIDADES_V2_SHEETS.ENVOLVIDOS);
@@ -553,7 +544,7 @@ function atividadesV2_mailJobsBuildPlan_(scope, options) {
   var now = atividades_parseDateOrNull_(opts.agora || opts.now) || new Date();
   var plan = {
     ok: true,
-    modo: 'DEV',
+    modo: atividadesV2_resolveEnvironment_({}),
     dryRun: true,
     scope: atividades_normalizeTextUpper_(scope || 'TODOS'),
     config: atividadesV2_mailJobsSafeConfig_(config),
@@ -1537,7 +1528,7 @@ function atividadesV2_mailJobsExecutePlan_(plan) {
 
   var report = {
     ok: errors.length === 0,
-    modo: 'DEV',
+    modo: atividadesV2_resolveEnvironment_({}),
     dryRun: false,
     scope: plan.scope,
     modoEnvio: plan.modoEnvio,
@@ -1618,7 +1609,7 @@ function atividadesV2_mailJobsApplyPresentationUpdatesBatch_(sheet, updates) {
 function atividadesV2_mailJobsPublicPlan_(plan) {
   return {
     ok: plan.erros.length === 0,
-    modo: 'DEV',
+    modo: atividadesV2_resolveEnvironment_({}),
     dryRun: true,
     scope: plan.scope,
     modoEnvio: plan.modoEnvio,
@@ -1646,7 +1637,7 @@ function atividadesV2_mailJobsPublicPlan_(plan) {
 function atividadesV2_mailJobsBlockedRun_(plan, reason) {
   return {
     ok: false,
-    modo: 'DEV',
+    modo: atividadesV2_resolveEnvironment_({}),
     dryRun: false,
     scope: plan.scope,
     modoEnvio: plan.modoEnvio,

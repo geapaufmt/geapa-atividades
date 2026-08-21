@@ -34,7 +34,7 @@ function atividadesV2_portalCriarAtividade_(payload, contexto) {
   }
 
   if (dryRun) {
-    var previewSs = atividadesV2_getDatabaseSpreadsheetDev_();
+    var previewSs = atividadesV2_getDatabaseSpreadsheet_();
     var preview = atividadesV2_montarCriacaoAtividadePreview_(validation.data, ctx, previewSs);
     return atividadesV2_buildCriacaoAtividadeResponse_(true, preview, {
       dryRun: true,
@@ -55,7 +55,7 @@ function atividadesV2_portalCriarAtividade_(payload, contexto) {
   var creation;
   var avisos = [];
   try {
-    var ss = atividadesV2_getDatabaseSpreadsheetDev_();
+    var ss = atividadesV2_getDatabaseSpreadsheet_();
     var existingRequest = atividadesV2_portalWriteFindRequest_(ss, portalAction);
     if (existingRequest) return atividadesV2_portalWriteReplayResponse_(existingRequest);
     atividadesV2_portalWriteStage_(trace, 'ESCRITA_PLANILHA_OFICIAL', function() {
@@ -73,7 +73,7 @@ function atividadesV2_portalCriarAtividade_(payload, contexto) {
       avisos.push(atividadesV2_portalWriteWarning_(trace, 'POS_PROCESSAMENTO_NAO_ENFILEIRADO', 'A atividade foi criada, mas o pos-processamento nao entrou na fila operacional.'));
     }
   } catch (err) {
-    atividadesV2_portalWriteLogSafe_(atividadesV2_getDatabaseSpreadsheetDev_(), trace, 'ERRO', err && (err.code || err.errorCode) || 'ERRO_CRIAR_ATIVIDADE');
+    atividadesV2_portalWriteLogSafe_(atividadesV2_getDatabaseSpreadsheet_(), trace, 'ERRO', err && (err.code || err.errorCode) || 'ERRO_CRIAR_ATIVIDADE');
     return atividadesV2_portalWriteErrorResponse_(err, 'ERRO_CRIAR_ATIVIDADE', atividadesV2_errorMessage_(err));
   } finally {
     lock.releaseLock();

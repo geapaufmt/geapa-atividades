@@ -1,7 +1,7 @@
 /**
  * GEAPA Atividades V2 - Justificativas pelo Portal.
  *
- * Fluxo DEV sobre ATIVIDADES_V2_DB. Nao altera V1, nao cria triggers,
+ * Fluxo V2 sobre ATIVIDADES_V2_DB no ambiente recebido do backend. Nao altera V1, nao cria triggers,
  * nao envia e-mails e nao escreve diretamente em views PORTAL_*.
  */
 
@@ -182,7 +182,7 @@ function atividadesV2_promoverJustificativasPreviasDev_(options) {
   }
 
   try {
-    var ss = atividadesV2_getDatabaseSpreadsheetDev_();
+    var ss = atividadesV2_getDatabaseSpreadsheet_();
     report = atividadesV2_promoverJustificativasPreviasNaPlanilha_(ss, report, options);
     if (!dryRun && report.totalPromovidas > 0) {
       atividadesV2_refreshJustificativasPortalViews_();
@@ -343,7 +343,7 @@ function atividadesV2_portalListarJustificativasPendentesDiretoria_(contexto) {
     return atividadesV2_portalActionErrorResponse_(atividadesV2_portalActionException_('PERMISSAO_NEGADA', 'Perfil sem permissao para consultar justificativas pendentes.'));
   }
   try {
-    var ss = atividadesV2_getDatabaseSpreadsheetDev_();
+    var ss = atividadesV2_getDatabaseSpreadsheet_();
     var justificativas = atividadesV2_readSheetObjects_(atividadesV2_getTargetSheet_(ss, ATIVIDADES_V2_SHEETS.JUSTIFICATIVAS));
     var pendentes = justificativas.filter(function(record) {
       if (atividades_normalizeTextUpper_(record.ATIVO || 'SIM') === 'NAO') return false;
@@ -364,7 +364,7 @@ function atividadesV2_portalListarJustificativasPendentesDiretoria_(contexto) {
 }
 
 function atividadesV2_diagnosticarFluxoJustificativasPortalDev_() {
-  var ss = atividadesV2_getDatabaseSpreadsheetDev_();
+  var ss = atividadesV2_getDatabaseSpreadsheet_();
   var data = atividadesV2_readJustificativasPortalData_(ss);
   var janelaPrevia = atividadesV2_getJustificativaPreviaJanelaConfig_({ forceRefreshConfig: true });
   var justificativasByRegistro = atividadesV2_indexActiveJustificativasByRegistro_(data.justificativas);
@@ -397,7 +397,7 @@ function atividadesV2_diagnosticarFluxoJustificativasPortalDev_() {
   });
   return {
     ok: true,
-    modo: 'DEV',
+    modo: atividadesV2_resolveEnvironment_({}),
     configuracao: {
       justificativaPreviaAntecedenciaDias: janelaPrevia.dias,
       parametroId: janelaPrevia.parametroId,
@@ -424,7 +424,7 @@ function atividadesV2_runTestePortalJustificativasDev_() {
 
 function atividadesV2_getMinhasJustificativasPortalData_(contexto) {
   var ctx = atividades_normalizePortalContext_(contexto || {});
-  var ss = atividadesV2_getDatabaseSpreadsheetDev_();
+  var ss = atividadesV2_getDatabaseSpreadsheet_();
   var data = atividadesV2_readJustificativasPortalData_(ss);
   var justificativasByRegistro = atividadesV2_indexActiveJustificativasByRegistro_(data.justificativas);
   var justificativasByAtividade = atividadesV2_indexActiveJustificativasByActivityForOwnContext_(data.justificativas, ctx);
@@ -1301,9 +1301,9 @@ function atividadesV2_portalRunJustificativaAction_(tipoAcao, payload, contexto,
       entityId: result.idJustificativa || ''
     });
   } catch (err) {
-    atividadesV2_portalWriteLogSafe_(atividadesV2_getDatabaseSpreadsheetDev_(), trace, 'ERRO', err && (err.code || err.errorCode) || 'ERRO_JUSTIFICATIVA');
+    atividadesV2_portalWriteLogSafe_(atividadesV2_getDatabaseSpreadsheet_(), trace, 'ERRO', err && (err.code || err.errorCode) || 'ERRO_JUSTIFICATIVA');
     try {
-      atividadesV2_portalJustificativaActionError_(atividadesV2_getDatabaseSpreadsheetDev_(), action, err);
+      atividadesV2_portalJustificativaActionError_(atividadesV2_getDatabaseSpreadsheet_(), action, err);
     } catch (logErr) {}
     return atividadesV2_portalWriteErrorResponse_(err, 'ERRO_JUSTIFICATIVA', atividadesV2_errorMessage_(err));
   }

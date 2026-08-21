@@ -47,7 +47,7 @@ function atividadesV2_garantirPastaAtividade_(idAtividade, options) {
     throw new Error('ID_ATIVIDADE invalido para garantir pasta: ' + id);
   }
 
-  var ss = options.spreadsheet || atividadesV2_getDatabaseSpreadsheetDev_();
+  var ss = options.spreadsheet || atividadesV2_getDatabaseSpreadsheet_();
   var sheet = atividadesV2_getTargetSheet_(ss, ATIVIDADES_V2_SHEETS.ATIVIDADES);
   if (!dryRun) atividadesV2_applyHeadersIfMissing_(sheet, ATIVIDADES_V2_SCHEMA.ATIVIDADES);
 
@@ -114,7 +114,7 @@ function atividadesV2_garantirPastaAtividade_(idAtividade, options) {
     NIVEL: 'INFO',
     STATUS: 'OK',
     ID_ATIVIDADE: id,
-    MENSAGEM: 'Pasta Drive da atividade criada na base V2 DEV.',
+    MENSAGEM: 'Pasta Drive da atividade criada na base V2 do ambiente resolvido.',
     DETALHES_JSON: JSON.stringify({ idAtividade: id, folderName: folderName })
   });
 
@@ -168,7 +168,7 @@ function atividadesV2_registrarMaterialApresentacao_(payload, contexto) {
   if (!lock.tryLock(30000)) throw new Error('LOCK_INDISPONIVEL: nao foi possivel registrar material agora.');
 
   try {
-    var ss = atividadesV2_getDatabaseSpreadsheetDev_();
+    var ss = atividadesV2_getDatabaseSpreadsheet_();
     var portalAction = contexto._portalWriteAction || null;
     var existingRequest = portalAction ? atividadesV2_portalWriteFindRequest_(ss, portalAction) : null;
     if (existingRequest) {
@@ -259,7 +259,7 @@ function atividadesV2_registrarMaterialApresentacao_(payload, contexto) {
     });
     var response = {
       ok: true,
-      modo: 'DEV',
+      modo: atividadesV2_resolveEnvironment_({}),
       idAtividade: idAtividade,
       idApresentacao: idApresentacao,
       idArquivoMaterial: targetFile.getId(),
@@ -282,7 +282,7 @@ function atividadesV2_registrarMaterialApresentacao_(payload, contexto) {
     return response;
   } catch (err) {
     try {
-      atividadesV2_appendV2Log_(atividadesV2_getDatabaseSpreadsheetDev_(), {
+      atividadesV2_appendV2Log_(atividadesV2_getDatabaseSpreadsheet_(), {
         FLUXO: 'MATERIAIS_V2',
         ACAO: 'REGISTRAR_MATERIAL_APRESENTACAO',
         NIVEL: 'ERRO',
@@ -299,7 +299,7 @@ function atividadesV2_registrarMaterialApresentacao_(payload, contexto) {
 }
 
 function atividadesV2_diagnosticarMateriaisApresentacoesDev_() {
-  var ss = atividadesV2_getDatabaseSpreadsheetDev_();
+  var ss = atividadesV2_getDatabaseSpreadsheet_();
   var atividadesSheet = atividadesV2_getTargetSheet_(ss, ATIVIDADES_V2_SHEETS.ATIVIDADES);
   var apresentacoesSheet = atividadesV2_getTargetSheet_(ss, ATIVIDADES_V2_SHEETS.APRESENTACOES);
   var atividades = atividadesV2_readSheetObjects_(atividadesSheet);
@@ -355,7 +355,7 @@ function atividadesV2_diagnosticarMateriaisApresentacoesDev_() {
 
   return {
     ok: true,
-    modo: 'DEV',
+    modo: atividadesV2_resolveEnvironment_({}),
     stats: stats,
     inconsistencias: inconsistencias,
     avisos: avisos
@@ -380,7 +380,7 @@ function atividadesV2_migrarArquivosApresentacoesParaMateriaisDev_(options) {
   }
 
   try {
-    var ss = atividadesV2_getDatabaseSpreadsheetDev_();
+    var ss = atividadesV2_getDatabaseSpreadsheet_();
     var sheet = atividadesV2_getTargetSheet_(ss, ATIVIDADES_V2_SHEETS.APRESENTACOES);
     if (!dryRun) atividadesV2_applyHeadersIfMissing_(sheet, ATIVIDADES_V2_SCHEMA.APRESENTACOES);
     var headers = atividadesV2_getSheetHeaders_(sheet);
@@ -390,7 +390,7 @@ function atividadesV2_migrarArquivosApresentacoesParaMateriaisDev_(options) {
     var rows = lastRow > 1 ? sheet.getRange(2, 1, lastRow - 1, lastColumn).getValues() : [];
     var report = {
       ok: true,
-      modo: 'DEV',
+      modo: atividadesV2_resolveEnvironment_({}),
       dryRun: dryRun,
       totalLidas: rows.length,
       totalMigraveis: 0,

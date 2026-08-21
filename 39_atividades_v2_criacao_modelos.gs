@@ -2,7 +2,7 @@
  * Criacao de atividades por modelos homologados do Atividades_Config.
  *
  * O Portal envia apenas ID_CONFIG e dados concretos da ocorrencia. Regras
- * institucionais sao sempre relidas e aplicadas pelo backend na base v2 DEV.
+ * institucionais sao sempre relidas e aplicadas pelo backend na base v2 do ambiente resolvido.
  */
 
 var ATIVIDADES_MODELO_ACTIVITY_SCHEMA_HEADERS_ = Object.freeze([
@@ -31,7 +31,7 @@ function atividades_listarModelosCriacaoPortal_(contexto) {
   if (cached) return cached;
 
   try {
-    var ss = atividadesV2_getDatabaseSpreadsheetDev_();
+    var ss = atividadesV2_getDatabaseSpreadsheet_();
     var rows = atividades_modelosCriacaoReadConfigRows_(ss);
     var models = rows.filter(function(model) {
       return atividades_modelosCriacaoIsEnabled_(model) &&
@@ -72,7 +72,7 @@ function atividades_obterModeloCriacaoPortal_(idConfig, contexto) {
   if (!wanted) return atividades_modelosCriacaoError_('ID_CONFIG_OBRIGATORIO', 'Informe o modelo da atividade.');
 
   try {
-    var ss = atividadesV2_getDatabaseSpreadsheetDev_();
+    var ss = atividadesV2_getDatabaseSpreadsheet_();
     var model = atividades_modelosCriacaoFindConfig_(atividades_modelosCriacaoReadConfigRows_(ss), wanted);
     var validation = atividades_modelosCriacaoValidateModelAccess_(model, ctx);
     if (!validation.ok) return validation;
@@ -95,7 +95,7 @@ function atividades_listarMembrosApresentadoresElegiveis_(idConfig, referencia, 
   if (!permission.ok) return permission;
 
   try {
-    var ss = atividadesV2_getDatabaseSpreadsheetDev_();
+    var ss = atividadesV2_getDatabaseSpreadsheet_();
     var model = atividades_modelosCriacaoFindConfig_(atividades_modelosCriacaoReadConfigRows_(ss), idConfig);
     var modelAccess = atividades_modelosCriacaoValidateModelAccess_(model, ctx);
     if (!modelAccess.ok) return modelAccess;
@@ -171,7 +171,7 @@ function atividades_criarAtividadePorModelo_(payload, contexto) {
     });
     if (!validated.ok) return validated;
 
-    var ss = atividadesV2_getDatabaseSpreadsheetDev_();
+    var ss = atividadesV2_getDatabaseSpreadsheet_();
     var existingRequest = atividadesV2_portalWriteFindRequest_(ss, portalAction);
     if (existingRequest) return atividadesV2_portalWriteReplayResponse_(existingRequest);
     var tokenCheck = atividades_modelosCriacaoValidateConfirmation_(request.confirmacaoToken, validated.meta.fingerprint);
@@ -207,7 +207,7 @@ function atividades_criarAtividadePorModelo_(payload, contexto) {
       warnings.push(atividadesV2_portalWriteWarning_(trace, 'CACHE_INVALIDACAO_PENDENTE', 'A atividade foi criada, mas a confirmacao temporaria sera expirada pelo cache.'));
     }
   } catch (err) {
-    atividadesV2_portalWriteLogSafe_(atividadesV2_getDatabaseSpreadsheetDev_(), trace, 'ERRO', err && (err.code || err.errorCode) || 'ERRO_CRIAR_ATIVIDADE_POR_MODELO');
+    atividadesV2_portalWriteLogSafe_(atividadesV2_getDatabaseSpreadsheet_(), trace, 'ERRO', err && (err.code || err.errorCode) || 'ERRO_CRIAR_ATIVIDADE_POR_MODELO');
     return atividades_modelosCriacaoError_('ERRO_CRIAR_ATIVIDADE_POR_MODELO', 'Nao foi possivel criar a atividade pelo modelo.', err);
   } finally {
     lock.releaseLock();
@@ -248,7 +248,7 @@ function atividades_migrarSchemaAtividadesParaModeloConfig_(options) {
   }
 
   try {
-    var ss = atividadesV2_getDatabaseSpreadsheetDev_();
+    var ss = atividadesV2_getDatabaseSpreadsheet_();
     var sheet = atividadesV2_getTargetSheet_(ss, ATIVIDADES_V2_SHEETS.ATIVIDADES);
     var existing = atividades_modelosCriacaoHeaderSet_(sheet);
     var missing = ATIVIDADES_MODELO_ACTIVITY_SCHEMA_HEADERS_.filter(function(header) {
@@ -301,7 +301,7 @@ function atividades_modelosCriacaoValidate_(payload, contexto, options) {
   if (!idConfig) return atividades_modelosCriacaoError_('ID_CONFIG_OBRIGATORIO', 'Selecione um modelo homologado.');
 
   try {
-    var ss = atividadesV2_getDatabaseSpreadsheetDev_();
+    var ss = atividadesV2_getDatabaseSpreadsheet_();
     var model = atividades_modelosCriacaoFindConfig_(atividades_modelosCriacaoReadConfigRows_(ss), idConfig);
     var modelAccess = atividades_modelosCriacaoValidateModelAccess_(model, ctx);
     if (!modelAccess.ok) return modelAccess;
@@ -1205,7 +1205,12 @@ function atividades_modelosCriacaoResolveCycle_(reference) {
 
 function atividades_modelosCriacaoLerCiclosVigentes_() {
   if (ATIVIDADES_MODELO_CICLOS_EXECUTION_CACHE_) return ATIVIDADES_MODELO_CICLOS_EXECUTION_CACHE_;
-  var cacheKey = portalCacheBuildKey_('vigencias_ciclos', 'VIGENCIAS_V2_CICLOS');
+  atividades_assertCoreLibrary_();
+  if (typeof GEAPA_CORE.coreGetDomainSheet !== 'function') {
+    throw new Error('GEAPA_CORE_DESATUALIZADO: coreGetDomainSheet indisponivel.');
+  }
+  var environment = atividadesV2_resolveEnvironment_({});
+  var cacheKey = portalCacheBuildKey_('vigencias_ciclos', 'VIGENCIAS_V2_DB/CICLOS/' + environment);
   var cached = portalCacheGetJson_(cacheKey);
   if (cached && Array.isArray(cached.cycles)) {
     ATIVIDADES_MODELO_CICLOS_EXECUTION_CACHE_ = cached;
@@ -1213,41 +1218,7 @@ function atividades_modelosCriacaoLerCiclosVigentes_() {
   }
 
   var warnings = [];
-  var registry = atividades_modelosCriacaoGetRegistryCycleEntry_('VIGENCIAS_V2_CICLOS');
-  var legacyKey = false;
-  if (!registry) {
-    registry = atividades_modelosCriacaoGetRegistryCycleEntry_('VIGENCIAS_V2_PERIODOS');
-    legacyKey = !!registry;
-  }
-  if (!registry || !String(registry.id || '').trim()) {
-    throw new Error('Key VIGENCIAS_V2_CICLOS nao encontrada no Registry para leitura dos ciclos.');
-  }
-  if (registry.ativo === false || atividades_normalizeTextUpper_(registry.ativo) === 'NAO') {
-    throw new Error('A key VIGENCIAS_V2_CICLOS esta inativa no Registry.');
-  }
-  if (legacyKey) atividades_modelosCriacaoAddWarning_(warnings, 'Usado alias legado do Registry para localizar a base de ciclos.');
-
-  var spreadsheet = SpreadsheetApp.openById(String(registry.id).trim());
-  var configuredSheetName = String(registry.sheet || '').trim();
-  var sheet = spreadsheet.getSheetByName('CICLOS');
-  var legacySheet = false;
-  if (!sheet && configuredSheetName) {
-    sheet = spreadsheet.getSheetByName(configuredSheetName);
-    legacySheet = !!sheet && atividades_normalizeTextUpper_(sheet.getName()) !== 'CICLOS';
-  }
-  if (!sheet) {
-    sheet = spreadsheet.getSheetByName('PERIODOS');
-    legacySheet = !!sheet;
-  }
-  if (!sheet) throw new Error('Aba CICLOS nao encontrada na base de Vigencias v2.');
-
-  if (configuredSheetName && atividades_normalizeTextUpper_(configuredSheetName) !== 'CICLOS') {
-    atividades_modelosCriacaoAddWarning_(warnings, 'Registry ainda aponta para uma aba legada; a leitura priorizou CICLOS quando disponivel.');
-  }
-  if (legacySheet) {
-    atividades_modelosCriacaoAddWarning_(warnings, 'Foi usada leitura compativel da aba legada de ciclos.');
-    Logger.log('GEAPA-ATIVIDADES-V2-MODELOS [WARN] fallback legado de ciclos: ' + sheet.getName());
-  }
+  var sheet = GEAPA_CORE.coreGetDomainSheet('VIGENCIAS', 'CICLOS', { ambiente: environment });
 
   var invalidDates = 0;
   var cycles = atividadesV2_readSheetObjects_(sheet).map(function(row) {
@@ -1264,25 +1235,6 @@ function atividades_modelosCriacaoLerCiclosVigentes_() {
   portalCachePutJson_(cacheKey, result, ATIVIDADES_MODELO_CACHE_TTL_SECONDS_);
   ATIVIDADES_MODELO_CICLOS_EXECUTION_CACHE_ = result;
   return result;
-}
-
-function atividades_modelosCriacaoGetRegistryCycleEntry_(key) {
-  var api = typeof GEAPA_CORE !== 'undefined' && GEAPA_CORE ? GEAPA_CORE : null;
-  if (api && typeof api.coreGetRegistryMetaByKey === 'function') {
-    try {
-      return api.coreGetRegistryMetaByKey(key);
-    } catch (coreError) {
-      // O modulo DEV pode precisar da entrada DEV quando o ambiente atual do Core e outro.
-    }
-  }
-  if (typeof atividadesV2_readRegistryEntryDevDirect_ === 'function') {
-    try {
-      return atividadesV2_readRegistryEntryDevDirect_(String(key || '').trim().toUpperCase());
-    } catch (registryError) {
-      return null;
-    }
-  }
-  return null;
 }
 
 function atividades_modelosCriacaoNormalizeCycleRecord_(row) {
@@ -1458,16 +1410,21 @@ function atividades_modelosCriacaoReadCurrentMembers_() {
       var records = calls[i]({ includeInactive: false });
       if (Array.isArray(records)) return { records: records, source: 'GEAPA_CORE', warning: '' };
     } catch (err) {
-      // Tenta a proxima API publica e, por ultimo, o fallback DEV ja existente.
+      // Tenta a proxima API publica e, por ultimo, a leitura do dominio no mesmo ambiente.
     }
   }
 
   try {
-    var pessoasSs = SpreadsheetApp.openById(ATIVIDADES_V2_PESSOAS_DEV_SPREADSHEET_ID_FALLBACK_);
+    atividades_assertCoreLibrary_();
+    if (typeof GEAPA_CORE.coreGetDomainSpreadsheet !== 'function') {
+      throw new Error('GEAPA_CORE_DESATUALIZADO');
+    }
+    var environment = atividadesV2_resolveEnvironment_({});
+    var pessoasSs = GEAPA_CORE.coreGetDomainSpreadsheet('PESSOAS', { ambiente: environment });
     return {
       records: atividadesV2_readPessoaRecordsBySheetName_(pessoasSs, 'PESSOAS_RESUMO_OPERACIONAL'),
-      source: 'PESSOAS_RESUMO_OPERACIONAL_DEV',
-      warning: 'GEAPA_CORE sem listagem disponivel; usado fallback DEV de PESSOAS_RESUMO_OPERACIONAL.'
+      source: 'PESSOAS_V2_DB/PESSOAS_RESUMO_OPERACIONAL',
+      warning: 'Listagem agregada indisponivel; usada leitura do dominio PESSOAS no mesmo ambiente.'
     };
   } catch (fallbackErr) {
     throw new Error('Pessoas v2 indisponivel para listar membros apresentadores.');
@@ -1611,7 +1568,7 @@ function atividades_modelosCriacaoError_(code, message, err) {
 }
 
 function atividades_runTesteCriacaoPorModeloDev_() {
-  var ss = atividadesV2_getDatabaseSpreadsheetDev_();
+  var ss = atividadesV2_getDatabaseSpreadsheet_();
   var rows = atividades_modelosCriacaoReadConfigRows_(ss);
   var wanted = ['APRESENTACAO_MEMBRO', 'PALESTRA', 'ABERTURA_PERIODO', 'FECHAMENTO_PERIODO'];
   var contexto = { perfil: 'ADMIN_TECNICO', email: 'teste-dev@geapa.local' };

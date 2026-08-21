@@ -206,7 +206,7 @@ var ATIVIDADES_CONFIG_MODELOS_ENUMS_ = Object.freeze({
 });
 
 function atividades_validarSchemaAtividadesConfig_() {
-  var ss = atividadesV2_getDatabaseSpreadsheetDev_();
+  var ss = atividadesV2_getDatabaseSpreadsheet_();
   var sheet = ss.getSheetByName(ATIVIDADES_V2_SHEETS.CONFIG);
   if (!sheet) {
     return {
@@ -214,7 +214,7 @@ function atividades_validarSchemaAtividadesConfig_() {
       readOnly: true,
       ambiente: 'DEV',
       errorCode: 'ABA_ATIVIDADES_CONFIG_NAO_ENCONTRADA',
-      message: 'A aba Atividades_Config nao foi encontrada na base v2 DEV.',
+      message: 'A aba Atividades_Config nao foi encontrada na base v2 do ambiente resolvido.',
       colunasEncontradas: [],
       colunasObrigatoriasAtuais: ATIVIDADES_CONFIG_MODELOS_LEGACY_HEADERS_.slice(),
       colunasObrigatoriasEncontradas: [],
@@ -222,7 +222,7 @@ function atividades_validarSchemaAtividadesConfig_() {
       novasColunasEsperadas: ATIVIDADES_CONFIG_MODELOS_NEW_HEADERS_.slice(),
       novasColunasAusentes: ATIVIDADES_CONFIG_MODELOS_NEW_HEADERS_.slice(),
       colunasDuplicadas: [],
-      mensagens: ['Aba Atividades_Config ausente na base v2 DEV.'],
+      mensagens: ['Aba Atividades_Config ausente na base v2 do ambiente resolvido.'],
       recomendacoes: ['Execute atividadesV2_setupDatabaseDev() antes da migracao do catalogo de modelos.']
     };
   }
@@ -239,7 +239,7 @@ function atividades_validarSchemaAtividadesConfig_() {
 }
 
 function atividades_migrarSchemaAtividadesConfigDryRun_() {
-  var ss = atividadesV2_getDatabaseSpreadsheetDev_();
+  var ss = atividadesV2_getDatabaseSpreadsheet_();
   var sheet = atividades_configModelosRequireSheet_(ss);
   var plan = atividades_configModelosBuildMigrationPlan_(ss, sheet);
   var result = {
@@ -284,7 +284,7 @@ function atividades_migrarSchemaAtividadesConfig_() {
   }
 
   try {
-    var ss = atividadesV2_getDatabaseSpreadsheetDev_();
+    var ss = atividadesV2_getDatabaseSpreadsheet_();
     var sheet = atividades_configModelosRequireSheet_(ss);
     var before = atividades_configModelosInspectSchema_(sheet);
     if (before.missingLegacy.length) {
@@ -353,7 +353,7 @@ function atividades_normalizarModelosAtividadesConfig_(options) {
   }
 
   try {
-    var ss = atividadesV2_getDatabaseSpreadsheetDev_();
+    var ss = atividadesV2_getDatabaseSpreadsheet_();
     var sheet = atividades_configModelosRequireSheet_(ss);
     var schema = atividades_configModelosInspectSchema_(sheet);
     if (schema.missingNew.length) {
@@ -414,7 +414,7 @@ function atividades_normalizarModelosAtividadesConfig_(options) {
 
 function atividades_configModelosRequireSheet_(ss) {
   var sheet = ss.getSheetByName(ATIVIDADES_V2_SHEETS.CONFIG);
-  if (!sheet) throw new Error('Aba Atividades_Config nao encontrada na base v2 DEV.');
+  if (!sheet) throw new Error('Aba Atividades_Config nao encontrada na base v2 do ambiente resolvido.');
   return sheet;
 }
 
@@ -796,7 +796,7 @@ function atividades_ajustarModeloApresentacaoMembroConfig_(options) {
   }
 
   try {
-    var ss = atividadesV2_getDatabaseSpreadsheetDev_();
+    var ss = atividadesV2_getDatabaseSpreadsheet_();
     var sheet = atividades_configModelosRequireSheet_(ss);
     if (!dryRun) atividadesV2_applyHeadersIfMissing_(sheet, ATIVIDADES_V2_SCHEMA.CONFIG);
     var rows = atividadesV2_readSheetObjects_(sheet);

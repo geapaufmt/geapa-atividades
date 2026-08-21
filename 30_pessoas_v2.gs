@@ -9,7 +9,6 @@
 var ATIVIDADES_V2_PESSOA_RESOLVER_CACHE_ = null;
 var ATIVIDADES_V2_PESSOA_RESOLVER_INDEX_ = null;
 var ATIVIDADES_V2_PESSOA_RESOLVER_DISABLE_POINT_LOOKUP_ = false;
-var ATIVIDADES_V2_PESSOAS_DEV_SPREADSHEET_ID_FALLBACK_ = '1sa1CZTsqdDEWKWLd5uDAiM-Y59ko9FLZfABL0wc0HVM';
 
 function atividadesV2_resolverPessoa_(input) {
   var raw = input || {};
@@ -123,7 +122,7 @@ function atividadesV2_getPessoaResolverIndex_() {
   });
   if (index.totalPessoas > 0) index.source = 'core';
   if (index.totalPessoas === 0) {
-    atividadesV2_listPessoasFromSpreadsheetDevFallback_().forEach(function(record) {
+    atividadesV2_listPessoasFromDomain_().forEach(function(record) {
       atividadesV2_addPessoaToResolverIndex_(index, record);
     });
     if (index.totalPessoas > 0) index.source = 'spreadsheet_dev_fallback';
@@ -167,8 +166,13 @@ function atividadesV2_listPessoasFromCore_() {
   return out;
 }
 
-function atividadesV2_listPessoasFromSpreadsheetDevFallback_() {
-  var ss = SpreadsheetApp.openById(ATIVIDADES_V2_PESSOAS_DEV_SPREADSHEET_ID_FALLBACK_);
+function atividadesV2_listPessoasFromDomain_() {
+  atividades_assertCoreLibrary_();
+  if (typeof GEAPA_CORE.coreGetDomainSpreadsheet !== 'function') {
+    throw new Error('GEAPA_CORE_DESATUALIZADO: coreGetDomainSpreadsheet indisponivel.');
+  }
+  var environment = atividadesV2_resolveEnvironment_({});
+  var ss = GEAPA_CORE.coreGetDomainSpreadsheet('PESSOAS', { ambiente: environment });
   var base = atividadesV2_readPessoaRecordsBySheetName_(ss, 'PESSOAS_BASE');
   var identificadores = atividadesV2_readPessoaRecordsBySheetName_(ss, 'PESSOAS_IDENTIFICADORES');
   var membros = atividadesV2_readPessoaRecordsBySheetName_(ss, 'MEMBROS_DETALHES');
@@ -435,21 +439,21 @@ function atividadesV2_getCorePessoaPublicApiCalls_(request) {
       available: typeof corePortalResolverUsuarioAtual === 'function',
       shouldRun: !!(email || rga || idPessoa || idReferencia),
       fn: typeof corePortalResolverUsuarioAtual === 'function' ? corePortalResolverUsuarioAtual : null,
-      args: [portalInput, { modo: 'DEV' }]
+      args: [portalInput, { modo: atividadesV2_resolveEnvironment_({}) }]
     },
     {
       origem: 'GEAPA_CORE.corePortalResolverUsuarioAtual',
       available: !!(api && typeof api.corePortalResolverUsuarioAtual === 'function'),
       shouldRun: !!(email || rga || idPessoa || idReferencia),
       fn: api && api.corePortalResolverUsuarioAtual,
-      args: [portalInput, { modo: 'DEV' }]
+      args: [portalInput, { modo: atividadesV2_resolveEnvironment_({}) }]
     },
     {
       origem: 'GEAPA_CORE.portal.access.resolverUsuarioAtual',
       available: !!(api && api.portal && api.portal.access && typeof api.portal.access.resolverUsuarioAtual === 'function'),
       shouldRun: !!(email || rga || idPessoa || idReferencia),
       fn: api && api.portal && api.portal.access && api.portal.access.resolverUsuarioAtual,
-      args: [portalInput, { modo: 'DEV' }]
+      args: [portalInput, { modo: atividadesV2_resolveEnvironment_({}) }]
     }
   ];
 }
@@ -496,7 +500,7 @@ function atividadesV2_legacyReferenceAsRga_(value) {
 }
 
 /**
- * Diagnostica lacunas de ID_PESSOA nas abas v2 DEV sem alterar dados.
+ * Diagnostica lacunas de ID_PESSOA nas abas v2 do ambiente resolvido sem alterar dados.
  *
  * Use antes de complementar a base para revisar quantas linhas ja possuem
  * ID_PESSOA, quantas podem ser resolvidas pelo CORE e quais precisam de
@@ -513,7 +517,7 @@ function atividadesV2_diagnosticarIdPessoaDev() {
  * uma amostra real das abas de atividades, sem alterar dados.
  */
 function atividadesV2_diagnosticarResolverPessoaDev() {
-  var ss = atividadesV2_getDatabaseSpreadsheetDev_();
+  var ss = atividadesV2_getDatabaseSpreadsheet_();
   var sample = atividadesV2_getPessoaResolverSample_(ss);
   var request = atividadesV2_buildPessoaResolution_('NAO_ENCONTRADO', sample.input || {}, 'amostra');
   var calls = atividadesV2_getCorePessoaPublicApiCalls_(request).map(function(call) {
@@ -527,7 +531,7 @@ function atividadesV2_diagnosticarResolverPessoaDev() {
 
   return {
     ok: true,
-    modo: 'DEV',
+    modo: atividadesV2_resolveEnvironment_({}),
     spreadsheetId: ss.getId(),
     apis: calls,
     amostra: sample,
@@ -539,7 +543,7 @@ function atividadesV2_diagnosticarResolverPessoaDev() {
 }
 
 /**
- * Complementa ID_PESSOA nas abas v2 DEV usando informacoes ja existentes
+ * Complementa ID_PESSOA nas abas v2 do ambiente resolvido usando informacoes ja existentes
  * nas linhas, como RGA, e-mail e nome.
  *
  * A rotina nao sobrescreve ID_PESSOA ja preenchido por padrao e nao altera
@@ -551,7 +555,7 @@ function atividadesV2_complementarIdPessoaDev(options) {
 }
 
 /**
- * Complementa ID_PESSOA em todas as abas v2 DEV que possuem vinculos
+ * Complementa ID_PESSOA em todas as abas v2 do ambiente resolvido que possuem vinculos
  * individuais. Esta e a funcao manual recomendada para uso rotineiro.
  *
  * Pode ser rodada novamente: IDs ja preenchidos sao preservados.
@@ -574,12 +578,12 @@ function atividadesV2_processarIdPessoaDev_(options) {
   var previousDisablePointLookup = ATIVIDADES_V2_PESSOA_RESOLVER_DISABLE_POINT_LOOKUP_;
   ATIVIDADES_V2_PESSOA_RESOLVER_DISABLE_POINT_LOOKUP_ = opts.allowSlowLookup === true ? false : true;
   atividadesV2_resetPessoaResolverRuntimeCache_();
-  var ss = atividadesV2_getDatabaseSpreadsheetDev_();
+  var ss = atividadesV2_getDatabaseSpreadsheet_();
   var startedAt = new Date();
   var deadline = startedAt.getTime() + Math.max(60000, Math.min(maxMs, 330000));
   var result = {
     ok: true,
-    modo: 'DEV',
+    modo: atividadesV2_resolveEnvironment_({}),
     dryRun: dryRun,
     force: force,
     spreadsheetId: ss.getId(),
@@ -651,7 +655,7 @@ function atividadesV2_processarIdPessoaDev_(options) {
   }
 
   result.tempoTotalMs = new Date().getTime() - startedAt.getTime();
-  atividadesV2_logSetup_(result.ok ? 'INFO' : 'WARN', 'Diagnostico/complementacao de ID_PESSOA v2 DEV finalizado.', {
+  atividadesV2_logSetup_(result.ok ? 'INFO' : 'WARN', 'Diagnostico/complementacao de ID_PESSOA v2 do ambiente resolvido finalizado.', {
     dryRun: dryRun,
     pessoaIndex: result.pessoaIndex,
     resolvidos: result.totalResolvidos,

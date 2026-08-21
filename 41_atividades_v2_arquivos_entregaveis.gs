@@ -1,5 +1,5 @@
 /**
- * Entregaveis de apresentacoes na base Atividades V2 DEV.
+ * Entregaveis de apresentacoes na base Atividades V2 do ambiente resolvido.
  *
  * Atividades_Arquivos preserva uma linha por versao. O slide continua
  * espelhado em Atividades_Apresentacoes para compatibilidade; a foto da
@@ -408,7 +408,7 @@ function atividadesV2_buildArquivoActionResult_(bundle, contexto, data) {
     email: bundle.apresentacao.EMAIL_MEMBRO || bundle.atividade.EMAIL_PESSOA_PRINCIPAL || '',
     rga: bundle.apresentacao.RGA || bundle.atividade.RGA_PESSOA_PRINCIPAL || '',
     perfilResponsavel: contexto && contexto.perfil || '',
-    modo: 'DEV'
+    modo: atividadesV2_resolveEnvironment_({})
   }, data || {});
 }
 
@@ -423,7 +423,7 @@ function atividadesV2_readArquivosAtividadeOptional_(ss) {
 }
 
 function atividadesV2_runTesteEntregaveisApresentacaoDev_() {
-  var ss = atividadesV2_getDatabaseSpreadsheetDev_();
+  var ss = atividadesV2_getDatabaseSpreadsheet_();
   var sheet = ss.getSheetByName(ATIVIDADES_V2_SHEETS.ARQUIVOS);
   var records = sheet ? atividadesV2_readSheetObjects_(sheet) : [];
   var stats = { total: records.length, slides: 0, fotos: 0, resolvidos: 0, ajustes: 0 };
@@ -436,7 +436,7 @@ function atividadesV2_runTesteEntregaveisApresentacaoDev_() {
   });
   return {
     ok: !!sheet,
-    modo: 'DEV',
+    modo: atividadesV2_resolveEnvironment_({}),
     escritaRealizada: false,
     abaExiste: !!sheet,
     cabecalhosAusentes: sheet ? ATIVIDADES_V2_SCHEMA.ARQUIVOS.filter(function(header) {

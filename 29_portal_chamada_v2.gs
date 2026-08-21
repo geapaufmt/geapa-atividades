@@ -26,11 +26,11 @@ function atividadesV2_portalGetChamada_(idAtividade, contexto) {
     if (!permission.ok) return permission;
 
     var wantedId = atividadesV2_validateChamadaActivityId_(idAtividade);
-    var ss = atividadesV2_getDatabaseSpreadsheetDev_();
+    var ss = atividadesV2_getDatabaseSpreadsheet_();
     portalPerfMark_(perf, 'abrir_planilha_v2_dev');
 
     var activity = atividadesV2_getChamadaActivity_(ss, wantedId, perf);
-    if (!activity) return atividadesV2_chamadaError_('ATIVIDADE_NAO_ENCONTRADA', 'Atividade nao encontrada na base v2 DEV.');
+    if (!activity) return atividadesV2_chamadaError_('ATIVIDADE_NAO_ENCONTRADA', 'Atividade nao encontrada na base v2 do ambiente resolvido.');
 
     var activityValidation = atividadesV2_validateActivityAllowsChamada_(activity);
     if (!activityValidation.ok) return activityValidation;
@@ -96,7 +96,7 @@ function atividadesV2_portalGetChamada_(idAtividade, contexto) {
         podeSalvar: janela.podeRegistrarChamadaAgora,
         podeFinalizar: janela.podeRegistrarChamadaAgora,
         podeReabrir: statusChamada.finalizada,
-        modo: 'DEV',
+        modo: atividadesV2_resolveEnvironment_({}),
         ultimaAtualizacao: new Date().toISOString()
       },
       tempoTotalMs: perfResult.totalMs,
@@ -128,11 +128,11 @@ function atividadesV2_portalSalvarChamada_(payload, contexto) {
     var data = payload || {};
     var operacao = atividadesV2_normalizeChamadaOperacao_(data.operacao);
     var wantedId = atividadesV2_validateChamadaActivityId_(data.idAtividade);
-    var ss = atividadesV2_getDatabaseSpreadsheetDev_();
+    var ss = atividadesV2_getDatabaseSpreadsheet_();
     portalPerfMark_(perf, 'abrir_planilha_v2_dev');
 
     var activity = atividadesV2_getChamadaActivity_(ss, wantedId, perf);
-    if (!activity) return atividadesV2_chamadaError_('ATIVIDADE_NAO_ENCONTRADA', 'Atividade nao encontrada na base v2 DEV.');
+    if (!activity) return atividadesV2_chamadaError_('ATIVIDADE_NAO_ENCONTRADA', 'Atividade nao encontrada na base v2 do ambiente resolvido.');
 
     var activityValidation = atividadesV2_validateActivityAllowsChamada_(activity);
     if (!activityValidation.ok) return activityValidation;
@@ -165,7 +165,7 @@ function atividadesV2_portalSalvarChamada_(payload, contexto) {
         STATUS: 'OK',
         ID_ATIVIDADE: wantedId,
         USUARIO: ctx.email || ctx.rga || ctx.perfil,
-        MENSAGEM: 'Chamada reaberta na base v2 DEV.',
+        MENSAGEM: 'Chamada reaberta na base v2 do ambiente resolvido.',
         DETALHES_JSON: atividadesV2_safeLogData_(statusReaberto)
       });
       var perfReabrir = portalPerfEnd_(perf);
@@ -177,7 +177,7 @@ function atividadesV2_portalSalvarChamada_(payload, contexto) {
           statusChamada: statusReaberto.statusChamada,
           statusChamadaRotulo: statusReaberto.rotulo,
           chamadaFinalizada: false,
-          modo: 'DEV'
+          modo: atividadesV2_resolveEnvironment_({})
         },
         tempoTotalMs: perfReabrir.totalMs,
         performance: portalPerfBuildDiagnostics_(perfReabrir)
@@ -219,7 +219,7 @@ function atividadesV2_portalSalvarChamada_(payload, contexto) {
       var perfRascunho = portalPerfEnd_(perf);
       return {
         ok: true,
-        message: 'Rascunho de chamada salvo com sucesso na base DEV.',
+        message: 'Rascunho de chamada salvo com sucesso na base do ambiente resolvido.',
         data: {
           idAtividade: wantedId,
           totalRegistros: registros.length,
@@ -231,7 +231,7 @@ function atividadesV2_portalSalvarChamada_(payload, contexto) {
           chamadaFinalizada: false,
           rascunhoSalvo: true,
           rascunhoSalvoEm: draftStatus.atualizadoEm,
-          modo: 'DEV'
+          modo: atividadesV2_resolveEnvironment_({})
         },
         escrita: {
           rascunhoPortalAcoes: true,
@@ -286,7 +286,7 @@ function atividadesV2_portalSalvarChamada_(payload, contexto) {
       STATUS: 'OK',
       ID_ATIVIDADE: wantedId,
       USUARIO: ctx.email || ctx.rga || ctx.perfil,
-      MENSAGEM: 'Chamada salva na base v2 DEV.',
+      MENSAGEM: 'Chamada salva na base v2 do ambiente resolvido.',
       DETALHES_JSON: atividadesV2_safeLogData_({
         idAtividade: wantedId,
         totalRegistros: registros.length,
@@ -350,8 +350,8 @@ function atividadesV2_portalSalvarChamada_(payload, contexto) {
     return {
       ok: true,
       message: operacao === ATIVIDADES_V2_CHAMADA_OPERACOES.FINALIZAR
-        ? 'Chamada finalizada com sucesso na base DEV.'
-        : 'Chamada salva com sucesso na base DEV.',
+        ? 'Chamada finalizada com sucesso na base do ambiente resolvido.'
+        : 'Chamada salva com sucesso na base do ambiente resolvido.',
       data: {
         idAtividade: wantedId,
         totalRegistros: registros.length,
@@ -370,7 +370,7 @@ function atividadesV2_portalSalvarChamada_(payload, contexto) {
           alteracoes: cicloOperacional.alteracoes || [],
           alertas: cicloOperacional.alertas || []
         } : null,
-        modo: 'DEV'
+        modo: atividadesV2_resolveEnvironment_({})
       },
       escrita: {
         inserts: writeResult.inserts,
@@ -395,7 +395,7 @@ function atividadesV2_portalSalvarChamada_(payload, contexto) {
 }
 
 function atividadesV2_runTestePortalChamadaDev_() {
-  var ss = atividadesV2_getDatabaseSpreadsheetDev_();
+  var ss = atividadesV2_getDatabaseSpreadsheet_();
   var atividades = atividadesV2_readSheetObjects_(atividadesV2_getTargetSheet_(ss, ATIVIDADES_V2_SHEETS.ATIVIDADES));
   var target = null;
 
@@ -1657,7 +1657,7 @@ function atividadesV2_chamadaError_(errorCode, message, err, tempoTotalMs) {
 function atividadesV2_chamadaPublicErrorMessage_(errorCode) {
   var map = {
     ID_ATIVIDADE_OBRIGATORIO: 'Informe a atividade para chamada.',
-    ATIVIDADE_NAO_ENCONTRADA: 'Atividade nao encontrada na base v2 DEV.',
+    ATIVIDADE_NAO_ENCONTRADA: 'Atividade nao encontrada na base v2 do ambiente resolvido.',
     PERMISSAO_NEGADA: 'Usuario sem permissao para chamada operacional.',
     ATIVIDADE_NAO_PERMITE_CHAMADA: 'Atividade nao permite chamada.',
     CHAMADA_FORA_DA_JANELA: 'Chamada fora da janela operacional configurada.',
