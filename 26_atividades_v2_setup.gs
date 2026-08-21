@@ -1060,13 +1060,24 @@ function atividadesV2_resolveEnvironment_(options) {
   return environment;
 }
 
+function atividadesV2_bindExecutionEnvironment_(options) {
+  var opts = options || {};
+  if (!opts.ambiente && !opts.environment) {
+    throw new Error('AMBIENTE_ATIVIDADES_V2_OBRIGATORIO: informe DEV ou PROD explicitamente.');
+  }
+  var environment = atividadesV2_resolveEnvironment_(opts);
+  ATIVIDADES_V2_EXECUTION_ENVIRONMENT_ = environment;
+  return environment;
+}
+
 function atividadesV2_getDatabaseSpreadsheet_(options) {
   options = options || {};
   var perf = typeof portalPerfStart_ === 'function'
     ? portalPerfStart_('atividadesV2_getDatabaseSpreadsheet')
     : null;
-  var environment = atividadesV2_resolveEnvironment_(options);
-  if (options.ambiente || options.environment) ATIVIDADES_V2_EXECUTION_ENVIRONMENT_ = environment;
+  var environment = options.ambiente || options.environment
+    ? atividadesV2_bindExecutionEnvironment_(options)
+    : atividadesV2_resolveEnvironment_(options);
   if (ATIVIDADES_V2_DATABASE_SPREADSHEET_CACHE_[environment]) {
     if (perf) {
       portalPerfMark_(perf, 'cache_execucao_planilha_v2', { ambiente: environment });

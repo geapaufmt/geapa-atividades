@@ -667,26 +667,31 @@ function atividadesV2_runTesteEntregaveisApresentacaoDev() {
   }, { entrypoint: 'atividadesV2_runTesteEntregaveisApresentacaoDev' });
 }
 
-function atividadesV2_diagnosticarMailHubIntegracao() {
+function atividadesV2_diagnosticarMailHubIntegracao(options) {
+  var opts = options || {};
   return atividades_runWithOperationalGuard_('CONFERENCIA_V2', null, function() {
+    atividadesV2_bindExecutionEnvironment_(opts);
     return atividadesV2_diagnosticarMailHubIntegracao_();
   }, { entrypoint: 'atividadesV2_diagnosticarMailHubIntegracao' });
 }
 
 function atividadesV2_diagnosticarMailHubEventosPortalDev(options) {
   return atividades_runWithOperationalGuard_('CONFERENCIA_V2', null, function() {
+    atividadesV2_bindExecutionEnvironment_({ ambiente: 'DEV' });
     return atividadesV2_diagnosticarMailHubEventosPortalDev_(options || {});
   }, { entrypoint: 'atividadesV2_diagnosticarMailHubEventosPortalDev' });
 }
 
 function atividadesV2_diagnosticarDestinatariosAdministrativosV2Dev(options) {
   return atividades_runWithOperationalGuard_('CONFERENCIA_V2', null, function() {
+    atividadesV2_bindExecutionEnvironment_({ ambiente: 'DEV' });
     return atividadesV2_diagnosticarDestinatariosAdministrativosV2Dev_(options || {});
   }, { entrypoint: 'atividadesV2_diagnosticarDestinatariosAdministrativosV2Dev' });
 }
 
 function atividadesV2_limparCacheDestinatariosMailHubDev(options) {
   return atividades_runWithOperationalGuard_('CONFERENCIA_V2', null, function() {
+    atividadesV2_bindExecutionEnvironment_({ ambiente: 'DEV' });
     return atividadesV2_limparCacheDestinatariosMailHubDev_(options || {});
   }, { entrypoint: 'atividadesV2_limparCacheDestinatariosMailHubDev' });
 }

@@ -70,9 +70,50 @@ const source = fs.readFileSync(path.join(root, '26_atividades_v2_setup.gs'), 'ut
 const resolver = source.slice(source.indexOf('function atividadesV2_resolveEnvironment_'), source.indexOf('function atividadesV2_getDatabaseSpreadsheet_'));
 assert.equal(resolver.includes('coreGetCurrentEnv'), false);
 
+sandbox.atividades_runWithOperationalGuard_ = function(_operation, _context, callback) {
+  return callback();
+};
+sandbox.atividadesV2_diagnosticarMailHubIntegracao_ = function() {
+  return { modo: sandbox.atividadesV2_resolveEnvironment_({}) };
+};
+sandbox.atividadesV2_diagnosticarMailHubEventosPortalDev_ = sandbox.atividadesV2_diagnosticarMailHubIntegracao_;
+sandbox.atividadesV2_diagnosticarDestinatariosAdministrativosV2Dev_ = sandbox.atividadesV2_diagnosticarMailHubIntegracao_;
+sandbox.atividadesV2_limparCacheDestinatariosMailHubDev_ = sandbox.atividadesV2_diagnosticarMailHubIntegracao_;
+vm.runInContext(
+  fs.readFileSync(path.join(root, '00_module_public_api.gs'), 'utf8'),
+  sandbox,
+  { filename: '00_module_public_api.gs' }
+);
+
+sandbox.ATIVIDADES_V2_EXECUTION_ENVIRONMENT_ = '';
+assert.throws(
+  () => sandbox.atividadesV2_diagnosticarMailHubIntegracao(),
+  /AMBIENTE_ATIVIDADES_V2_OBRIGATORIO/,
+  'diagnostico generico deve exigir ambiente explicito'
+);
+assert.equal(
+  sandbox.atividadesV2_diagnosticarMailHubIntegracao({ ambiente: 'PROD' }).modo,
+  'PROD',
+  'diagnostico generico deve aceitar PROD somente quando explicito'
+);
+
+[
+  'atividadesV2_diagnosticarMailHubEventosPortalDev',
+  'atividadesV2_diagnosticarDestinatariosAdministrativosV2Dev',
+  'atividadesV2_limparCacheDestinatariosMailHubDev'
+].forEach((entrypoint) => {
+  sandbox.ATIVIDADES_V2_EXECUTION_ENVIRONMENT_ = 'PROD';
+  assert.equal(
+    sandbox[entrypoint]({ ambiente: 'PROD' }).modo,
+    'DEV',
+    entrypoint + ' deve forcar DEV mesmo quando o chamador tentar informar PROD'
+  );
+});
+
 console.log(JSON.stringify({
   ok: true,
   semFallbackCore: true,
   devExplicito: true,
-  prodSomenteExplicito: true
+  prodSomenteExplicito: true,
+  entrypointsPublicos: true
 }));
