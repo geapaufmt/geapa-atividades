@@ -15,7 +15,7 @@ function atividadesV2_sincronizarPortalAtividadesCalendarioDev_() {
   };
 
   try {
-    var ss = atividadesV2_getDatabaseSpreadsheet_();
+    var ss = atividadesV2_getDatabaseSpreadsheet_({ ambiente: 'DEV' });
     portalPerfMark_(perf, 'abrir_planilha_v2_dev');
     var sourceSheet = atividadesV2_getTargetSheet_(ss, ATIVIDADES_V2_SHEETS.ATIVIDADES);
     var apresentacoesSheet = atividadesV2_getTargetSheet_(ss, ATIVIDADES_V2_SHEETS.APRESENTACOES);
@@ -103,7 +103,7 @@ function atividadesV2_runTestePortalAtividadesCalendarioDev_() {
     };
   }
 
-  var ss = atividadesV2_getDatabaseSpreadsheet_();
+  var ss = atividadesV2_getDatabaseSpreadsheet_({ ambiente: 'DEV' });
   var sheet = atividadesV2_getTargetSheet_(ss, ATIVIDADES_V2_SHEETS.PORTAL_ATIVIDADES_CALENDARIO);
   var records = atividadesV2_readSheetObjects_(sheet);
   var idsInvalidos = records.filter(function(record) {
@@ -141,7 +141,7 @@ function atividadesV2_atualizarPortalAtividadesDetalhesDev_() {
   };
 
   try {
-    var ss = atividadesV2_getDatabaseSpreadsheet_();
+    var ss = atividadesV2_getDatabaseSpreadsheet_({ ambiente: 'DEV' });
     portalPerfMark_(perf, 'abrir_planilha_v2_dev');
 
     var atividadesSheet = atividadesV2_getTargetSheet_(ss, ATIVIDADES_V2_SHEETS.ATIVIDADES);

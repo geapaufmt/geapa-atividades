@@ -63,7 +63,7 @@ function atividadesV2_atualizarCicloAtividadesDev_(options) {
 
 function atividadesV2_avaliarCicloAtividadesDev_(options, idAtividadeUnico) {
   var opts = options || {};
-  var ss = atividadesV2_getDatabaseSpreadsheet_();
+  var ss = atividadesV2_getDatabaseSpreadsheet_({ ambiente: 'DEV' });
   var atividadesSheet = atividadesV2_getTargetSheet_(ss, ATIVIDADES_V2_SHEETS.ATIVIDADES);
   atividadesV2_applyHeadersIfMissing_(atividadesSheet, ATIVIDADES_V2_SCHEMA.ATIVIDADES);
   var atividades = atividadesV2_readSheetObjects_(atividadesSheet);
@@ -229,7 +229,7 @@ function atividadesV2_indexPresencasOficiaisPorAtividade_(presencas) {
 }
 
 function atividadesV2_aplicarAlteracoesCicloAtividades_(result) {
-  var ss = atividadesV2_getDatabaseSpreadsheet_();
+  var ss = atividadesV2_getDatabaseSpreadsheet_({ ambiente: 'DEV' });
   var sheet = atividadesV2_getTargetSheet_(ss, ATIVIDADES_V2_SHEETS.ATIVIDADES);
   var headers = atividadesV2_getSheetHeaders_(sheet);
   var headerMap = atividadesV2_simpleHeaderMap_(headers);
@@ -344,7 +344,7 @@ function atividadesV2_reconciliarChamadasDev_(options) {
 
 function atividadesV2_avaliarReconciliacaoChamadasDev_(options) {
   var opts = options || {};
-  var ss = atividadesV2_getDatabaseSpreadsheet_();
+  var ss = atividadesV2_getDatabaseSpreadsheet_({ ambiente: 'DEV' });
   var atividades = atividadesV2_readSheetObjects_(atividadesV2_getTargetSheet_(ss, ATIVIDADES_V2_SHEETS.ATIVIDADES));
   var presencas = atividadesV2_readSheetObjects_(atividadesV2_getTargetSheet_(ss, ATIVIDADES_V2_SHEETS.PRESENCAS_REGISTROS));
   var atividadesById = atividadesV2_indexByField_(atividades, 'ID_ATIVIDADE');
@@ -590,7 +590,7 @@ function atividadesV2_readChamadaActionStatusContext_(ss) {
 }
 
 function atividadesV2_aplicarReconciliacaoChamadas_(result, options) {
-  var ss = atividadesV2_getDatabaseSpreadsheet_();
+  var ss = atividadesV2_getDatabaseSpreadsheet_({ ambiente: 'DEV' });
   (result.itens || []).forEach(function(item) {
     if (!item.seguroParaFinalizar) return;
     var activity = atividadesV2_getChamadaActivity_(ss, item.idAtividade, null);

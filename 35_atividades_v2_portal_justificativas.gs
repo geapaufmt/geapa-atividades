@@ -182,7 +182,7 @@ function atividadesV2_promoverJustificativasPreviasDev_(options) {
   }
 
   try {
-    var ss = atividadesV2_getDatabaseSpreadsheet_();
+    var ss = atividadesV2_getDatabaseSpreadsheet_({ ambiente: 'DEV' });
     report = atividadesV2_promoverJustificativasPreviasNaPlanilha_(ss, report, options);
     if (!dryRun && report.totalPromovidas > 0) {
       atividadesV2_refreshJustificativasPortalViews_();
@@ -364,7 +364,7 @@ function atividadesV2_portalListarJustificativasPendentesDiretoria_(contexto) {
 }
 
 function atividadesV2_diagnosticarFluxoJustificativasPortalDev_() {
-  var ss = atividadesV2_getDatabaseSpreadsheet_();
+  var ss = atividadesV2_getDatabaseSpreadsheet_({ ambiente: 'DEV' });
   var data = atividadesV2_readJustificativasPortalData_(ss);
   var janelaPrevia = atividadesV2_getJustificativaPreviaJanelaConfig_({ forceRefreshConfig: true });
   var justificativasByRegistro = atividadesV2_indexActiveJustificativasByRegistro_(data.justificativas);

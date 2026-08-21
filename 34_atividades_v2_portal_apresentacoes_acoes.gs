@@ -396,7 +396,7 @@ function atividadesV2_atualizarStatusRealizacaoApresentacoesDev_(options) {
   }
 
   try {
-    var ss = atividadesV2_getDatabaseSpreadsheet_();
+    var ss = atividadesV2_getDatabaseSpreadsheet_({ ambiente: 'DEV' });
     var atividadesSheet = atividadesV2_getTargetSheet_(ss, ATIVIDADES_V2_SHEETS.ATIVIDADES);
     var apresentacoesSheet = atividadesV2_getTargetSheet_(ss, ATIVIDADES_V2_SHEETS.APRESENTACOES);
     atividadesV2_applyHeadersIfMissing_(atividadesSheet, ATIVIDADES_V2_SCHEMA.ATIVIDADES);
@@ -934,7 +934,7 @@ function atividadesV2_isPresentationPendingType_(tipo) {
 }
 
 function atividadesV2_diagnosticarFluxoApresentacoesPortalDev_() {
-  var ss = atividadesV2_getDatabaseSpreadsheet_();
+  var ss = atividadesV2_getDatabaseSpreadsheet_({ ambiente: 'DEV' });
   var data = atividadesV2_readPortalViewsSourceData_(ss);
   var atividadesById = atividadesV2_indexByField_(data.atividades, 'ID_ATIVIDADE');
   var stats = {

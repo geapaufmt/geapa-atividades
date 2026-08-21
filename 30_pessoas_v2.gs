@@ -517,7 +517,7 @@ function atividadesV2_diagnosticarIdPessoaDev() {
  * uma amostra real das abas de atividades, sem alterar dados.
  */
 function atividadesV2_diagnosticarResolverPessoaDev() {
-  var ss = atividadesV2_getDatabaseSpreadsheet_();
+  var ss = atividadesV2_getDatabaseSpreadsheet_({ ambiente: 'DEV' });
   var sample = atividadesV2_getPessoaResolverSample_(ss);
   var request = atividadesV2_buildPessoaResolution_('NAO_ENCONTRADO', sample.input || {}, 'amostra');
   var calls = atividadesV2_getCorePessoaPublicApiCalls_(request).map(function(call) {
@@ -578,7 +578,7 @@ function atividadesV2_processarIdPessoaDev_(options) {
   var previousDisablePointLookup = ATIVIDADES_V2_PESSOA_RESOLVER_DISABLE_POINT_LOOKUP_;
   ATIVIDADES_V2_PESSOA_RESOLVER_DISABLE_POINT_LOOKUP_ = opts.allowSlowLookup === true ? false : true;
   atividadesV2_resetPessoaResolverRuntimeCache_();
-  var ss = atividadesV2_getDatabaseSpreadsheet_();
+  var ss = atividadesV2_getDatabaseSpreadsheet_({ ambiente: 'DEV' });
   var startedAt = new Date();
   var deadline = startedAt.getTime() + Math.max(60000, Math.min(maxMs, 330000));
   var result = {

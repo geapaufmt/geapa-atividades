@@ -248,7 +248,7 @@ function atividades_migrarSchemaAtividadesParaModeloConfig_(options) {
   }
 
   try {
-    var ss = atividadesV2_getDatabaseSpreadsheet_();
+    var ss = atividadesV2_getDatabaseSpreadsheet_({ ambiente: 'DEV' });
     var sheet = atividadesV2_getTargetSheet_(ss, ATIVIDADES_V2_SHEETS.ATIVIDADES);
     var existing = atividades_modelosCriacaoHeaderSet_(sheet);
     var missing = ATIVIDADES_MODELO_ACTIVITY_SCHEMA_HEADERS_.filter(function(header) {
@@ -1568,7 +1568,7 @@ function atividades_modelosCriacaoError_(code, message, err) {
 }
 
 function atividades_runTesteCriacaoPorModeloDev_() {
-  var ss = atividadesV2_getDatabaseSpreadsheet_();
+  var ss = atividadesV2_getDatabaseSpreadsheet_({ ambiente: 'DEV' });
   var rows = atividades_modelosCriacaoReadConfigRows_(ss);
   var wanted = ['APRESENTACAO_MEMBRO', 'PALESTRA', 'ABERTURA_PERIODO', 'FECHAMENTO_PERIODO'];
   var contexto = { perfil: 'ADMIN_TECNICO', email: 'teste-dev@geapa.local' };

@@ -57,7 +57,7 @@ function atividades_repopularAtividadesArquivosHistorico_(options) {
 }
 
 function atividadesV2_historicoBuildAndApplyPlan_(dryRun, startedAt) {
-  var ss = atividadesV2_getDatabaseSpreadsheet_();
+  var ss = atividadesV2_getDatabaseSpreadsheet_({ ambiente: 'DEV' });
   var atividadesSheet = atividadesV2_getTargetSheet_(ss, ATIVIDADES_V2_SHEETS.ATIVIDADES);
   var apresentacoesSheet = atividadesV2_getTargetSheet_(ss, ATIVIDADES_V2_SHEETS.APRESENTACOES);
   var arquivosSheet = ss.getSheetByName(ATIVIDADES_V2_SHEETS.ARQUIVOS);

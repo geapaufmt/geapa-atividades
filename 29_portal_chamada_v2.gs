@@ -395,7 +395,7 @@ function atividadesV2_portalSalvarChamada_(payload, contexto) {
 }
 
 function atividadesV2_runTestePortalChamadaDev_() {
-  var ss = atividadesV2_getDatabaseSpreadsheet_();
+  var ss = atividadesV2_getDatabaseSpreadsheet_({ ambiente: 'DEV' });
   var atividades = atividadesV2_readSheetObjects_(atividadesV2_getTargetSheet_(ss, ATIVIDADES_V2_SHEETS.ATIVIDADES));
   var target = null;
 

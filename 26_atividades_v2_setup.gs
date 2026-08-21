@@ -1052,12 +1052,7 @@ function atividadesV2_resolveEnvironment_(options) {
   options = options || {};
   atividades_assertCoreLibrary_();
   var raw = options.ambiente || options.environment || ATIVIDADES_V2_EXECUTION_ENVIRONMENT_ || '';
-  if (!raw) {
-    if (typeof GEAPA_CORE.coreGetCurrentEnv !== 'function') {
-      throw new Error('GEAPA_CORE_SEM_RESOLUCAO_DE_AMBIENTE');
-    }
-    raw = GEAPA_CORE.coreGetCurrentEnv();
-  }
+  if (!raw) throw new Error('AMBIENTE_ATIVIDADES_V2_OBRIGATORIO: informe DEV ou PROD explicitamente.');
   var environment = String(raw || '').trim().toUpperCase();
   if (environment !== 'DEV' && environment !== 'PROD') {
     throw new Error('AMBIENTE_ATIVIDADES_V2_INVALIDO: ' + environment + '. Use DEV ou PROD.');
@@ -1071,6 +1066,7 @@ function atividadesV2_getDatabaseSpreadsheet_(options) {
     ? portalPerfStart_('atividadesV2_getDatabaseSpreadsheet')
     : null;
   var environment = atividadesV2_resolveEnvironment_(options);
+  if (options.ambiente || options.environment) ATIVIDADES_V2_EXECUTION_ENVIRONMENT_ = environment;
   if (ATIVIDADES_V2_DATABASE_SPREADSHEET_CACHE_[environment]) {
     if (perf) {
       portalPerfMark_(perf, 'cache_execucao_planilha_v2', { ambiente: environment });

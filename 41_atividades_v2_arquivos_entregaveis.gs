@@ -423,7 +423,7 @@ function atividadesV2_readArquivosAtividadeOptional_(ss) {
 }
 
 function atividadesV2_runTesteEntregaveisApresentacaoDev_() {
-  var ss = atividadesV2_getDatabaseSpreadsheet_();
+  var ss = atividadesV2_getDatabaseSpreadsheet_({ ambiente: 'DEV' });
   var sheet = ss.getSheetByName(ATIVIDADES_V2_SHEETS.ARQUIVOS);
   var records = sheet ? atividadesV2_readSheetObjects_(sheet) : [];
   var stats = { total: records.length, slides: 0, fotos: 0, resolvidos: 0, ajustes: 0 };

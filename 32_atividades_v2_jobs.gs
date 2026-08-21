@@ -29,7 +29,8 @@ function atividadesV2_jobPortalOptions_(options, guard) {
     nonDestructive: true,
     stopOnError: options.stopOnError !== false,
     limit: Math.max(1, Number(options.limit || 5)),
-    forceFirestoreRefresh: options.forceFirestoreRefresh === true
+    forceFirestoreRefresh: options.forceFirestoreRefresh === true,
+    ambiente: String(options.ambiente || options.environment || 'DEV').trim().toUpperCase()
   };
 }
 

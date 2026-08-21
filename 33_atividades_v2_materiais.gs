@@ -299,7 +299,7 @@ function atividadesV2_registrarMaterialApresentacao_(payload, contexto) {
 }
 
 function atividadesV2_diagnosticarMateriaisApresentacoesDev_() {
-  var ss = atividadesV2_getDatabaseSpreadsheet_();
+  var ss = atividadesV2_getDatabaseSpreadsheet_({ ambiente: 'DEV' });
   var atividadesSheet = atividadesV2_getTargetSheet_(ss, ATIVIDADES_V2_SHEETS.ATIVIDADES);
   var apresentacoesSheet = atividadesV2_getTargetSheet_(ss, ATIVIDADES_V2_SHEETS.APRESENTACOES);
   var atividades = atividadesV2_readSheetObjects_(atividadesSheet);
@@ -380,7 +380,7 @@ function atividadesV2_migrarArquivosApresentacoesParaMateriaisDev_(options) {
   }
 
   try {
-    var ss = atividadesV2_getDatabaseSpreadsheet_();
+    var ss = atividadesV2_getDatabaseSpreadsheet_({ ambiente: 'DEV' });
     var sheet = atividadesV2_getTargetSheet_(ss, ATIVIDADES_V2_SHEETS.APRESENTACOES);
     if (!dryRun) atividadesV2_applyHeadersIfMissing_(sheet, ATIVIDADES_V2_SCHEMA.APRESENTACOES);
     var headers = atividadesV2_getSheetHeaders_(sheet);

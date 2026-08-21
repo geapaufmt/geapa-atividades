@@ -231,7 +231,7 @@ function atividadesV2_processarPosEscritasPortal_(options) {
   var opts = options || {};
   var dryRun = opts.dryRun !== false;
   var limit = Math.max(1, Math.min(50, Number(opts.limit || 10)));
-  var ss = atividadesV2_getDatabaseSpreadsheet_();
+  var ss = atividadesV2_getDatabaseSpreadsheet_(opts);
   var sheet = atividadesV2_getTargetSheet_(ss, ATIVIDADES_V2_SHEETS.PORTAL_ACOES);
   var rows = atividadesV2_readSheetObjects_(sheet).filter(function(row) {
     return atividades_normalizeTextUpper_(row.ATIVO || 'SIM') !== 'NAO' &&

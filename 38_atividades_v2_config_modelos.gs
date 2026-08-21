@@ -206,7 +206,7 @@ var ATIVIDADES_CONFIG_MODELOS_ENUMS_ = Object.freeze({
 });
 
 function atividades_validarSchemaAtividadesConfig_() {
-  var ss = atividadesV2_getDatabaseSpreadsheet_();
+  var ss = atividadesV2_getDatabaseSpreadsheet_({ ambiente: 'DEV' });
   var sheet = ss.getSheetByName(ATIVIDADES_V2_SHEETS.CONFIG);
   if (!sheet) {
     return {
@@ -239,7 +239,7 @@ function atividades_validarSchemaAtividadesConfig_() {
 }
 
 function atividades_migrarSchemaAtividadesConfigDryRun_() {
-  var ss = atividadesV2_getDatabaseSpreadsheet_();
+  var ss = atividadesV2_getDatabaseSpreadsheet_({ ambiente: 'DEV' });
   var sheet = atividades_configModelosRequireSheet_(ss);
   var plan = atividades_configModelosBuildMigrationPlan_(ss, sheet);
   var result = {
@@ -284,7 +284,7 @@ function atividades_migrarSchemaAtividadesConfig_() {
   }
 
   try {
-    var ss = atividadesV2_getDatabaseSpreadsheet_();
+    var ss = atividadesV2_getDatabaseSpreadsheet_({ ambiente: 'DEV' });
     var sheet = atividades_configModelosRequireSheet_(ss);
     var before = atividades_configModelosInspectSchema_(sheet);
     if (before.missingLegacy.length) {
@@ -353,7 +353,7 @@ function atividades_normalizarModelosAtividadesConfig_(options) {
   }
 
   try {
-    var ss = atividadesV2_getDatabaseSpreadsheet_();
+    var ss = atividadesV2_getDatabaseSpreadsheet_({ ambiente: 'DEV' });
     var sheet = atividades_configModelosRequireSheet_(ss);
     var schema = atividades_configModelosInspectSchema_(sheet);
     if (schema.missingNew.length) {
@@ -796,7 +796,7 @@ function atividades_ajustarModeloApresentacaoMembroConfig_(options) {
   }
 
   try {
-    var ss = atividadesV2_getDatabaseSpreadsheet_();
+    var ss = atividadesV2_getDatabaseSpreadsheet_({ ambiente: 'DEV' });
     var sheet = atividades_configModelosRequireSheet_(ss);
     if (!dryRun) atividadesV2_applyHeadersIfMissing_(sheet, ATIVIDADES_V2_SCHEMA.CONFIG);
     var rows = atividadesV2_readSheetObjects_(sheet);

@@ -6,7 +6,7 @@
  */
 
 function atividadesV2_diagnostico_() {
-  var ss = atividadesV2_getDatabaseSpreadsheet_();
+  var ss = atividadesV2_getDatabaseSpreadsheet_({ ambiente: 'DEV' });
   var result = {
     ok: true,
     modo: atividadesV2_resolveEnvironment_({}),
@@ -51,7 +51,7 @@ function atividadesV2_diagnostico_() {
 
 function atividadesV2_conferirConsistencia_(options) {
   var opts = options || {};
-  var ss = atividadesV2_getDatabaseSpreadsheet_();
+  var ss = atividadesV2_getDatabaseSpreadsheet_(Object.assign({ ambiente: 'DEV' }, opts));
   var data = atividadesV2_readPortalViewsSourceData_(ss);
   var issues = [];
   var now = new Date();
@@ -204,7 +204,7 @@ function atividadesV2_conferirConsistencia_(options) {
 
 function atividadesV2_conferirContratoPortalAtivo_(options) {
   var opts = options || {};
-  var ss = atividadesV2_getDatabaseSpreadsheet_();
+  var ss = atividadesV2_getDatabaseSpreadsheet_(Object.assign({ ambiente: 'DEV' }, options || {}));
   var detalhesSheet = atividadesV2_getTargetSheet_(ss, ATIVIDADES_V2_SHEETS.PORTAL_ATIVIDADES_DETALHES);
   var calendarioSheet = atividadesV2_getTargetSheet_(ss, ATIVIDADES_V2_SHEETS.PORTAL_ATIVIDADES_CALENDARIO);
   var atividadesSheet = atividadesV2_getTargetSheet_(ss, ATIVIDADES_V2_SHEETS.ATIVIDADES);
@@ -279,7 +279,7 @@ function atividadesV2_conferirContratoPortalAtivo_(options) {
 }
 
 function atividadesV2_diagnosticarCicloSemestrePortalDev_() {
-  var ss = atividadesV2_getDatabaseSpreadsheet_();
+  var ss = atividadesV2_getDatabaseSpreadsheet_({ ambiente: 'DEV' });
   var targets = [
     ATIVIDADES_V2_SHEETS.PORTAL_ATIVIDADES_CALENDARIO,
     ATIVIDADES_V2_SHEETS.PORTAL_ATIVIDADES_DETALHES
@@ -635,8 +635,8 @@ function atividadesV2_atualizarViewsPortal_(options) {
 }
 
 function atividadesV2_runTesteAtualizacaoPortalDev_() {
-  var dryRun = atividadesV2_atualizarViewsPortal_({ dryRun: true });
-  var consistencia = atividadesV2_conferirConsistencia_({ includeSamples: false });
+  var dryRun = atividadesV2_atualizarViewsPortal_({ dryRun: true, ambiente: 'DEV' });
+  var consistencia = atividadesV2_conferirConsistencia_({ includeSamples: false, ambiente: 'DEV' });
   return {
     ok: dryRun.ok && consistencia.ok,
     dryRun: dryRun,
@@ -647,14 +647,14 @@ function atividadesV2_runTesteAtualizacaoPortalDev_() {
 function atividadesV2_updatePortalViewWithLock_(flow, options, fn) {
   var opts = options || {};
   if (opts.dryRun === true) {
-    return fn(atividadesV2_getDatabaseSpreadsheet_(), opts);
+    return fn(atividadesV2_getDatabaseSpreadsheet_(opts), opts);
   }
   var lock = LockService.getScriptLock();
   if (!lock.tryLock(30000)) {
     return { ok: false, dryRun: false, flow: flow, errorCode: 'LOCK_INDISPONIVEL', message: 'Nao foi possivel obter lock para atualizar view v2.' };
   }
   try {
-    return fn(atividadesV2_getDatabaseSpreadsheet_(), opts);
+    return fn(atividadesV2_getDatabaseSpreadsheet_(opts), opts);
   } finally {
     lock.releaseLock();
   }
@@ -800,7 +800,7 @@ function atividadesV2_repararDesalinhamentoViewsPortalDev_(options) {
 }
 
 function atividadesV2_repararDesalinhamentoViewsPortalDevSemLock_(opts, dryRun) {
-  var ss = atividadesV2_getDatabaseSpreadsheet_();
+  var ss = atividadesV2_getDatabaseSpreadsheet_({ ambiente: 'DEV' });
   var result = {
     ok: true,
     dryRun: dryRun,
