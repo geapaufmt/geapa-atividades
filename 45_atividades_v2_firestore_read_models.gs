@@ -25,7 +25,14 @@ var ATIVIDADES_V2_FIRESTORE_DOCUMENT_REFRESH_MAX_AGE_MS = 4 * 60 * 60 * 1000;
 function atividadesV2_firestoreOptions_(options) {
   options = options || {};
   var limit = Math.max(0, Math.floor(Number(options.limit || 0)));
+  if (!options.ambiente && !options.environment) {
+    throw new Error('AMBIENTE_FIRESTORE_OBRIGATORIO: informe DEV ou PROD explicitamente.');
+  }
+  var environment = atividadesV2_resolveEnvironment_({
+    ambiente: options.ambiente || options.environment
+  });
   return {
+    environment: environment,
     dryRun: options.dryRun !== false,
     limit: limit ? Math.min(limit, ATIVIDADES_V2_FIRESTORE_MAX_DOCUMENTS) : 0,
     idAtividade: String(options.idAtividade || '').trim().toUpperCase(),
@@ -183,7 +190,11 @@ function atividadesV2_firestoreCalendarEligibility_(record) {
 
 function atividadesV2_firestorePrepareCalendar_(options) {
   var opts = atividadesV2_firestoreOptions_(options);
-  var ss = atividadesV2_getDatabaseSpreadsheet_({ ambiente: 'DEV' });
+  if (typeof atividadesV2_canonicalAgendaMode_ === 'function') {
+    atividadesV2_canonicalAgendaMode_();
+    throw new Error('READ_MODEL_LEGADO_WRITE_BLOQUEADO: use a collection canonica activities.');
+  }
+  var ss = atividadesV2_getDatabaseSpreadsheet_({ ambiente: opts.environment });
   var records = atividades_readPortalActivityRecordsV2Dev_(ss);
   var reasons = {};
   var selected = [];
@@ -255,12 +266,17 @@ function atividadesV2_firestoreRequireCoreMethod_(name) {
   return GEAPA_CORE[name];
 }
 
-function atividadesV2_firestoreListCollection_(collection) {
-  var listDocuments = atividadesV2_firestoreRequireCoreMethod_('coreFirestoreListDocuments');
+function atividadesV2_firestoreListCollection_(collection, options) {
+  var opts = atividadesV2_firestoreOptions_(options || {});
+  var listDocuments = atividadesV2_firestoreRequireCoreMethod_('coreFirestoreEnvironmentListDocuments');
   var documents = [];
   var pageToken = '';
   do {
-    var page = listDocuments(collection, { pageSize: 500, pageToken: pageToken });
+    var page = listDocuments(collection, {
+      ambiente: opts.environment,
+      pageSize: 500,
+      pageToken: pageToken
+    });
     if (!page || page.ok !== true) throw new Error('Falha ao listar colecao Firestore: ' + String(page && page.code || 'SEM_CODIGO'));
     documents = documents.concat(page.documents || []);
     pageToken = String(page.nextPageToken || '');
@@ -272,13 +288,17 @@ function atividadesV2_firestoreListCollection_(collection) {
 function atividadesV2_firestoreReadExistingIndex_(spec, prepared) {
   var index = {};
   if (prepared.opts.idAtividade) {
-    var getDocument = atividadesV2_firestoreRequireCoreMethod_('coreFirestoreGetDocument');
-    var response = getDocument(spec.collection + '/' + prepared.opts.idAtividade, {});
+    var getDocument = atividadesV2_firestoreRequireCoreMethod_('coreFirestoreEnvironmentGetDocument');
+    var response = getDocument(spec.collection + '/' + prepared.opts.idAtividade, {
+      ambiente: prepared.opts.environment
+    });
     if (response && response.ok === true && response.found === true) index[prepared.opts.idAtividade] = response.data || {};
     else if (response && response.ok === false) throw new Error('Falha ao ler documento Firestore: ' + String(response.code || 'SEM_CODIGO'));
     return index;
   }
-  atividadesV2_firestoreListCollection_(spec.collection).forEach(function(item) {
+  atividadesV2_firestoreListCollection_(spec.collection, {
+    ambiente: prepared.opts.environment
+  }).forEach(function(item) {
     var id = String(item.id || '').trim().toUpperCase();
     if (id) index[id] = item.data || {};
   });
@@ -378,8 +398,12 @@ function atividadesV2_firestoreSyncReadModelBySpec_(spec, options) {
     if (!prepared.opts.dryRun && writeItems.length) {
       lock = LockService.getScriptLock();
       if (!lock.tryLock(30000)) throw new Error('Nao foi possivel obter lock para sincronizar o Firestore.');
-      var batchSet = atividadesV2_firestoreRequireCoreMethod_('coreFirestoreBatchSetDocuments');
-      write = batchSet(writeItems, { dryRun: false, merge: true });
+      var batchSet = atividadesV2_firestoreRequireCoreMethod_('coreFirestoreEnvironmentBatchSetDocuments');
+      write = batchSet(writeItems, {
+        ambiente: prepared.opts.environment,
+        dryRun: false,
+        merge: true
+      });
       if (!write || write.ok !== true) throw new Error('Firestore rejeitou sincronizacao: ' + String(write && write.code || 'SEM_CODIGO'));
     }
     var result = {
@@ -449,7 +473,9 @@ function atividadesV2_firestoreReconcileReadModelBySpec_(spec, options) {
   (prepared.eligibleIds || []).forEach(function(id) { eligible[id] = true; });
   var existing;
   try {
-    existing = atividadesV2_firestoreListCollection_(spec.collection);
+    existing = atividadesV2_firestoreListCollection_(spec.collection, {
+      ambiente: opts.environment
+    });
   } catch (err) {
     return {
       ok: false,
@@ -487,16 +513,23 @@ function atividadesV2_firestoreReconcileReadModelBySpec_(spec, options) {
       lock = LockService.getScriptLock();
       if (!lock.tryLock(30000)) throw new Error('Nao foi possivel obter lock para reconciliar o Firestore.');
       if (opts.mode === 'DELETE') {
-        var deleteDocument = atividadesV2_firestoreRequireCoreMethod_('coreFirestoreDeleteDocument');
+        var deleteDocument = atividadesV2_firestoreRequireCoreMethod_('coreFirestoreEnvironmentDeleteDocument');
         staleCandidates.forEach(function(item) {
-          var deleted = deleteDocument(spec.collection + '/' + item.id, { dryRun: false });
+          var deleted = deleteDocument(spec.collection + '/' + item.id, {
+            ambiente: opts.environment,
+            dryRun: false
+          });
           if (deleted && deleted.ok === true) totalWritten++;
           else errors.push(String(deleted && deleted.code || 'FIRESTORE_DELETE_FALHOU'));
         });
       } else {
-        var batchSet = atividadesV2_firestoreRequireCoreMethod_('coreFirestoreBatchSetDocuments');
+        var batchSet = atividadesV2_firestoreRequireCoreMethod_('coreFirestoreEnvironmentBatchSetDocuments');
         atividadesV2_firestoreChunk_(markItems, 500).forEach(function(chunk) {
-          var marked = batchSet(chunk, { dryRun: false, merge: true });
+          var marked = batchSet(chunk, {
+            ambiente: opts.environment,
+            dryRun: false,
+            merge: true
+          });
           if (!marked || marked.ok !== true) throw new Error('Firestore rejeitou marcacao stale: ' + String(marked && marked.code || 'SEM_CODIGO'));
           totalWritten += Number(marked.written || 0);
         });
@@ -566,7 +599,10 @@ function atividadesV2_firestoreLogResult_(spreadsheet, action, result) {
 }
 
 function atividadesV2_firestoreDiagnosticarCalendarioDev_(options) {
-  var result = atividadesV2_firestoreDiagnoseReadModelBySpec_(atividadesV2_firestoreCalendarSpec_(), options || {});
+  var result = atividadesV2_firestoreDiagnoseReadModelBySpec_(
+    atividadesV2_firestoreCalendarSpec_(),
+    Object.assign({}, options || {}, { ambiente: 'DEV' })
+  );
   result.camposIncluidos = atividadesV2_firestoreCalendarAllowedFields_();
   result.camposRemovidos = atividadesV2_firestoreCalendarRemovedFields_();
   result.camposProibidos = ['CPF', 'TELEFONE', 'EMAIL', 'PRESENCA_INDIVIDUAL', 'JUSTIFICATIVA', 'SPREADSHEET_ID', 'LOG', 'TOKEN'];
@@ -575,7 +611,7 @@ function atividadesV2_firestoreDiagnosticarCalendarioDev_(options) {
 }
 
 function atividadesV2_firestoreSyncCalendarioDev_(options) {
-  var opts = options || {};
+  var opts = Object.assign({}, options || {}, { ambiente: 'DEV' });
   var result = atividadesV2_firestoreSyncReadModelBySpec_(atividadesV2_firestoreCalendarSpec_(), opts);
   if (result && result.ok === true && result.escopoCompleto === true && !opts.idAtividade && !opts.limit) {
     result.snapshot = atividadesV2_firestoreSyncCalendarioSnapshotDev_({
@@ -626,7 +662,7 @@ function atividadesV2_firestoreBuildCalendarSnapshot_(prepared, now) {
 
 /** Materializa um unico documento publico com o calendario completo. */
 function atividadesV2_firestoreSyncCalendarioSnapshotDev_(options) {
-  var opts = options || {};
+  var opts = Object.assign({}, options || {}, { ambiente: 'DEV' });
   var dryRun = opts.dryRun !== false;
   if (opts.idAtividade || opts.limit) {
     return {
@@ -639,7 +675,7 @@ function atividadesV2_firestoreSyncCalendarioSnapshotDev_(options) {
 
   var prepared;
   try {
-    prepared = atividadesV2_firestorePrepareCalendar_({ dryRun: dryRun });
+    prepared = atividadesV2_firestorePrepareCalendar_({ ambiente: 'DEV', dryRun: dryRun });
   } catch (prepareErr) {
     return {
       ok: false,
@@ -689,8 +725,12 @@ function atividadesV2_firestoreSyncCalendarioSnapshotDev_(options) {
     if (!dryRun) {
       lock = LockService.getScriptLock();
       if (!lock.tryLock(30000)) throw new Error('Nao foi possivel obter lock para gravar o snapshot do calendario.');
-      var setDocument = atividadesV2_firestoreRequireCoreMethod_('coreFirestoreSetDocument');
-      write = setDocument(path, snapshot, { dryRun: false, merge: false });
+      var setDocument = atividadesV2_firestoreRequireCoreMethod_('coreFirestoreEnvironmentSetDocument');
+      write = setDocument(path, snapshot, {
+        ambiente: 'DEV',
+        dryRun: false,
+        merge: false
+      });
       if (!write || write.ok !== true) {
         throw new Error('Firestore rejeitou snapshot: ' + String(write && write.code || 'SEM_CODIGO'));
       }
@@ -730,12 +770,12 @@ function atividadesV2_firestoreSyncCalendarioSnapshotDev_(options) {
 function atividadesV2_firestoreDiagnosticarReconciliacaoCalendarioDev_(options) {
   return atividadesV2_firestoreReconcileReadModelBySpec_(
     atividadesV2_firestoreCalendarSpec_(),
-    Object.assign({}, options || {}, { dryRun: true })
+    Object.assign({}, options || {}, { ambiente: 'DEV', dryRun: true })
   );
 }
 
 function atividadesV2_firestoreAplicarReconciliacaoCalendarioDev_(options) {
-  var opts = Object.assign({}, options || {});
+  var opts = Object.assign({}, options || {}, { ambiente: 'DEV' });
   opts.dryRun = opts.dryRun === true;
   return atividadesV2_firestoreReconcileReadModelBySpec_(
     atividadesV2_firestoreCalendarSpec_(),
@@ -751,6 +791,7 @@ function atividadesV2_firestoreSyncCalendarioPorAtividadeSafe_(idAtividade, opti
   if (!id) return { ok: false, synced: false, nonBlocking: true, errorCode: 'ID_ATIVIDADE_AUSENTE' };
   try {
     var result = atividadesV2_firestoreSyncCalendarioDev_({
+      ambiente: 'DEV',
       idAtividade: id,
       dryRun: false,
       compareExisting: true,

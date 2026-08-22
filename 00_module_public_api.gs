@@ -675,6 +675,41 @@ function atividadesV2_diagnosticarMailHubIntegracao(options) {
   }, { entrypoint: 'atividadesV2_diagnosticarMailHubIntegracao' });
 }
 
+function atividadesV2_firestorePlanejarImportacaoAgendaDev(options) {
+  return atividades_runWithOperationalGuard_('CONFERENCIA_V2', null, function() {
+    return atividadesV2_canonicalAgendaPlanSummary_(
+      atividadesV2_canonicalAgendaPlanInitialImportDev_(options || {})
+    );
+  }, { entrypoint: 'atividadesV2_firestorePlanejarImportacaoAgendaDev' });
+}
+
+function atividadesV2_firestoreImportarAgendaDev(options) {
+  options = options || {};
+  return atividades_runWithOperationalGuard_('ATUALIZACAO_PORTAL_V2', null, function(guard) {
+    var safeOptions = Object.assign({}, options);
+    if (guard && String(guard.modeRead || '').trim().toUpperCase() === 'DRY_RUN') safeOptions.dryRun = true;
+    return atividadesV2_canonicalAgendaImportInitialDev_(safeOptions);
+  }, { entrypoint: 'atividadesV2_firestoreImportarAgendaDev' });
+}
+
+function atividadesV2_firestoreUpsertAgendaDev(row, options) {
+  options = options || {};
+  return atividades_runWithOperationalGuard_('ATUALIZACAO_PORTAL_V2', null, function(guard) {
+    var safeOptions = Object.assign({}, options);
+    if (guard && String(guard.modeRead || '').trim().toUpperCase() === 'DRY_RUN') safeOptions.dryRun = true;
+    return atividadesV2_canonicalAgendaUpsertDev_(row || {}, safeOptions);
+  }, { entrypoint: 'atividadesV2_firestoreUpsertAgendaDev' });
+}
+
+function atividadesV2_firestoreExportarAgendaParaSheetsDev(options) {
+  options = options || {};
+  return atividades_runWithOperationalGuard_('ATUALIZACAO_PORTAL_V2', null, function(guard) {
+    var safeOptions = Object.assign({}, options);
+    if (guard && String(guard.modeRead || '').trim().toUpperCase() === 'DRY_RUN') safeOptions.dryRun = true;
+    return atividadesV2_canonicalAgendaExportToSheetsDev_(safeOptions);
+  }, { entrypoint: 'atividadesV2_firestoreExportarAgendaParaSheetsDev' });
+}
+
 function atividadesV2_diagnosticarMailHubEventosPortalDev(options) {
   return atividades_runWithOperationalGuard_('CONFERENCIA_V2', null, function() {
     atividadesV2_bindExecutionEnvironment_({ ambiente: 'DEV' });

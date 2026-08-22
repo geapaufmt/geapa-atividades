@@ -526,6 +526,7 @@ function atividadesV2_findApresentacaoV2_(sheet, idAtividade, idApresentacao) {
 }
 
 function atividadesV2_updateRowByHeaders_(sheet, rowNumber, updates) {
+  atividadesV2_canonicalAgendaAssertLegacySheetFieldsWriteAllowed_(sheet, updates || {});
   var headers = atividadesV2_getSheetHeaders_(sheet);
   var headerMap = atividadesV2_simpleHeaderMap_(headers);
   Object.keys(updates || {}).forEach(function(header) {

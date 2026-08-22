@@ -320,6 +320,7 @@ function atividadesV2_buildNextActivityIdentityForCreate_(dataAtividade, ss) {
 }
 
 function atividadesV2_appendAtividadeV2Row_(sheet, row) {
+  atividadesV2_canonicalAgendaAssertLegacySheetFieldsWriteAllowed_(sheet, row || {});
   var headers = atividadesV2_getSheetHeaders_(sheet).filter(function(header) { return !!header; });
   sheet.getRange(sheet.getLastRow() + 1, 1, 1, headers.length).setValues([
     atividadesV2_recordToHeaderRow_(row, headers)

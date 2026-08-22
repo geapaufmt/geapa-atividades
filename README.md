@@ -11,6 +11,10 @@ Modulo responsavel pelo dominio `ATIVIDADES`, com foco inicial em:
 - sincronizacao historica da presenca oficial de membros por `RGA`;
 - arquivamento dos periodos encerrados em planilhas separadas dentro de uma pasta de historico.
 
+## Piloto Firestore DEV: cadastro e agenda
+
+O piloto de cadastro/agenda usa projetos Firebase separados para DEV e PROD, sem namespaces. No DEV, as collections canonicas novas sao `activities` e `activityPrivate`; Sheets passa a receber somente exportacao derivada quando o corte for autorizado. Presencas, justificativas, apresentacoes, convites, arquivos e materiais continuam fora do piloto. Contrato, importacao, exportacao e autorizacoes estao em [`docs/firestore-canonical-cadastro-agenda.md`](docs/firestore-canonical-cadastro-agenda.md).
+
 ## Taxonomia da V1
 
 A V1 trabalha com quatro campos de classificacao operacional:

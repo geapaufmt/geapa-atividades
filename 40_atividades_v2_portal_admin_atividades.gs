@@ -555,6 +555,7 @@ function atividadesV2_adminSortActivities_(a, b) {
 }
 
 function atividadesV2_adminWriteRowBatch_(sheet, rowNumber, updates) {
+  atividadesV2_canonicalAgendaAssertLegacySheetFieldsWriteAllowed_(sheet, updates || {});
   var headers = atividadesV2_getSheetHeaders_(sheet);
   var range = sheet.getRange(rowNumber, 1, 1, headers.length);
   var values = range.getValues()[0];
