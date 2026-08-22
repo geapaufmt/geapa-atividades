@@ -12,7 +12,9 @@ var ATIVIDADES_V2_CANONICAL_SCHEMA_VERSION = 'activity-canonical-v1';
 var ATIVIDADES_V2_CANONICAL_PRIVATE_SCHEMA_VERSION = 'activity-private-v1';
 var ATIVIDADES_V2_CANONICAL_MODE_PROPERTY = 'ATIVIDADES_V2_AGENDA_CANONICAL_MODE';
 var ATIVIDADES_V2_CANONICAL_REMOTE_WRITE_PROPERTY = 'ATIVIDADES_V2_FIRESTORE_DEV_REMOTE_WRITES_AUTHORIZED';
+var ATIVIDADES_V2_CANONICAL_ROLLBACK_PROPERTY = 'ATIVIDADES_V2_FIRESTORE_DEV_ROLLBACK_AUTHORIZED';
 var ATIVIDADES_V2_CANONICAL_REMOTE_CONFIRMATION = 'AUTORIZO_WRITE_FIRESTORE_DEV_ATIVIDADES_AGENDA';
+var ATIVIDADES_V2_CANONICAL_ROLLBACK_CONFIRMATION = 'AUTORIZO_ROLLBACK_FIRESTORE_DEV_ATIVIDADES_AGENDA';
 var ATIVIDADES_V2_CANONICAL_EXPORT_CONFIRMATION = 'AUTORIZO_EXPORT_FIRESTORE_DEV_PARA_SHEETS';
 var ATIVIDADES_V2_CANONICAL_EXPORT_SHEET = 'EXPORT_ATIVIDADES_FIRESTORE';
 var ATIVIDADES_V2_CANONICAL_MIGRATED_HEADERS = Object.freeze([
@@ -93,6 +95,20 @@ function atividadesV2_canonicalAgendaContext_(options) {
   });
 }
 
+/** Normaliza entrypoints DEV sem aceitar que um chamador informe PROD. */
+function atividadesV2_canonicalAgendaDevOptions_(options) {
+  var opts = Object.assign({}, options || {});
+  ['ambiente', 'environment'].forEach(function(key) {
+    if (!Object.prototype.hasOwnProperty.call(opts, key) || !String(opts[key] || '').trim()) return;
+    if (String(opts[key]).trim().toUpperCase() !== 'DEV') {
+      throw new Error('PILOTO_FIRESTORE_SOMENTE_DEV: PROD nao e destino permitido.');
+    }
+  });
+  opts.ambiente = 'DEV';
+  opts.environment = 'DEV';
+  return opts;
+}
+
 function atividadesV2_canonicalAgendaAssertRemoteWriteAuthorized_(options, confirmation) {
   var opts = options || {};
   atividadesV2_canonicalAgendaContext_(opts);
@@ -102,6 +118,31 @@ function atividadesV2_canonicalAgendaAssertRemoteWriteAuthorized_(options, confi
   if (!authorized || String(opts.confirmacao || '') !== confirmation) {
     throw new Error('WRITE_FIRESTORE_DEV_NAO_AUTORIZADO: habilitacao e confirmacao explicitas sao obrigatorias.');
   }
+}
+
+function atividadesV2_canonicalAgendaAssertRollbackAuthorized_(options) {
+  var opts = options || {};
+  atividadesV2_canonicalAgendaContext_(opts);
+  var authorized = atividades_normalizeTextUpper_(
+    PropertiesService.getScriptProperties().getProperty(ATIVIDADES_V2_CANONICAL_ROLLBACK_PROPERTY)
+  ) === 'SIM';
+  if (!authorized || String(opts.confirmacao || '') !== ATIVIDADES_V2_CANONICAL_ROLLBACK_CONFIRMATION) {
+    throw new Error('ROLLBACK_FIRESTORE_DEV_NAO_AUTORIZADO: habilitacao e confirmacao explicitas sao obrigatorias.');
+  }
+}
+
+/** Confere o guard operacional sem registrar status ou escrever em Sheets. */
+function atividadesV2_canonicalAgendaAssertRollbackOperationalAllowed_() {
+  var assertAllowed = atividadesV2_canonicalAgendaRequireCoreMethod_('coreAssertModuleExecutionAllowed');
+  var decision = assertAllowed(
+    ATIVIDADES_CFG.MODULE_CODE,
+    'ATUALIZACAO_PORTAL_V2',
+    'SYNC',
+    { executionType: 'MANUAL' }
+  );
+  var mode = String(decision && decision.config && decision.config.mode || '').trim().toUpperCase();
+  if (mode === 'DRY_RUN') throw new Error('ROLLBACK_FIRESTORE_DEV_BLOQUEADO_POR_DRY_RUN.');
+  return decision;
 }
 
 function atividadesV2_canonicalAgendaText_(value, maxLength) {
@@ -219,7 +260,7 @@ function atividadesV2_canonicalAgendaWriteItems_(documents) {
 }
 
 function atividadesV2_canonicalAgendaPlanInitialImportDev_(options) {
-  var opts = Object.assign({}, options || {}, { ambiente: 'DEV' });
+  var opts = atividadesV2_canonicalAgendaDevOptions_(options);
   var context = atividadesV2_canonicalAgendaContext_(opts);
   var spreadsheet = atividadesV2_getDatabaseSpreadsheet_({ ambiente: context.environment });
   var sheet = atividadesV2_getTargetSheet_(spreadsheet, ATIVIDADES_V2_SHEETS.ATIVIDADES);
@@ -304,13 +345,16 @@ function atividadesV2_canonicalAgendaDiffImportItems_(items, existingByPath) {
 }
 
 function atividadesV2_canonicalAgendaImportInitialDev_(options) {
-  var opts = Object.assign({}, options || {}, { ambiente: 'DEV' });
-  var plan = atividadesV2_canonicalAgendaPlanInitialImportDev_(opts);
-  if (!plan.ok || opts.dryRun !== false) return atividadesV2_canonicalAgendaPlanSummary_(plan);
+  var opts = atividadesV2_canonicalAgendaDevOptions_(options);
+  if (opts.dryRun !== false) {
+    return atividadesV2_canonicalAgendaPlanSummary_(atividadesV2_canonicalAgendaPlanInitialImportDev_(opts));
+  }
   if (atividadesV2_canonicalAgendaMode_() !== 'LEGACY_READ_ONLY') {
     throw new Error('IMPORTACAO_INICIAL_BLOQUEADA_APOS_CORTE_CANONICO.');
   }
   atividadesV2_canonicalAgendaAssertRemoteWriteAuthorized_(opts, ATIVIDADES_V2_CANONICAL_REMOTE_CONFIRMATION);
+  var plan = atividadesV2_canonicalAgendaPlanInitialImportDev_(opts);
+  if (!plan.ok) return atividadesV2_canonicalAgendaPlanSummary_(plan);
   var batchSet = atividadesV2_canonicalAgendaRequireCoreMethod_('coreFirestoreEnvironmentBatchSetDocuments');
   var existingByPath = {};
   [ATIVIDADES_V2_CANONICAL_COLLECTION, ATIVIDADES_V2_CANONICAL_PRIVATE_COLLECTION].forEach(function(collection) {
@@ -348,7 +392,7 @@ function atividadesV2_canonicalAgendaImportInitialDev_(options) {
 }
 
 function atividadesV2_canonicalAgendaUpsertDev_(row, options) {
-  var opts = Object.assign({}, options || {}, { ambiente: 'DEV' });
+  var opts = atividadesV2_canonicalAgendaDevOptions_(options);
   atividadesV2_canonicalAgendaContext_(opts);
   if (atividadesV2_canonicalAgendaMode_() !== 'FIRESTORE_CANONICAL') {
     throw new Error('FIRESTORE_CANONICAL_NAO_ATIVADO.');
@@ -390,6 +434,169 @@ function atividadesV2_canonicalAgendaListAll_(collection, environment) {
   return documents;
 }
 
+function atividadesV2_canonicalAgendaDocumentMap_(collection, documents) {
+  var result = {};
+  (documents || []).forEach(function(item) {
+    var id = String(item && item.id || '').trim();
+    if (!id) return;
+    result[collection + '/' + id] = item && item.data || {};
+  });
+  return result;
+}
+
+/** Compara o plano esperado com snapshots ja lidos, sem qualquer mutacao. */
+function atividadesV2_canonicalAgendaBuildValidationReport_(plan, publicDocuments, privateDocuments) {
+  var source = plan || {};
+  var expectedByPath = {};
+  (source.items || []).forEach(function(item) {
+    var path = String(item && item.path || '').trim();
+    if (path) expectedByPath[path] = item && item.data || {};
+  });
+  var actualByPath = Object.assign(
+    {},
+    atividadesV2_canonicalAgendaDocumentMap_(ATIVIDADES_V2_CANONICAL_COLLECTION, publicDocuments),
+    atividadesV2_canonicalAgendaDocumentMap_(ATIVIDADES_V2_CANONICAL_PRIVATE_COLLECTION, privateDocuments)
+  );
+  var missingPaths = [];
+  var unexpectedPaths = [];
+  var divergentPaths = [];
+  var matchingPaths = [];
+
+  Object.keys(expectedByPath).sort().forEach(function(path) {
+    if (!Object.prototype.hasOwnProperty.call(actualByPath, path)) {
+      missingPaths.push(path);
+      return;
+    }
+    if (String(actualByPath[path].sourceHash || '') !== String(expectedByPath[path].sourceHash || '')) {
+      divergentPaths.push(path);
+      return;
+    }
+    matchingPaths.push(path);
+  });
+  Object.keys(actualByPath).sort().forEach(function(path) {
+    if (!Object.prototype.hasOwnProperty.call(expectedByPath, path)) unexpectedPaths.push(path);
+  });
+
+  return Object.freeze({
+    ok: source.ok === true && !missingPaths.length && !unexpectedPaths.length && !divergentPaths.length,
+    environment: 'DEV',
+    readOnly: true,
+    expectedActivities: Number(source.totalActivities || 0),
+    expectedDocuments: Number(source.totalDocuments || 0),
+    activitiesCount: (publicDocuments || []).length,
+    activityPrivateCount: (privateDocuments || []).length,
+    matchingHashes: matchingPaths.length,
+    matchingPaths: Object.freeze(matchingPaths),
+    missingPaths: Object.freeze(missingPaths),
+    unexpectedPaths: Object.freeze(unexpectedPaths),
+    divergentPaths: Object.freeze(divergentPaths),
+    errors: source.errors || Object.freeze([])
+  });
+}
+
+function atividadesV2_canonicalAgendaValidateInitialImportDev_(options) {
+  var opts = atividadesV2_canonicalAgendaDevOptions_(options);
+  atividadesV2_canonicalAgendaContext_(opts);
+  var plan = atividadesV2_canonicalAgendaPlanInitialImportDev_(opts);
+  var publicDocuments = atividadesV2_canonicalAgendaListAll_(ATIVIDADES_V2_CANONICAL_COLLECTION, 'DEV');
+  var privateDocuments = atividadesV2_canonicalAgendaListAll_(ATIVIDADES_V2_CANONICAL_PRIVATE_COLLECTION, 'DEV');
+  return atividadesV2_canonicalAgendaBuildValidationReport_(plan, publicDocuments, privateDocuments);
+}
+
+function atividadesV2_canonicalAgendaAssertPilotRollbackPath_(path) {
+  var normalized = String(path || '').trim();
+  var publicPrefix = ATIVIDADES_V2_CANONICAL_COLLECTION + '/';
+  var privatePrefix = ATIVIDADES_V2_CANONICAL_PRIVATE_COLLECTION + '/';
+  var prefix = normalized.indexOf(publicPrefix) === 0
+    ? publicPrefix
+    : (normalized.indexOf(privatePrefix) === 0 ? privatePrefix : '');
+  var id = prefix ? normalized.slice(prefix.length) : '';
+  if (!prefix || !id || id.indexOf('/') >= 0) {
+    throw new Error('ROLLBACK_PATH_FORA_DO_PILOTO.');
+  }
+  return normalized;
+}
+
+function atividadesV2_canonicalAgendaRollbackPaths_(plan) {
+  return Object.freeze((plan && plan.items || []).map(function(item) {
+    return atividadesV2_canonicalAgendaAssertPilotRollbackPath_(item && item.path);
+  }));
+}
+
+function atividadesV2_canonicalAgendaRollbackInitialImportDev_(options) {
+  var opts = atividadesV2_canonicalAgendaDevOptions_(options);
+  atividadesV2_canonicalAgendaContext_(opts);
+  var realWrite = opts.dryRun === false;
+  if (realWrite) {
+    if (atividadesV2_canonicalAgendaMode_() !== 'LEGACY_READ_ONLY') {
+      throw new Error('ROLLBACK_BLOQUEADO_APOS_CORTE_CANONICO.');
+    }
+    atividadesV2_canonicalAgendaAssertRollbackAuthorized_(opts);
+    atividadesV2_canonicalAgendaAssertRollbackOperationalAllowed_();
+  }
+
+  var run = function() {
+    var plan = atividadesV2_canonicalAgendaPlanInitialImportDev_(opts);
+    if (!plan.ok) throw new Error('ROLLBACK_PLANO_IMPORTACAO_INVALIDO.');
+    var expectedPaths = atividadesV2_canonicalAgendaRollbackPaths_(plan);
+    var validation = atividadesV2_canonicalAgendaBuildValidationReport_(
+      plan,
+      atividadesV2_canonicalAgendaListAll_(ATIVIDADES_V2_CANONICAL_COLLECTION, 'DEV'),
+      atividadesV2_canonicalAgendaListAll_(ATIVIDADES_V2_CANONICAL_PRIVATE_COLLECTION, 'DEV')
+    );
+    if (realWrite && validation.divergentPaths.length) {
+      throw new Error('ROLLBACK_CONFLITO_FIRESTORE: ' + validation.divergentPaths.length + ' documento(s) divergentes.');
+    }
+    var matching = {};
+    validation.matchingPaths.forEach(function(path) { matching[path] = true; });
+    var pathsToDelete = expectedPaths.filter(function(path) { return matching[path] === true; });
+    if (!realWrite) {
+      return Object.freeze({
+        ok: validation.divergentPaths.length === 0,
+        dryRun: true,
+        environment: 'DEV',
+        expectedDocuments: expectedPaths.length,
+        wouldDelete: pathsToDelete.length,
+        pathsToDelete: Object.freeze(pathsToDelete),
+        missingPaths: validation.missingPaths,
+        unexpectedPaths: validation.unexpectedPaths,
+        divergentPaths: validation.divergentPaths,
+        sheetsWritten: false
+      });
+    }
+
+    var deleteDocument = atividadesV2_canonicalAgendaRequireCoreMethod_('coreFirestoreEnvironmentDeleteDocument');
+    var deleted = 0;
+    pathsToDelete.forEach(function(path) {
+      atividadesV2_canonicalAgendaAssertPilotRollbackPath_(path);
+      var result = deleteDocument(path, { ambiente: 'DEV', environment: 'DEV', dryRun: false });
+      if (!result || result.ok !== true || result.deleted !== true) {
+        throw new Error('ROLLBACK_FIRESTORE_DEV_FALHOU: ' + String(result && result.code || 'SEM_CODIGO'));
+      }
+      deleted++;
+    });
+    return Object.freeze({
+      ok: true,
+      dryRun: false,
+      environment: 'DEV',
+      expectedDocuments: expectedPaths.length,
+      totalDeleted: deleted,
+      missingBeforeRollback: validation.missingPaths,
+      unexpectedPathsUntouched: validation.unexpectedPaths,
+      sheetsWritten: false
+    });
+  };
+
+  if (!realWrite) return run();
+  var lock = LockService.getScriptLock();
+  if (!lock.tryLock(30000)) throw new Error('LOCK_INDISPONIVEL_ROLLBACK_FIRESTORE.');
+  try {
+    return run();
+  } finally {
+    lock.releaseLock();
+  }
+}
+
 function atividadesV2_canonicalAgendaExportRow_(publicData, privateData) {
   var source = publicData || {};
   var internal = privateData || {};
@@ -426,7 +633,7 @@ function atividadesV2_canonicalAgendaExportRow_(publicData, privateData) {
 }
 
 function atividadesV2_canonicalAgendaExportToSheetsDev_(options) {
-  var opts = Object.assign({}, options || {}, { ambiente: 'DEV' });
+  var opts = atividadesV2_canonicalAgendaDevOptions_(options);
   var context = atividadesV2_canonicalAgendaContext_(opts);
   var publicDocs = atividadesV2_canonicalAgendaListAll_(ATIVIDADES_V2_CANONICAL_COLLECTION, context.environment);
   var privateDocs = atividadesV2_canonicalAgendaListAll_(ATIVIDADES_V2_CANONICAL_PRIVATE_COLLECTION, context.environment);

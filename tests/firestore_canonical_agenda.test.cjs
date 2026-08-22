@@ -6,8 +6,11 @@ const vm = require('node:vm');
 
 const properties = new Map();
 let executionEnvironment = 'DEV';
+let batchWriteCalls = 0;
+let deleteCalls = 0;
 const context = {
-  Object, Array, String, Number, Boolean, Date, JSON, Math, isFinite,
+  Object, Array, String, Number, Boolean, Date, JSON, Math, Error, isFinite,
+  Logger: { log() {} },
   Utilities: {
     DigestAlgorithm: { SHA_256: 'SHA_256' },
     Charset: { UTF_8: 'UTF_8' },
@@ -19,6 +22,10 @@ const context = {
   PropertiesService: {
     getScriptProperties: () => ({ getProperty: (key) => properties.get(key) || null })
   },
+  LockService: {
+    getScriptLock: () => ({ tryLock: () => true, releaseLock() {} })
+  },
+  ATIVIDADES_CFG: { MODULE_CODE: 'ATIVIDADES' },
   atividades_normalizeTextUpper_: (value) => String(value || '').trim().toUpperCase(),
   atividadesV2_resolveEnvironment_: (options) => {
     const value = String(options && (options.ambiente || options.environment) || executionEnvironment || '').toUpperCase();
@@ -30,7 +37,16 @@ const context = {
       environment: ambiente,
       projectId: ambiente === 'DEV' ? 'demo-geapa-dev' : 'portal-geapa',
       databaseId: '(default)'
-    })
+    }),
+    coreAssertModuleExecutionAllowed: () => ({ allowed: true, config: { mode: 'ON' } }),
+    coreFirestoreEnvironmentBatchSetDocuments: () => {
+      batchWriteCalls += 1;
+      throw new Error('write nao esperado no teste');
+    },
+    coreFirestoreEnvironmentDeleteDocument: () => {
+      deleteCalls += 1;
+      return { ok: true, deleted: true, code: 'FIRESTORE_DELETE_OK' };
+    }
   }
 };
 
@@ -87,5 +103,121 @@ assert.throws(
 properties.set('ATIVIDADES_V2_AGENDA_CANONICAL_MODE', 'LEGACY_READ_ONLY');
 executionEnvironment = 'PROD';
 assert.equal(context.atividadesV2_canonicalAgendaAssertLegacySheetWriteAllowed_(), true);
+
+const plan = {
+  ok: true,
+  dryRun: true,
+  environment: 'DEV',
+  totalActivities: 1,
+  totalDocuments: 2,
+  items: writeItems,
+  errors: []
+};
+const publicCorrect = [{ id: built.idAtividade, data: { sourceHash: built.publicDocument.sourceHash } }];
+const privateCorrect = [{ id: built.idAtividade, data: { sourceHash: built.privateDocument.sourceHash } }];
+
+let validation = context.atividadesV2_canonicalAgendaBuildValidationReport_(plan, publicCorrect, privateCorrect);
+assert.equal(validation.ok, true, 'validador deve aceitar estado correto');
+assert.equal(validation.matchingHashes, 2);
+assert.deepEqual(Array.from(validation.missingPaths), []);
+assert.deepEqual(Array.from(validation.divergentPaths), []);
+assert.deepEqual(Array.from(validation.unexpectedPaths), []);
+
+validation = context.atividadesV2_canonicalAgendaBuildValidationReport_(plan, publicCorrect, []);
+assert.equal(validation.ok, false, 'validador deve detectar documento faltante');
+assert.deepEqual(Array.from(validation.missingPaths), [writeItems[1].path]);
+
+validation = context.atividadesV2_canonicalAgendaBuildValidationReport_(
+  plan,
+  [{ id: built.idAtividade, data: { sourceHash: 'hash-divergente' } }],
+  privateCorrect
+);
+assert.equal(validation.ok, false, 'validador deve detectar hash divergente');
+assert.deepEqual(Array.from(validation.divergentPaths), [writeItems[0].path]);
+
+validation = context.atividadesV2_canonicalAgendaBuildValidationReport_(
+  plan,
+  publicCorrect.concat([{ id: 'ATV-INESPERADA', data: { sourceHash: 'extra' } }]),
+  privateCorrect
+);
+assert.equal(validation.ok, false, 'validador deve detectar documento inesperado');
+assert.deepEqual(Array.from(validation.unexpectedPaths), ['activities/ATV-INESPERADA']);
+
+context.atividadesV2_canonicalAgendaPlanInitialImportDev_ = () => plan;
+context.atividadesV2_canonicalAgendaListAll_ = (collection) => (
+  collection === 'activities' ? publicCorrect : privateCorrect
+);
+batchWriteCalls = 0;
+deleteCalls = 0;
+validation = context.atividadesV2_canonicalAgendaValidateInitialImportDev_({ ambiente: 'DEV' });
+assert.equal(validation.ok, true);
+assert.equal(batchWriteCalls, 0, 'validador nunca deve chamar batch de escrita');
+assert.equal(deleteCalls, 0, 'validador nunca deve excluir documentos');
+
+assert.throws(
+  () => context.atividadesV2_canonicalAgendaImportInitialDev_({ ambiente: 'PROD', dryRun: false }),
+  /SOMENTE_DEV/,
+  'importacao nao pode aceitar PROD'
+);
+
+context.atividades_runWithOperationalGuard_ = function(_flow, _capabilities, callback) {
+  return callback({ modeRead: 'ON' });
+};
+vm.runInContext(
+  fs.readFileSync(path.join(__dirname, '..', '00_module_public_api.gs'), 'utf8'),
+  context,
+  { filename: '00_module_public_api.gs' }
+);
+
+properties.delete('ATIVIDADES_V2_FIRESTORE_DEV_REMOTE_WRITES_AUTHORIZED');
+assert.throws(
+  () => context.atividadesV2_runImportacaoRealAgendaFirestoreDev(),
+  /WRITE_FIRESTORE_DEV_NAO_AUTORIZADO/,
+  'runner real deve falhar sem Script Property temporaria'
+);
+
+properties.set('ATIVIDADES_V2_FIRESTORE_DEV_ROLLBACK_AUTHORIZED', 'SIM');
+assert.throws(
+  () => context.atividadesV2_canonicalAgendaRollbackInitialImportDev_({ ambiente: 'DEV', dryRun: false }),
+  /ROLLBACK_FIRESTORE_DEV_NAO_AUTORIZADO/,
+  'rollback real deve exigir confirmacao exata'
+);
+assert.throws(
+  () => context.atividadesV2_canonicalAgendaRollbackInitialImportDev_({
+    ambiente: 'PROD',
+    dryRun: false,
+    confirmacao: 'AUTORIZO_ROLLBACK_FIRESTORE_DEV_ATIVIDADES_AGENDA'
+  }),
+  /SOMENTE_DEV/,
+  'rollback nunca pode aceitar PROD'
+);
+
+context.atividadesV2_canonicalAgendaListAll_ = (collection) => (
+  collection === 'activities'
+    ? [{ id: built.idAtividade, data: { sourceHash: 'hash-divergente' } }]
+    : privateCorrect
+);
+deleteCalls = 0;
+assert.throws(
+  () => context.atividadesV2_canonicalAgendaRollbackInitialImportDev_({
+    ambiente: 'DEV',
+    dryRun: false,
+    confirmacao: 'AUTORIZO_ROLLBACK_FIRESTORE_DEV_ATIVIDADES_AGENDA'
+  }),
+  /ROLLBACK_CONFLITO_FIRESTORE/,
+  'rollback deve abortar antes de excluir quando houver hash divergente'
+);
+assert.equal(deleteCalls, 0, 'rollback divergente nao pode excluir documento algum');
+
+assert.deepEqual(
+  Array.from(context.atividadesV2_canonicalAgendaRollbackPaths_(plan)),
+  [writeItems[0].path, writeItems[1].path],
+  'rollback deve calcular somente os dois paths do piloto por atividade'
+);
+assert.throws(
+  () => context.atividadesV2_canonicalAgendaRollbackPaths_({ items: [{ path: 'portalUsers/uid', data: {} }] }),
+  /ROLLBACK_PATH_FORA_DO_PILOTO/,
+  'rollback deve rejeitar qualquer collection fora do piloto'
+);
 
 console.log('firestore_canonical_agenda.test.cjs: OK');

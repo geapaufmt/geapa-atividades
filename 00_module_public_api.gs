@@ -692,6 +692,34 @@ function atividadesV2_firestoreImportarAgendaDev(options) {
   }, { entrypoint: 'atividadesV2_firestoreImportarAgendaDev' });
 }
 
+/** Runner explicito do primeiro write remoto, executavel pelo editor Apps Script. */
+function atividadesV2_runImportacaoRealAgendaFirestoreDev() {
+  return atividadesV2_firestoreImportarAgendaDev({
+    ambiente: 'DEV',
+    dryRun: false,
+    confirmacao: 'AUTORIZO_WRITE_FIRESTORE_DEV_ATIVIDADES_AGENDA'
+  });
+}
+
+/** Valida paths e hashes sem passar por guards que registram status em Sheets. */
+function atividadesV2_firestoreValidarImportacaoAgendaDev() {
+  return atividadesV2_canonicalAgendaValidateInitialImportDev_({ ambiente: 'DEV' });
+}
+
+/** Rollback controlado; nao usa o guard mutavel para garantir zero escrita em Sheets. */
+function atividadesV2_firestoreRollbackImportacaoAgendaDev(options) {
+  return atividadesV2_canonicalAgendaRollbackInitialImportDev_(options || {});
+}
+
+/** Runner explicito do rollback real, protegido por gate e confirmacao independentes. */
+function atividadesV2_runRollbackImportacaoAgendaFirestoreDev() {
+  return atividadesV2_firestoreRollbackImportacaoAgendaDev({
+    ambiente: 'DEV',
+    dryRun: false,
+    confirmacao: 'AUTORIZO_ROLLBACK_FIRESTORE_DEV_ATIVIDADES_AGENDA'
+  });
+}
+
 function atividadesV2_firestoreUpsertAgendaDev(row, options) {
   options = options || {};
   return atividades_runWithOperationalGuard_('ATUALIZACAO_PORTAL_V2', null, function(guard) {

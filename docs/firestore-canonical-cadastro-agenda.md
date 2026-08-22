@@ -39,10 +39,27 @@ Campos dos dominios nao migrados podem continuar sendo atualizados no Sheets. Os
 3. Executar e guardar o resultado dos testes do Emulator.
 4. Obter autorizacao para configurar o projeto Firebase DEV e para o primeiro write remoto.
 5. Configurar `ATIVIDADES_V2_FIRESTORE_DEV_REMOTE_WRITES_AUTHORIZED=SIM` somente na janela autorizada.
-6. Executar `atividadesV2_firestoreImportarAgendaDev` com `dryRun:false` e confirmacao `AUTORIZO_WRITE_FIRESTORE_DEV_ATIVIDADES_AGENDA`.
-7. Validar contagem e hashes; somente depois ativar `FIRESTORE_CANONICAL`.
+6. Executar `atividadesV2_runImportacaoRealAgendaFirestoreDev()` pelo editor do projeto GEAPA_ATIVIDADES. O runner fixa `DEV`, `dryRun:false` e a confirmacao `AUTORIZO_WRITE_FIRESTORE_DEV_ATIVIDADES_AGENDA`.
+7. Remover imediatamente `ATIVIDADES_V2_FIRESTORE_DEV_REMOTE_WRITES_AUTHORIZED`.
+8. Executar `atividadesV2_firestoreValidarImportacaoAgendaDev()` e exigir contagens completas, todos os hashes correspondentes e listas de diferencas vazias.
+9. Somente depois da validacao e de autorizacao separada, ativar `FIRESTORE_CANONICAL`.
 
 A importacao escreve somente Firestore. Antes do commit ela le as duas collections, ignora documentos com hash identico e aborta se encontrar qualquer documento divergente; por isso uma execucao parcial pode ser retomada com seguranca. Nao ha dual-write com Sheets.
+
+O validador e estritamente read-only: reconstrói o plano DEV, lista `activities` e `activityPrivate` e compara paths e `sourceHash`. Ele nunca completa, corrige ou remove documentos e nao passa pelo guard que registra `MODULOS_STATUS`.
+
+## Rollback controlado
+
+`atividadesV2_firestoreRollbackImportacaoAgendaDev(options)` aceita somente DEV e usa apenas os paths recalculados pelo plano do piloto. A execucao real exige:
+
+```text
+ATIVIDADES_V2_FIRESTORE_DEV_ROLLBACK_AUTHORIZED=SIM
+confirmacao=AUTORIZO_ROLLBACK_FIRESTORE_DEV_ATIVIDADES_AGENDA
+```
+
+O runner sem argumentos `atividadesV2_runRollbackImportacaoAgendaFirestoreDev()` fornece a confirmacao. Antes de excluir, a rotina relê as duas collections e aborta se qualquer documento esperado possuir `sourceHash` divergente. Documentos inesperados nao sao tocados; `portalUsers` e quaisquer outras collections ficam fora do conjunto permitido.
+
+A propriedade de rollback deve existir somente durante uma janela explicitamente autorizada e ser removida imediatamente depois. O rollback exige `LEGACY_READ_ONLY`, respeita o controle operacional `ATIVIDADES / ATUALIZACAO_PORTAL_V2 / SYNC`, nao registra status em Sheets e nunca aceita PROD.
 
 ## Exportacao para Sheets
 
