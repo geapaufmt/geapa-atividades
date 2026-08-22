@@ -237,15 +237,27 @@ function atividadesV2_aplicarAlteracoesCicloAtividades_(result) {
   result.alteracoes.forEach(function(change) {
     if (!change.rowNumber) return;
     var changed = false;
-    changed = atividadesV2_writeCellIfChanged_(sheet, change.rowNumber, headerMap.STATUS_OPERACIONAL, change.statusSugerido) || changed;
-    if (headerMap.DATA_REALIZACAO) {
-      changed = atividadesV2_writeCellIfChanged_(sheet, change.rowNumber, headerMap.DATA_REALIZACAO, now) || changed;
-    }
-    if (headerMap.ATUALIZADO_EM) {
-      changed = atividadesV2_writeCellIfChanged_(sheet, change.rowNumber, headerMap.ATUALIZADO_EM, now) || changed;
-    }
-    if (headerMap.ATUALIZADO_POR) {
-      changed = atividadesV2_writeCellIfChanged_(sheet, change.rowNumber, headerMap.ATUALIZADO_POR, 'ATIVIDADES_V2_CICLO_OPERACIONAL') || changed;
+    if (atividadesV2_canonicalAgendaIsActiveDev_()) {
+      atividadesV2_canonicalAgendaUpdateDev_(change.idAtividade, {
+        STATUS_OPERACIONAL: change.statusSugerido,
+        DATA_REALIZACAO: now,
+        ATUALIZADO_EM: now,
+        ATUALIZADO_POR: 'ATIVIDADES_V2_CICLO_OPERACIONAL'
+      }, {
+        ambiente: 'DEV', dryRun: false, confirmacao: ATIVIDADES_V2_CANONICAL_CRUD_CONFIRMATION
+      });
+      changed = true;
+    } else {
+      changed = atividadesV2_writeCellIfChanged_(sheet, change.rowNumber, headerMap.STATUS_OPERACIONAL, change.statusSugerido) || changed;
+      if (headerMap.DATA_REALIZACAO) {
+        changed = atividadesV2_writeCellIfChanged_(sheet, change.rowNumber, headerMap.DATA_REALIZACAO, now) || changed;
+      }
+      if (headerMap.ATUALIZADO_EM) {
+        changed = atividadesV2_writeCellIfChanged_(sheet, change.rowNumber, headerMap.ATUALIZADO_EM, now) || changed;
+      }
+      if (headerMap.ATUALIZADO_POR) {
+        changed = atividadesV2_writeCellIfChanged_(sheet, change.rowNumber, headerMap.ATUALIZADO_POR, 'ATIVIDADES_V2_CICLO_OPERACIONAL') || changed;
+      }
     }
     if (changed) {
       result.totalAplicadas++;

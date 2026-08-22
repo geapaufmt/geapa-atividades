@@ -729,6 +729,34 @@ function atividadesV2_firestoreUpsertAgendaDev(row, options) {
   }, { entrypoint: 'atividadesV2_firestoreUpsertAgendaDev' });
 }
 
+function atividadesV2_firestoreCriarAtividadeAgendaDev(row, options) {
+  return atividadesV2_canonicalAgendaCreateDev_(row || {}, options || {});
+}
+
+function atividadesV2_firestoreAtualizarAtividadeAgendaDev(idAtividade, updates, options) {
+  return atividadesV2_canonicalAgendaUpdateDev_(idAtividade, updates || {}, options || {});
+}
+
+function atividadesV2_firestoreConsultarAtividadeAgendaDev(idAtividade) {
+  return atividadesV2_canonicalAgendaGetPairDev_(idAtividade, { ambiente: 'DEV' });
+}
+
+function atividadesV2_firestoreListarAtividadesAgendaDev() {
+  return atividadesV2_canonicalAgendaListRowsDev_({ ambiente: 'DEV' });
+}
+
+function atividadesV2_firestoreAlterarStatusAtividadeAgendaDev(action, payload, options) {
+  return atividadesV2_canonicalAgendaChangeStatusDev_(action, payload || {}, options || {});
+}
+
+function atividadesV2_firestoreCancelarAtividadeAgendaDev(payload, options) {
+  return atividadesV2_canonicalAgendaCancelDev_(payload || {}, options || {});
+}
+
+function atividadesV2_firestoreExcluirAtividadeAgendaDev(idAtividade, options) {
+  return atividadesV2_canonicalAgendaDeleteDev_(idAtividade, options || {});
+}
+
 function atividadesV2_firestoreExportarAgendaParaSheetsDev(options) {
   options = options || {};
   return atividades_runWithOperationalGuard_('ATUALIZACAO_PORTAL_V2', null, function(guard) {
@@ -736,6 +764,11 @@ function atividadesV2_firestoreExportarAgendaParaSheetsDev(options) {
     if (guard && String(guard.modeRead || '').trim().toUpperCase() === 'DRY_RUN') safeOptions.dryRun = true;
     return atividadesV2_canonicalAgendaExportToSheetsDev_(safeOptions);
   }, { entrypoint: 'atividadesV2_firestoreExportarAgendaParaSheetsDev' });
+}
+
+/** Compara Firestore e EXPORT_ATIVIDADES_FIRESTORE sem corrigir nenhum destino. */
+function atividadesV2_firestoreDiagnosticarDivergenciaExportacaoAgendaDev() {
+  return atividadesV2_canonicalAgendaDiagnoseExportDev_({ ambiente: 'DEV' });
 }
 
 function atividadesV2_diagnosticarMailHubEventosPortalDev(options) {

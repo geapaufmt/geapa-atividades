@@ -395,9 +395,19 @@ function atividades_refletirStatusApresentacoesEmAtividades_() {
     if (!atividades_isSubtipoApresentacaoMembro_(activityItem.record.SUBTIPO_ATIVIDADE)) return;
     if (atividades_normalizeTextUpper_(activityItem.record.STATUS) === atividades_normalizeTextUpper_(mappedStatus)) return;
 
-    GEAPA_CORE.coreWriteCellByHeader(atividadesSheet, activityItem.rowNumber, atividadesHeaderMap, 'STATUS', mappedStatus, { oneBased: true });
-    if (GEAPA_CORE.coreGetCol(atividadesHeaderMap, 'ATUALIZADO_EM')) {
-      GEAPA_CORE.coreWriteCellByHeader(atividadesSheet, activityItem.rowNumber, atividadesHeaderMap, 'ATUALIZADO_EM', new Date(), { oneBased: true });
+    if (atividadesV2_canonicalAgendaIsActiveDev_()) {
+      atividadesV2_canonicalAgendaUpdateDev_(activityId, {
+        STATUS_OPERACIONAL: mappedStatus,
+        ATUALIZADO_POR: 'APRESENTACOES_INTEGRACAO',
+        ATUALIZADO_EM: new Date()
+      }, {
+        ambiente: 'DEV', dryRun: false, confirmacao: ATIVIDADES_V2_CANONICAL_CRUD_CONFIRMATION
+      });
+    } else {
+      GEAPA_CORE.coreWriteCellByHeader(atividadesSheet, activityItem.rowNumber, atividadesHeaderMap, 'STATUS', mappedStatus, { oneBased: true });
+      if (GEAPA_CORE.coreGetCol(atividadesHeaderMap, 'ATUALIZADO_EM')) {
+        GEAPA_CORE.coreWriteCellByHeader(atividadesSheet, activityItem.rowNumber, atividadesHeaderMap, 'ATUALIZADO_EM', new Date(), { oneBased: true });
+      }
     }
     updated.push({
       idAtividade: activityId,

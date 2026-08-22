@@ -526,14 +526,34 @@ function atividadesV2_findApresentacaoV2_(sheet, idAtividade, idApresentacao) {
 }
 
 function atividadesV2_updateRowByHeaders_(sheet, rowNumber, updates) {
-  atividadesV2_canonicalAgendaAssertLegacySheetFieldsWriteAllowed_(sheet, updates || {});
   var headers = atividadesV2_getSheetHeaders_(sheet);
   var headerMap = atividadesV2_simpleHeaderMap_(headers);
-  Object.keys(updates || {}).forEach(function(header) {
+  var requested = updates || {};
+  var canonicalUpdates = {};
+  var legacyUpdates = {};
+  Object.keys(requested).forEach(function(header) {
+    if (
+      atividadesV2_canonicalAgendaIsActiveDev_() &&
+      String(sheet.getName && sheet.getName() || '') === ATIVIDADES_V2_SHEETS.ATIVIDADES &&
+      ATIVIDADES_V2_CANONICAL_MIGRATED_HEADERS.indexOf(header) >= 0
+    ) canonicalUpdates[header] = requested[header];
+    else legacyUpdates[header] = requested[header];
+  });
+  var canonicalResult = null;
+  if (Object.keys(canonicalUpdates).length) {
+    var idCol = headerMap.ID_ATIVIDADE;
+    var idAtividade = idCol ? String(sheet.getRange(rowNumber, idCol).getValue() || '').trim() : '';
+    canonicalResult = atividadesV2_canonicalAgendaUpdateDev_(idAtividade, canonicalUpdates, {
+      ambiente: 'DEV', dryRun: false, confirmacao: ATIVIDADES_V2_CANONICAL_CRUD_CONFIRMATION
+    });
+  }
+  atividadesV2_canonicalAgendaAssertLegacySheetFieldsWriteAllowed_(sheet, legacyUpdates);
+  Object.keys(legacyUpdates).forEach(function(header) {
     var col = headerMap[header];
     if (!col) return;
-    atividadesV2_writeCellIfChanged_(sheet, rowNumber, col, updates[header]);
+    atividadesV2_writeCellIfChanged_(sheet, rowNumber, col, legacyUpdates[header]);
   });
+  return { ok: true, canonicalWrite: canonicalResult, legacyFieldsWritten: Object.keys(legacyUpdates) };
 }
 
 function atividadesV2_rowToObject_(headers, row, rowNumber) {

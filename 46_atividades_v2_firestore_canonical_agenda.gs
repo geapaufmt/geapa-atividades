@@ -13,10 +13,14 @@ var ATIVIDADES_V2_CANONICAL_PRIVATE_SCHEMA_VERSION = 'activity-private-v1';
 var ATIVIDADES_V2_CANONICAL_MODE_PROPERTY = 'ATIVIDADES_V2_AGENDA_CANONICAL_MODE';
 var ATIVIDADES_V2_CANONICAL_REMOTE_WRITE_PROPERTY = 'ATIVIDADES_V2_FIRESTORE_DEV_REMOTE_WRITES_AUTHORIZED';
 var ATIVIDADES_V2_CANONICAL_ROLLBACK_PROPERTY = 'ATIVIDADES_V2_FIRESTORE_DEV_ROLLBACK_AUTHORIZED';
+var ATIVIDADES_V2_CANONICAL_CRUD_WRITE_PROPERTY = 'ATIVIDADES_V2_FIRESTORE_DEV_CANONICAL_WRITES_AUTHORIZED';
+var ATIVIDADES_V2_CANONICAL_EXPORT_WRITE_PROPERTY = 'ATIVIDADES_V2_FIRESTORE_DEV_EXPORT_AUTHORIZED';
 var ATIVIDADES_V2_CANONICAL_REMOTE_CONFIRMATION = 'AUTORIZO_WRITE_FIRESTORE_DEV_ATIVIDADES_AGENDA';
 var ATIVIDADES_V2_CANONICAL_ROLLBACK_CONFIRMATION = 'AUTORIZO_ROLLBACK_FIRESTORE_DEV_ATIVIDADES_AGENDA';
+var ATIVIDADES_V2_CANONICAL_CRUD_CONFIRMATION = 'AUTORIZO_WRITE_FIRESTORE_DEV_ATIVIDADES_AGENDA_CRUD';
 var ATIVIDADES_V2_CANONICAL_EXPORT_CONFIRMATION = 'AUTORIZO_EXPORT_FIRESTORE_DEV_PARA_SHEETS';
 var ATIVIDADES_V2_CANONICAL_EXPORT_SHEET = 'EXPORT_ATIVIDADES_FIRESTORE';
+var ATIVIDADES_V2_CANONICAL_EXPORT_METADATA_PROPERTY = 'ATIVIDADES_V2_FIRESTORE_DEV_LAST_EXPORT_METADATA';
 var ATIVIDADES_V2_CANONICAL_MIGRATED_HEADERS = Object.freeze([
   'ID_ATIVIDADE', 'CICLO', 'ANO', 'SEMESTRE', 'NUMERO_SEQUENCIAL_NO_CICLO',
   'CLASSIFICACAO_REUNIAO', 'TIPO_ATIVIDADE', 'SUBTIPO_ATIVIDADE', 'CLASSIFICACAO_ACESSO',
@@ -33,6 +37,24 @@ var ATIVIDADES_V2_CANONICAL_MIGRATED_HEADERS = Object.freeze([
   'VERSAO_CONFIG_MODELO', 'TEM_EXCECAO_CONFIG', 'STATUS_EXCECAO_CONFIG',
   'JUSTIFICATIVA_EXCECAO_CONFIG'
 ]);
+var ATIVIDADES_V2_CANONICAL_PUBLIC_HEADERS = Object.freeze([
+  'ID_ATIVIDADE', 'CICLO', 'ANO', 'SEMESTRE', 'NUMERO_SEQUENCIAL_NO_CICLO',
+  'CLASSIFICACAO_REUNIAO', 'TIPO_ATIVIDADE', 'SUBTIPO_ATIVIDADE', 'CLASSIFICACAO_ACESSO',
+  'TITULO_PUBLICO', 'DESCRICAO_PUBLICA', 'EIXO_TEMATICO_PRINCIPAL', 'EIXO_TEMATICO_SECUNDARIO',
+  'NOME_PESSOA_PRINCIPAL_PUBLICO', 'TIPO_PESSOA_PRINCIPAL', 'PAPEL_PESSOA_PRINCIPAL',
+  'INSTITUICAO_PESSOA_PRINCIPAL', 'DATA_ATIVIDADE', 'HORARIO_INICIO', 'HORARIO_FIM',
+  'LOCAL', 'FORMATO', 'PUBLICO_ALVO', 'OBRIGATORIA', 'CARGA_HORARIA', 'STATUS_OPERACIONAL',
+  'STATUS_PUBLICACAO_PORTAL', 'VISIBILIDADE_PORTAL', 'DATA_LIBERACAO_PORTAL',
+  'DATA_REALIZACAO', 'ORIGEM_FLUXO', 'ATIVO', 'ID_CONFIG_MODELO',
+  'NOME_MODELO_PORTAL_SNAPSHOT', 'VERSAO_CONFIG_MODELO'
+]);
+var ATIVIDADES_V2_CANONICAL_PRIVATE_HEADERS = Object.freeze([
+  'TITULO', 'DESCRICAO', 'ID_PESSOA_PRINCIPAL', 'RGA_PESSOA_PRINCIPAL',
+  'EMAIL_PESSOA_PRINCIPAL', 'RESPONSAVEL_INTERNO', 'RESPONSAVEL_EMAIL',
+  'CRIADO_POR', 'CRIADO_EM', 'ATUALIZADO_POR', 'ATUALIZADO_EM',
+  'BLOQUEADO_PARA_EDICAO', 'OBSERVACOES', 'TEM_EXCECAO_CONFIG',
+  'STATUS_EXCECAO_CONFIG', 'JUSTIFICATIVA_EXCECAO_CONFIG'
+]);
 
 function atividadesV2_canonicalAgendaMode_() {
   var mode = String(PropertiesService.getScriptProperties().getProperty(
@@ -42,6 +64,11 @@ function atividadesV2_canonicalAgendaMode_() {
     throw new Error('ATIVIDADES_V2_AGENDA_CANONICAL_MODE invalido.');
   }
   return mode;
+}
+
+function atividadesV2_canonicalAgendaIsActiveDev_() {
+  return atividadesV2_resolveEnvironment_({}) === 'DEV' &&
+    atividadesV2_canonicalAgendaMode_() === 'FIRESTORE_CANONICAL';
 }
 
 /** Impede dois destinos canonicos quando o corte DEV for ativado. */
@@ -60,6 +87,20 @@ function atividadesV2_canonicalAgendaAssertLegacySheetFieldsWriteAllowed_(sheet,
   });
   if (changed.length) atividadesV2_canonicalAgendaAssertLegacySheetWriteAllowed_();
   return true;
+}
+
+function atividadesV2_canonicalAgendaShouldIgnoreLegacyOnEdit_(event) {
+  if (!atividadesV2_canonicalAgendaIsActiveDev_() || !event || !event.range) return false;
+  var sheet = event.range.getSheet();
+  if (String(sheet && sheet.getName && sheet.getName() || '') !== ATIVIDADES_V2_SHEETS.ATIVIDADES) return false;
+  var firstColumn = Number(event.range.getColumn() || 0);
+  var totalColumns = Number(event.range.getNumColumns && event.range.getNumColumns() || 1);
+  var headers = sheet.getRange(1, firstColumn, 1, totalColumns).getValues()[0].map(function(header) {
+    return String(header || '').trim();
+  });
+  return headers.some(function(header) {
+    return ATIVIDADES_V2_CANONICAL_MIGRATED_HEADERS.indexOf(header) >= 0;
+  });
 }
 
 function atividadesV2_canonicalAgendaRequireCoreMethod_(name) {
@@ -129,6 +170,42 @@ function atividadesV2_canonicalAgendaAssertRollbackAuthorized_(options) {
   if (!authorized || String(opts.confirmacao || '') !== ATIVIDADES_V2_CANONICAL_ROLLBACK_CONFIRMATION) {
     throw new Error('ROLLBACK_FIRESTORE_DEV_NAO_AUTORIZADO: habilitacao e confirmacao explicitas sao obrigatorias.');
   }
+}
+
+function atividadesV2_canonicalAgendaAssertExportAuthorized_(options) {
+  var opts = atividadesV2_canonicalAgendaDevOptions_(options);
+  atividadesV2_canonicalAgendaContext_(opts);
+  var authorized = atividades_normalizeTextUpper_(
+    PropertiesService.getScriptProperties().getProperty(ATIVIDADES_V2_CANONICAL_EXPORT_WRITE_PROPERTY)
+  ) === 'SIM';
+  if (!authorized || String(opts.confirmacao || '') !== ATIVIDADES_V2_CANONICAL_EXPORT_CONFIRMATION) {
+    throw new Error('EXPORT_FIRESTORE_DEV_NAO_AUTORIZADO.');
+  }
+  return opts;
+}
+
+function atividadesV2_canonicalAgendaAssertCrudWriteAuthorized_(options) {
+  var opts = atividadesV2_canonicalAgendaDevOptions_(options);
+  atividadesV2_canonicalAgendaContext_(opts);
+  if (atividadesV2_canonicalAgendaMode_() !== 'FIRESTORE_CANONICAL') {
+    throw new Error('FIRESTORE_CANONICAL_NAO_ATIVADO.');
+  }
+  var authorized = atividades_normalizeTextUpper_(
+    PropertiesService.getScriptProperties().getProperty(ATIVIDADES_V2_CANONICAL_CRUD_WRITE_PROPERTY)
+  ) === 'SIM';
+  if (!authorized || String(opts.confirmacao || '') !== ATIVIDADES_V2_CANONICAL_CRUD_CONFIRMATION) {
+    throw new Error('CRUD_FIRESTORE_DEV_NAO_AUTORIZADO: habilitacao operacional e confirmacao interna sao obrigatorias.');
+  }
+  return opts;
+}
+
+function atividadesV2_canonicalAgendaAssertCrudMode_(options) {
+  var opts = atividadesV2_canonicalAgendaDevOptions_(options);
+  atividadesV2_canonicalAgendaContext_(opts);
+  if (atividadesV2_canonicalAgendaMode_() !== 'FIRESTORE_CANONICAL') {
+    throw new Error('FIRESTORE_CANONICAL_NAO_ATIVADO.');
+  }
+  return opts;
 }
 
 /** Confere o guard operacional sem registrar status ou escrever em Sheets. */
@@ -212,6 +289,8 @@ function atividadesV2_canonicalAgendaBuildDocuments_(row, now) {
     canonicalUpdatedAt: updatedAt.toISOString(),
     schemaVersion: ATIVIDADES_V2_CANONICAL_SCHEMA_VERSION
   };
+  var creationRequestId = atividadesV2_canonicalAgendaText_(source.CANONICAL_REQUEST_ID, 120);
+  if (creationRequestId) publicDocument.creationRequestId = creationRequestId;
   publicDocument.sourceHash = atividadesV2_firestoreBuildSourceHash_(publicDocument, ['canonicalUpdatedAt', 'sourceHash']);
 
   var privateDocument = {
@@ -413,6 +492,231 @@ function atividadesV2_canonicalAgendaUpsertDev_(row, options) {
     idAtividade: documents.idAtividade,
     sheetsWritten: false,
     canonicalSource: 'FIRESTORE'
+  });
+}
+
+function atividadesV2_canonicalAgendaGetPairDev_(idAtividade, options) {
+  var opts = atividadesV2_canonicalAgendaDevOptions_(options);
+  atividadesV2_canonicalAgendaContext_(opts);
+  var id = atividadesV2_canonicalAgendaActivityId_(idAtividade);
+  var getDocument = atividadesV2_canonicalAgendaRequireCoreMethod_('coreFirestoreEnvironmentGetDocument');
+  var publicResult = getDocument(ATIVIDADES_V2_CANONICAL_COLLECTION + '/' + id, { ambiente: 'DEV' });
+  if (!publicResult || publicResult.ok !== true) {
+    throw new Error('FIRESTORE_GET_ATIVIDADE_FALHOU: ' + String(publicResult && publicResult.code || 'SEM_CODIGO'));
+  }
+  if (publicResult.found !== true) {
+    return Object.freeze({
+      ok: true,
+      found: false,
+      environment: 'DEV',
+      idAtividade: id,
+      readsEstimated: 1,
+      canonicalSource: 'FIRESTORE'
+    });
+  }
+  var privateResult = getDocument(ATIVIDADES_V2_CANONICAL_PRIVATE_COLLECTION + '/' + id, { ambiente: 'DEV' });
+  if (!privateResult || privateResult.ok !== true) {
+    throw new Error('FIRESTORE_GET_ATIVIDADE_PRIVADA_FALHOU: ' + String(privateResult && privateResult.code || 'SEM_CODIGO'));
+  }
+  if (privateResult.found !== true && opts.requirePrivate !== false) {
+    throw new Error('ACTIVITY_PRIVATE_AUSENTE: integridade do par canonico comprometida.');
+  }
+  return Object.freeze({
+    ok: true,
+    found: true,
+    environment: 'DEV',
+    idAtividade: id,
+    publicDocument: publicResult.data || Object.freeze({}),
+    privateDocument: privateResult.found === true ? privateResult.data || Object.freeze({}) : null,
+    readsEstimated: 2,
+    canonicalSource: 'FIRESTORE'
+  });
+}
+
+function atividadesV2_canonicalAgendaMergeDocumentsIntoRow_(publicData, privateData, legacyRow) {
+  var merged = Object.assign({}, legacyRow || {});
+  var canonical = atividadesV2_canonicalAgendaExportRow_(publicData || {}, privateData || {});
+  ATIVIDADES_V2_CANONICAL_PUBLIC_HEADERS.forEach(function(header) {
+    merged[header] = canonical[header];
+  });
+  if (privateData) {
+    ATIVIDADES_V2_CANONICAL_PRIVATE_HEADERS.forEach(function(header) {
+      merged[header] = canonical[header];
+    });
+  }
+  merged._canonicalSource = 'FIRESTORE';
+  merged.CANONICAL_REQUEST_ID = String(publicData && publicData.creationRequestId || '');
+  merged._publicSourceHash = String(publicData && publicData.sourceHash || '');
+  merged._privateSourceHash = String(privateData && privateData.sourceHash || '');
+  return merged;
+}
+
+function atividadesV2_canonicalAgendaListRowsDev_(options) {
+  var opts = atividadesV2_canonicalAgendaDevOptions_(options);
+  atividadesV2_canonicalAgendaContext_(opts);
+  var documents = atividadesV2_canonicalAgendaListAll_(ATIVIDADES_V2_CANONICAL_COLLECTION, 'DEV');
+  return Object.freeze({
+    ok: true,
+    environment: 'DEV',
+    canonicalSource: 'FIRESTORE',
+    total: documents.length,
+    readsEstimated: documents.length,
+    rows: Object.freeze(documents.map(function(item) {
+      return Object.freeze(atividadesV2_canonicalAgendaMergeDocumentsIntoRow_(item.data || {}, null, null));
+    }))
+  });
+}
+
+function atividadesV2_canonicalAgendaBatchWritePair_(documents, options) {
+  var opts = atividadesV2_canonicalAgendaAssertCrudMode_(options);
+  var items = atividadesV2_canonicalAgendaWriteItems_(documents);
+  if (opts.dryRun !== false) {
+    return Object.freeze({
+      ok: true,
+      dryRun: true,
+      environment: 'DEV',
+      written: 0,
+      idAtividade: documents.idAtividade,
+      items: items,
+      sheetsWritten: false
+    });
+  }
+  opts = atividadesV2_canonicalAgendaAssertCrudWriteAuthorized_(opts);
+  var batchSet = atividadesV2_canonicalAgendaRequireCoreMethod_('coreFirestoreEnvironmentBatchSetDocuments');
+  var result = batchSet(items, { ambiente: 'DEV', dryRun: false, merge: false });
+  if (!result || result.ok !== true || Number(result.written || 0) !== 2) {
+    throw new Error('CRUD_FIRESTORE_DEV_FALHOU: ' + String(result && result.code || 'SEM_CODIGO'));
+  }
+  return Object.freeze({
+    ok: true,
+    dryRun: false,
+    environment: 'DEV',
+    written: 2,
+    idAtividade: documents.idAtividade,
+    publicSourceHash: documents.publicDocument.sourceHash,
+    privateSourceHash: documents.privateDocument.sourceHash,
+    sheetsWritten: false,
+    canonicalSource: 'FIRESTORE'
+  });
+}
+
+function atividadesV2_canonicalAgendaCreateDev_(row, options) {
+  var opts = atividadesV2_canonicalAgendaAssertCrudMode_(options);
+  var documents = atividadesV2_canonicalAgendaBuildDocuments_(row || {}, new Date());
+  var requestId = String(documents.publicDocument.creationRequestId || '').trim();
+  if (requestId) {
+    var replay = atividadesV2_canonicalAgendaListAll_(ATIVIDADES_V2_CANONICAL_COLLECTION, 'DEV').filter(function(item) {
+      return String(item && item.data && item.data.creationRequestId || '') === requestId;
+    })[0];
+    if (replay) {
+      var replayPair = atividadesV2_canonicalAgendaGetPairDev_(replay.id, { ambiente: 'DEV' });
+      return Object.freeze({
+        ok: true,
+        dryRun: opts.dryRun !== false,
+        environment: 'DEV',
+        written: 0,
+        idAtividade: replayPair.idAtividade,
+        operation: 'CREATE',
+        idempotentReplay: true,
+        sheetsWritten: false,
+        canonicalSource: 'FIRESTORE',
+        row: Object.freeze(atividadesV2_canonicalAgendaMergeDocumentsIntoRow_(
+          replayPair.publicDocument,
+          replayPair.privateDocument,
+          null
+        ))
+      });
+    }
+  }
+  var existing = atividadesV2_canonicalAgendaGetPairDev_(documents.idAtividade, {
+    ambiente: 'DEV',
+    requirePrivate: false
+  });
+  if (existing.found) throw new Error('ATIVIDADE_CANONICA_JA_EXISTE.');
+  var getDocument = atividadesV2_canonicalAgendaRequireCoreMethod_('coreFirestoreEnvironmentGetDocument');
+  var orphanPrivate = getDocument(
+    ATIVIDADES_V2_CANONICAL_PRIVATE_COLLECTION + '/' + documents.idAtividade,
+    { ambiente: 'DEV' }
+  );
+  if (!orphanPrivate || orphanPrivate.ok !== true) {
+    throw new Error('FIRESTORE_GET_ATIVIDADE_PRIVADA_FALHOU: ' + String(orphanPrivate && orphanPrivate.code || 'SEM_CODIGO'));
+  }
+  if (orphanPrivate.found === true) throw new Error('ACTIVITY_PRIVATE_ORFA_EXISTENTE.');
+  var result = atividadesV2_canonicalAgendaBatchWritePair_(documents, opts);
+  return Object.freeze(Object.assign({}, result, {
+    operation: 'CREATE',
+    row: Object.freeze(atividadesV2_canonicalAgendaMergeDocumentsIntoRow_(
+      documents.publicDocument,
+      documents.privateDocument,
+      null
+    ))
+  }));
+}
+
+function atividadesV2_canonicalAgendaUpdateDev_(idAtividade, updates, options) {
+  var opts = atividadesV2_canonicalAgendaAssertCrudMode_(options);
+  var current = atividadesV2_canonicalAgendaGetPairDev_(idAtividade, { ambiente: 'DEV' });
+  if (!current.found) throw new Error('ATIVIDADE_CANONICA_NAO_ENCONTRADA.');
+  var row = atividadesV2_canonicalAgendaMergeDocumentsIntoRow_(
+    current.publicDocument,
+    current.privateDocument,
+    null
+  );
+  var changedHeaders = [];
+  Object.keys(updates || {}).forEach(function(header) {
+    var normalized = String(header || '').trim().toUpperCase();
+    if (ATIVIDADES_V2_CANONICAL_MIGRATED_HEADERS.indexOf(normalized) < 0) return;
+    if (normalized === 'ID_ATIVIDADE' && String(updates[header] || '').trim().toUpperCase() !== current.idAtividade) {
+      throw new Error('ID_ATIVIDADE_IMUTAVEL.');
+    }
+    row[normalized] = updates[header];
+    changedHeaders.push(normalized);
+  });
+  if (!changedHeaders.length) throw new Error('NENHUM_CAMPO_CANONICO_PARA_ATUALIZAR.');
+  row.ID_ATIVIDADE = current.idAtividade;
+  var documents = atividadesV2_canonicalAgendaBuildDocuments_(row, new Date());
+  var result = atividadesV2_canonicalAgendaBatchWritePair_(documents, opts);
+  return Object.freeze(Object.assign({}, result, {
+    operation: 'UPDATE',
+    changedHeaders: Object.freeze(changedHeaders.sort()),
+    row: Object.freeze(atividadesV2_canonicalAgendaMergeDocumentsIntoRow_(
+      documents.publicDocument,
+      documents.privateDocument,
+      null
+    ))
+  }));
+}
+
+function atividadesV2_canonicalAgendaChangeStatusDev_(action, payload, options) {
+  if (typeof atividadesV2_adminBuildStatusUpdates_ !== 'function') {
+    throw new Error('CONTRATO_REGRAS_STATUS_INDISPONIVEL.');
+  }
+  var id = atividadesV2_canonicalAgendaActivityId_(payload && (payload.idAtividade || payload.ID_ATIVIDADE));
+  var current = atividadesV2_canonicalAgendaGetPairDev_(id, { ambiente: 'DEV' });
+  if (!current.found) throw new Error('ATIVIDADE_CANONICA_NAO_ENCONTRADA.');
+  var row = atividadesV2_canonicalAgendaMergeDocumentsIntoRow_(current.publicDocument, current.privateDocument, null);
+  var statusUpdate = atividadesV2_adminBuildStatusUpdates_(action, payload || {}, row);
+  if (!statusUpdate || statusUpdate.ok !== true) return statusUpdate;
+  return atividadesV2_canonicalAgendaUpdateDev_(id, statusUpdate.data, options);
+}
+
+function atividadesV2_canonicalAgendaCancelDev_(payload, options) {
+  return atividadesV2_canonicalAgendaChangeStatusDev_('CANCELAR', payload || {}, options);
+}
+
+/** A regra atual preserva historico: exclusao fisica nao faz parte do CRUD operacional. */
+function atividadesV2_canonicalAgendaDeleteDev_(idAtividade, options) {
+  atividadesV2_canonicalAgendaDevOptions_(options);
+  atividadesV2_canonicalAgendaContext_({ ambiente: 'DEV' });
+  return Object.freeze({
+    ok: false,
+    environment: 'DEV',
+    idAtividade: atividadesV2_canonicalAgendaActivityId_(idAtividade),
+    code: 'EXCLUSAO_FISICA_NAO_SUPORTADA',
+    message: 'Use cancelamento. Exclusao fisica fica restrita ao rollback controlado do piloto.',
+    supportedAction: 'CANCELAR',
+    written: 0,
+    sheetsWritten: false
   });
 }
 
@@ -632,23 +936,147 @@ function atividadesV2_canonicalAgendaExportRow_(publicData, privateData) {
   return row;
 }
 
+function atividadesV2_canonicalAgendaBuildExportRows_(publicDocs, privateDocs) {
+  var privateById = {};
+  var publicById = {};
+  (privateDocs || []).forEach(function(item) { privateById[String(item.id || '')] = item.data || {}; });
+  (publicDocs || []).forEach(function(item) { publicById[String(item.id || '')] = true; });
+  var missingPrivate = [];
+  var unexpectedPrivate = Object.keys(privateById).filter(function(id) { return !publicById[id]; }).sort();
+  var rows = (publicDocs || []).map(function(item) {
+    var id = String(item.id || '');
+    if (!privateById[id]) missingPrivate.push(ATIVIDADES_V2_CANONICAL_PRIVATE_COLLECTION + '/' + id);
+    return atividadesV2_canonicalAgendaExportRow_(item.data || {}, privateById[id] || {});
+  }).sort(function(a, b) { return String(a.ID_ATIVIDADE).localeCompare(String(b.ID_ATIVIDADE)); });
+  return Object.freeze({
+    ok: !missingPrivate.length && !unexpectedPrivate.length,
+    rows: Object.freeze(rows),
+    missingPrivatePaths: Object.freeze(missingPrivate.sort()),
+    unexpectedPrivatePaths: Object.freeze(unexpectedPrivate.map(function(id) {
+      return ATIVIDADES_V2_CANONICAL_PRIVATE_COLLECTION + '/' + id;
+    }))
+  });
+}
+
+function atividadesV2_canonicalAgendaComparableExportValue_(header, value) {
+  if (value === null || value === undefined) return '';
+  if (Object.prototype.toString.call(value) === '[object Date]' && !isNaN(value)) {
+    if (['DATA_ATIVIDADE', 'DATA_LIBERACAO_PORTAL', 'DATA_REALIZACAO'].indexOf(header) >= 0) {
+      return Utilities.formatDate(value, Session.getScriptTimeZone(), 'yyyy-MM-dd');
+    }
+    return value.toISOString();
+  }
+  if (typeof value === 'boolean') return value ? 'SIM' : 'NAO';
+  if (typeof value === 'number') return isFinite(value) ? String(value) : '';
+  var text = String(value || '').trim();
+  if (['DATA_ATIVIDADE', 'DATA_LIBERACAO_PORTAL', 'DATA_REALIZACAO'].indexOf(header) >= 0 && text) {
+    return text.slice(0, 10);
+  }
+  return text;
+}
+
+function atividadesV2_canonicalAgendaBuildExportDivergenceReport_(canonicalRows, sheetRows, metadata) {
+  var expectedById = {};
+  var actualById = {};
+  var duplicatePaths = [];
+  (canonicalRows || []).forEach(function(row) {
+    var id = String(row && row.ID_ATIVIDADE || '').trim();
+    if (id) expectedById[id] = row;
+  });
+  (sheetRows || []).forEach(function(row) {
+    var id = String(row && row.ID_ATIVIDADE || '').trim();
+    if (!id) return;
+    if (actualById[id]) duplicatePaths.push(ATIVIDADES_V2_CANONICAL_EXPORT_SHEET + '/' + id);
+    else actualById[id] = row;
+  });
+  var missingIds = Object.keys(expectedById).filter(function(id) { return !actualById[id]; }).sort();
+  var extraIds = Object.keys(actualById).filter(function(id) { return !expectedById[id]; }).sort();
+  var divergentRecords = [];
+  Object.keys(expectedById).sort().forEach(function(id) {
+    if (!actualById[id]) return;
+    var fields = [];
+    ATIVIDADES_V2_CANONICAL_MIGRATED_HEADERS.forEach(function(header) {
+      var expected = atividadesV2_canonicalAgendaComparableExportValue_(header, expectedById[id][header]);
+      var actual = atividadesV2_canonicalAgendaComparableExportValue_(header, actualById[id][header]);
+      if (expected !== actual) fields.push(Object.freeze({ field: header, expected: expected, actual: actual }));
+    });
+    if (fields.length) divergentRecords.push(Object.freeze({ idAtividade: id, fields: Object.freeze(fields) }));
+  });
+  var lastExport = metadata || null;
+  return Object.freeze({
+    ok: !missingIds.length && !extraIds.length && !duplicatePaths.length && !divergentRecords.length,
+    environment: 'DEV',
+    readOnly: true,
+    canonicalSource: 'FIRESTORE',
+    comparisonTarget: ATIVIDADES_V2_CANONICAL_EXPORT_SHEET,
+    canonicalCount: Object.keys(expectedById).length,
+    exportCount: Object.keys(actualById).length,
+    missingIds: Object.freeze(missingIds),
+    extraIds: Object.freeze(extraIds),
+    duplicatePaths: Object.freeze(duplicatePaths.sort()),
+    divergentRecords: Object.freeze(divergentRecords),
+    lastExport: lastExport,
+    resolution: 'FIRESTORE_WINS'
+  });
+}
+
+function atividadesV2_canonicalAgendaReadExportMetadata_() {
+  var raw = PropertiesService.getScriptProperties().getProperty(ATIVIDADES_V2_CANONICAL_EXPORT_METADATA_PROPERTY);
+  if (!raw) return null;
+  try {
+    var parsed = JSON.parse(raw);
+    return Object.freeze({
+      exportedAt: String(parsed.exportedAt || ''),
+      totalActivities: Number(parsed.totalActivities || 0),
+      schemaVersion: String(parsed.schemaVersion || ''),
+      strategy: String(parsed.strategy || '')
+    });
+  } catch (err) {
+    return Object.freeze({ invalid: true });
+  }
+}
+
+function atividadesV2_canonicalAgendaDiagnoseExportDev_(options) {
+  var opts = atividadesV2_canonicalAgendaDevOptions_(options);
+  var context = atividadesV2_canonicalAgendaContext_(opts);
+  var publicDocs = atividadesV2_canonicalAgendaListAll_(ATIVIDADES_V2_CANONICAL_COLLECTION, context.environment);
+  var privateDocs = atividadesV2_canonicalAgendaListAll_(ATIVIDADES_V2_CANONICAL_PRIVATE_COLLECTION, context.environment);
+  var exportData = atividadesV2_canonicalAgendaBuildExportRows_(publicDocs, privateDocs);
+  var spreadsheet = atividadesV2_getDatabaseSpreadsheet_({ ambiente: context.environment });
+  var sheet = spreadsheet.getSheetByName(ATIVIDADES_V2_CANONICAL_EXPORT_SHEET);
+  var sheetRows = sheet ? atividadesV2_readSheetObjects_(sheet) : [];
+  var report = atividadesV2_canonicalAgendaBuildExportDivergenceReport_(
+    exportData.rows,
+    sheetRows,
+    atividadesV2_canonicalAgendaReadExportMetadata_()
+  );
+  return Object.freeze(Object.assign({}, report, {
+    ok: report.ok && exportData.ok,
+    firestoreReadsEstimated: publicDocs.length + privateDocs.length,
+    missingPrivatePaths: exportData.missingPrivatePaths,
+    unexpectedPrivatePaths: exportData.unexpectedPrivatePaths,
+    exportSheetExists: !!sheet
+  }));
+}
+
 function atividadesV2_canonicalAgendaExportToSheetsDev_(options) {
   var opts = atividadesV2_canonicalAgendaDevOptions_(options);
   var context = atividadesV2_canonicalAgendaContext_(opts);
   var publicDocs = atividadesV2_canonicalAgendaListAll_(ATIVIDADES_V2_CANONICAL_COLLECTION, context.environment);
   var privateDocs = atividadesV2_canonicalAgendaListAll_(ATIVIDADES_V2_CANONICAL_PRIVATE_COLLECTION, context.environment);
-  var privateById = {};
-  privateDocs.forEach(function(item) { privateById[String(item.id || '')] = item.data || {}; });
-  var rows = publicDocs.map(function(item) {
-    return atividadesV2_canonicalAgendaExportRow_(item.data || {}, privateById[String(item.id || '')] || {});
-  }).sort(function(a, b) { return String(a.ID_ATIVIDADE).localeCompare(String(b.ID_ATIVIDADE)); });
+  var exportData = atividadesV2_canonicalAgendaBuildExportRows_(publicDocs, privateDocs);
+  var rows = exportData.rows;
+  if (!exportData.ok) {
+    throw new Error('EXPORT_FIRESTORE_PAR_CANONICO_INVALIDO: corrija documents ausentes antes de exportar.');
+  }
   if (opts.dryRun !== false) {
     return Object.freeze({
       ok: true, dryRun: true, environment: 'DEV', totalActivities: rows.length,
-      targetSheet: ATIVIDADES_V2_CANONICAL_EXPORT_SHEET, sheetsWritten: false
+      targetSheet: ATIVIDADES_V2_CANONICAL_EXPORT_SHEET, sheetsWritten: false,
+      strategy: 'FULL_REGENERATION', firestoreReadsEstimated: publicDocs.length + privateDocs.length
     });
   }
-  atividadesV2_canonicalAgendaAssertRemoteWriteAuthorized_(opts, ATIVIDADES_V2_CANONICAL_EXPORT_CONFIRMATION);
+  atividadesV2_canonicalAgendaAssertExportAuthorized_(opts);
   var lock = LockService.getScriptLock();
   if (!lock.tryLock(30000)) throw new Error('LOCK_INDISPONIVEL_EXPORT_FIRESTORE.');
   try {
@@ -661,10 +1089,20 @@ function atividadesV2_canonicalAgendaExportToSheetsDev_(options) {
     }));
     sheet.clearContents();
     sheet.getRange(1, 1, values.length, headers.length).setValues(values);
+    var metadata = Object.freeze({
+      exportedAt: new Date().toISOString(),
+      totalActivities: rows.length,
+      schemaVersion: ATIVIDADES_V2_CANONICAL_SCHEMA_VERSION,
+      strategy: 'FULL_REGENERATION'
+    });
+    PropertiesService.getScriptProperties().setProperty(
+      ATIVIDADES_V2_CANONICAL_EXPORT_METADATA_PROPERTY,
+      JSON.stringify(metadata)
+    );
     return Object.freeze({
       ok: true, dryRun: false, environment: 'DEV', totalActivities: rows.length,
       targetSheet: ATIVIDADES_V2_CANONICAL_EXPORT_SHEET, sheetsWritten: true,
-      canonicalSource: 'FIRESTORE'
+      canonicalSource: 'FIRESTORE', strategy: 'FULL_REGENERATION', metadata: metadata
     });
   } finally {
     lock.releaseLock();

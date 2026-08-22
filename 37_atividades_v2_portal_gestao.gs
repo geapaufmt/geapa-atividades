@@ -58,10 +58,25 @@ function atividadesV2_portalCriarAtividade_(payload, contexto) {
     var ss = atividadesV2_getDatabaseSpreadsheet_();
     var existingRequest = atividadesV2_portalWriteFindRequest_(ss, portalAction);
     if (existingRequest) return atividadesV2_portalWriteReplayResponse_(existingRequest);
-    atividadesV2_portalWriteStage_(trace, 'ESCRITA_PLANILHA_OFICIAL', function() {
+    atividadesV2_portalWriteStage_(trace, atividadesV2_canonicalAgendaIsActiveDev_()
+      ? 'ESCRITA_FIRESTORE_CANONICA'
+      : 'ESCRITA_PLANILHA_OFICIAL', function() {
+      creation = atividadesV2_montarCriacaoAtividadePreview_(validation.data, ctx, ss);
+      if (atividadesV2_canonicalAgendaIsActiveDev_()) {
+        creation.row.CANONICAL_REQUEST_ID = atividadesV2_portalWriteRequestId_(request);
+        creation.canonicalWrite = atividadesV2_canonicalAgendaCreateDev_(creation.row, {
+          ambiente: 'DEV',
+          dryRun: false,
+          confirmacao: ATIVIDADES_V2_CANONICAL_CRUD_CONFIRMATION
+        });
+        if (creation.canonicalWrite.idempotentReplay) {
+          creation.idAtividade = creation.canonicalWrite.idAtividade;
+          creation.row.ID_ATIVIDADE = creation.canonicalWrite.idAtividade;
+        }
+        return;
+      }
       var atividadesSheet = atividadesV2_getTargetSheet_(ss, ATIVIDADES_V2_SHEETS.ATIVIDADES);
       atividadesV2_applyHeadersIfMissing_(atividadesSheet, ATIVIDADES_V2_SCHEMA.ATIVIDADES);
-      creation = atividadesV2_montarCriacaoAtividadePreview_(validation.data, ctx, ss);
       atividadesV2_appendAtividadeV2Row_(atividadesSheet, creation.row);
     });
     trace.idAtividade = creation.idAtividade;
@@ -290,7 +305,20 @@ function atividadesV2_buildNextActivityIdentityForCreate_(dataAtividade, ss) {
   var maxSeq = 0;
   var existingIds = {};
 
-  if (ss) {
+  if (atividadesV2_canonicalAgendaIsActiveDev_()) {
+    atividadesV2_canonicalAgendaListAll_(ATIVIDADES_V2_CANONICAL_COLLECTION, 'DEV').forEach(function(item) {
+      var data = item && item.data || {};
+      var id = String(item && item.id || data.idAtividade || '').trim().toUpperCase();
+      if (id) existingIds[id] = true;
+      var idMatch = id.match(/^ATV-(\d{4})-([12])-(\d{4})$/);
+      if (idMatch && idMatch[1] === ano && idMatch[2] === semestre) {
+        maxSeq = Math.max(maxSeq, Number(idMatch[3]) || 0);
+      }
+      if (String(data.ano || '').trim() === ano && String(data.semestre || '').trim() === semestre) {
+        maxSeq = Math.max(maxSeq, Number(data.numeroSequencialNoCiclo) || 0);
+      }
+    });
+  } else if (ss) {
     var sheet = atividadesV2_getTargetSheet_(ss, ATIVIDADES_V2_SHEETS.ATIVIDADES);
     atividadesV2_readSheetObjects_(sheet).forEach(function(record) {
       var id = String(record.ID_ATIVIDADE || '').trim().toUpperCase();

@@ -24,6 +24,14 @@ function atividades_jobPlanejamentoNormativo_() {
 
 function onEditAtividades(e) {
   return atividades_runWithOperationalGuard_('GERAL', null, function() {
+    if (atividadesV2_canonicalAgendaShouldIgnoreLegacyOnEdit_(e)) {
+      return {
+        ok: true,
+        skipped: true,
+        code: 'EDICAO_LEGADA_CAMPO_CANONICO_IGNORADA',
+        canonicalSource: 'FIRESTORE'
+      };
+    }
     atividades_onEditConfigInheritance_(e);
     atividades_onEditPeriodoSync_(e);
     atividades_onEditConfirmacaoConvidados_(e);

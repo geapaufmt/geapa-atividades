@@ -70,6 +70,10 @@ function atividades_applyCargaHorariaForRow_(rowNumber) {
     };
   }
 
+  atividadesV2_canonicalAgendaAssertLegacySheetFieldsWriteAllowed_(ctx.sheet, {
+    CARGA_HORARIA: cargaHoraria,
+    ATUALIZADO_EM: new Date()
+  });
   GEAPA_CORE.coreWriteCellByHeader(ctx.sheet, targetRow, headerMap, 'CARGA_HORARIA', cargaHoraria, {
     oneBased: true
   });

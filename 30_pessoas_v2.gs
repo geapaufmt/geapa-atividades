@@ -828,6 +828,9 @@ function atividadesV2_processarIdPessoaSheet_(sheet, target, options) {
   });
 
   if (!opts.dryRun && report.atualizados > 0) {
+    var pessoaUpdate = {};
+    pessoaUpdate[target.idHeader] = true;
+    atividadesV2_canonicalAgendaAssertLegacySheetFieldsWriteAllowed_(sheet, pessoaUpdate);
     sheet.getRange(2, idCol, idValues.length, 1).setValues(idValues);
   }
 

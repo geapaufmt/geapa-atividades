@@ -495,6 +495,7 @@ function atividadesV2_migrarApresentacoesParaAtividadesDevSemLock_(opts) {
 
   if (!dryRun) {
     if (report.totalAtividadesAtualizadas > 0 && atividadeValues.length) {
+      atividadesV2_canonicalAgendaAssertLegacySheetWriteAllowed_();
       atividadesSheet.getRange(2, 1, atividadeValues.length, atividadeHeaders.length).setValues(atividadeValues);
     }
     atividadesV2_upsertObjectsByKey_(envolvidosSheet, envolvidosPayload, 'ID_ENVOLVIDO', {
@@ -1634,6 +1635,7 @@ function atividadesV2_buildExistingRowMapByKey_(sheet, keyCol) {
 }
 
 function atividadesV2_updateExistingRowPreservingUnmapped_(sheet, rowNumber, headers, obj) {
+  atividadesV2_canonicalAgendaAssertLegacySheetFieldsWriteAllowed_(sheet, obj || {});
   var current = sheet.getRange(rowNumber, 1, 1, headers.length).getValues()[0];
   headers.forEach(function(header, index) {
     if (Object.prototype.hasOwnProperty.call(obj, header)) {
@@ -1645,6 +1647,9 @@ function atividadesV2_updateExistingRowPreservingUnmapped_(sheet, rowNumber, hea
 
 function atividadesV2_appendObjects_(sheet, headers, objects) {
   if (!objects.length) return;
+  (objects || []).forEach(function(obj) {
+    atividadesV2_canonicalAgendaAssertLegacySheetFieldsWriteAllowed_(sheet, obj || {});
+  });
   var rows = objects.map(function(obj) {
     return headers.map(function(header) {
       return Object.prototype.hasOwnProperty.call(obj, header) ? obj[header] : '';
@@ -1901,6 +1906,27 @@ function atividadesV2_simpleHeaderMap_(headers) {
 
 function atividadesV2_writeCellIfChanged_(sheet, rowNumber, colNumber, value) {
   if (!colNumber) return false;
+  var sheetName = String(sheet && sheet.getName && sheet.getName() || '');
+  var header = String(sheet.getRange(1, colNumber).getValue() || '').trim();
+  if (
+    atividadesV2_canonicalAgendaIsActiveDev_() &&
+    sheetName === ATIVIDADES_V2_SHEETS.ATIVIDADES &&
+    ATIVIDADES_V2_CANONICAL_MIGRATED_HEADERS.indexOf(header) >= 0
+  ) {
+    if (header === 'ID_ATIVIDADE') {
+      throw new Error('ESCRITA_LEGADA_BLOQUEADA: ID canonico nao pode ser renumerado pelo Sheets.');
+    }
+    var headerMap = atividadesV2_simpleHeaderMap_(atividadesV2_getSheetHeaders_(sheet));
+    var idAtividade = headerMap.ID_ATIVIDADE
+      ? String(sheet.getRange(rowNumber, headerMap.ID_ATIVIDADE).getValue() || '').trim()
+      : '';
+    var canonicalUpdates = {};
+    canonicalUpdates[header] = value;
+    atividadesV2_canonicalAgendaUpdateDev_(idAtividade, canonicalUpdates, {
+      ambiente: 'DEV', dryRun: false, confirmacao: ATIVIDADES_V2_CANONICAL_CRUD_CONFIRMATION
+    });
+    return true;
+  }
   var range = sheet.getRange(rowNumber, colNumber);
   var current = range.getValue();
   if (String(current || '') === String(value || '')) return false;

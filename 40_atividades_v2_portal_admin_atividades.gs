@@ -34,9 +34,7 @@ function atividadesV2_portalListarAtividadesAdmin_(filtros, contexto) {
 
   try {
     var ss = atividadesV2_getDatabaseSpreadsheet_();
-    var activities = atividadesV2_readSheetObjects_(
-      atividadesV2_getTargetSheet_(ss, ATIVIDADES_V2_SHEETS.ATIVIDADES)
-    );
+    var activities = atividadesV2_adminReadActivitiesForList_(ss);
     var presentations = atividadesV2_readSheetObjects_(
       atividadesV2_getTargetSheet_(ss, ATIVIDADES_V2_SHEETS.APRESENTACOES)
     );
@@ -62,7 +60,9 @@ function atividadesV2_portalListarAtividadesAdmin_(filtros, contexto) {
         ultimaAtualizacao: new Date().toISOString()
       },
       meta: {
-        origem: 'ATIVIDADES_V2_DB/Atividades',
+        origem: atividadesV2_canonicalAgendaIsActiveDev_()
+          ? 'FIRESTORE/activities+LEGACY_EXTENSIONS'
+          : 'ATIVIDADES_V2_DB/Atividades',
         somenteDev: true,
         dadosSensiveisExpostos: false
       }
@@ -80,7 +80,7 @@ function atividadesV2_portalGetDetalheAtividadeAdmin_(idAtividade, contexto) {
 
   try {
     var ss = atividadesV2_getDatabaseSpreadsheet_();
-    var activity = atividadesV2_adminFindByActivityId_(ss, ATIVIDADES_V2_SHEETS.ATIVIDADES, id);
+    var activity = atividadesV2_adminFindActivityCanonicalFirst_(ss, id);
     if (!activity) return atividadesV2_adminError_('ATIVIDADE_NAO_ENCONTRADA', 'Atividade nao encontrada na base V2 do ambiente resolvido.');
 
     var presentations = atividadesV2_readSheetObjects_(
@@ -162,7 +162,16 @@ function atividadesV2_portalSalvarEdicaoAtividadeAdmin_(payload, contexto) {
     if (!validation.ok) return validation;
     var before = atividadesV2_adminSnapshot_(validation.activity);
     validation.updates.ATUALIZADO_POR = atividadesV2_portalActorToken_(ctx);
-    atividadesV2_portalWriteStage_(trace, 'ESCRITA_PLANILHA_OFICIAL', function() {
+    atividadesV2_portalWriteStage_(trace, atividadesV2_canonicalAgendaIsActiveDev_()
+      ? 'ESCRITA_FIRESTORE_CANONICA'
+      : 'ESCRITA_PLANILHA_OFICIAL', function() {
+      if (atividadesV2_canonicalAgendaIsActiveDev_()) {
+        var canonicalResult = atividadesV2_canonicalAgendaUpdateDev_(validation.idAtividade, validation.updates, {
+          ambiente: 'DEV', dryRun: false, confirmacao: ATIVIDADES_V2_CANONICAL_CRUD_CONFIRMATION
+        });
+        validation.canonicalWrite = canonicalResult;
+        return;
+      }
       atividadesV2_adminWriteRowBatch_(validation.sheet, validation.activity._rowNumber, validation.updates);
     });
     var after = Object.assign({}, validation.activity, validation.updates);
@@ -209,15 +218,26 @@ function atividadesV2_portalAlterarStatusAtividadeAdmin_(action, payload, contex
     var ss = atividadesV2_getDatabaseSpreadsheet_();
     var existingRequest = atividadesV2_portalWriteFindRequest_(ss, portalAction);
     if (existingRequest) return atividadesV2_portalWriteReplayResponse_(existingRequest);
-    var sheet = atividadesV2_getTargetSheet_(ss, ATIVIDADES_V2_SHEETS.ATIVIDADES);
-    var activity = atividadesV2_adminFindInRows_(atividadesV2_readSheetObjects_(sheet), id);
+    var sheet = atividadesV2_canonicalAgendaIsActiveDev_()
+      ? null
+      : atividadesV2_getTargetSheet_(ss, ATIVIDADES_V2_SHEETS.ATIVIDADES);
+    var activity = atividadesV2_adminFindActivityCanonicalFirst_(ss, id);
     if (!activity) return atividadesV2_adminError_('ATIVIDADE_NAO_ENCONTRADA', 'Atividade nao encontrada na base V2 do ambiente resolvido.');
     var before = atividadesV2_adminSnapshot_(activity);
     var updates = atividadesV2_adminBuildStatusUpdates_(action, payload || {}, activity);
     if (!updates.ok) return updates;
     updates.data.ATUALIZADO_POR = atividadesV2_portalActorToken_(ctx);
     updates.data.ATUALIZADO_EM = new Date();
-    atividadesV2_portalWriteStage_(trace, 'ESCRITA_PLANILHA_OFICIAL', function() {
+    atividadesV2_portalWriteStage_(trace, atividadesV2_canonicalAgendaIsActiveDev_()
+      ? 'ESCRITA_FIRESTORE_CANONICA'
+      : 'ESCRITA_PLANILHA_OFICIAL', function() {
+      if (atividadesV2_canonicalAgendaIsActiveDev_()) {
+        var canonicalResult = atividadesV2_canonicalAgendaUpdateDev_(id, updates.data, {
+          ambiente: 'DEV', dryRun: false, confirmacao: ATIVIDADES_V2_CANONICAL_CRUD_CONFIRMATION
+        });
+        updates.canonicalWrite = canonicalResult;
+        return;
+      }
       atividadesV2_adminWriteRowBatch_(sheet, activity._rowNumber, updates.data);
     });
     var after = Object.assign({}, activity, updates.data);
@@ -248,8 +268,10 @@ function atividadesV2_portalAlterarStatusAtividadeAdmin_(action, payload, contex
 function atividadesV2_adminValidateEdit_(ss, payload) {
   var id = atividadesV2_adminNormalizeActivityId_(payload && (payload.idAtividade || payload.ID_ATIVIDADE));
   if (!id) return atividadesV2_adminError_('ID_ATIVIDADE_OBRIGATORIO', 'Informe a atividade.');
-  var sheet = atividadesV2_getTargetSheet_(ss, ATIVIDADES_V2_SHEETS.ATIVIDADES);
-  var activity = atividadesV2_adminFindInRows_(atividadesV2_readSheetObjects_(sheet), id);
+  var sheet = atividadesV2_canonicalAgendaIsActiveDev_()
+    ? null
+    : atividadesV2_getTargetSheet_(ss, ATIVIDADES_V2_SHEETS.ATIVIDADES);
+  var activity = atividadesV2_adminFindActivityCanonicalFirst_(ss, id);
   if (!activity) return atividadesV2_adminError_('ATIVIDADE_NAO_ENCONTRADA', 'Atividade nao encontrada na base V2 do ambiente resolvido.');
   if (atividades_normalizeTextUpper_(activity.BLOQUEADO_PARA_EDICAO) === 'SIM') {
     return atividadesV2_adminError_('ATIVIDADE_BLOQUEADA', 'Esta atividade esta bloqueada para edicao.');
@@ -634,6 +656,44 @@ function atividadesV2_adminSuccessMutation_(message, activity) {
       modo: atividadesV2_resolveEnvironment_({})
     }
   };
+}
+
+function atividadesV2_adminReadLegacyActivityIndex_(ss) {
+  var index = {};
+  var sheet = ss.getSheetByName(ATIVIDADES_V2_SHEETS.ATIVIDADES);
+  if (!sheet) return index;
+  atividadesV2_readSheetObjects_(sheet).forEach(function(row) {
+    var id = String(row.ID_ATIVIDADE || '').trim();
+    if (id && !index[id]) index[id] = row;
+  });
+  return index;
+}
+
+/** Firestore sempre sobrescreve os campos migrados; Sheets fornece apenas extensoes ainda legadas. */
+function atividadesV2_adminReadActivitiesForList_(ss) {
+  if (!atividadesV2_canonicalAgendaIsActiveDev_()) {
+    return atividadesV2_readSheetObjects_(atividadesV2_getTargetSheet_(ss, ATIVIDADES_V2_SHEETS.ATIVIDADES));
+  }
+  var legacyById = atividadesV2_adminReadLegacyActivityIndex_(ss);
+  var canonical = atividadesV2_canonicalAgendaListRowsDev_({ ambiente: 'DEV' });
+  return canonical.rows.map(function(row) {
+    var id = String(row.ID_ATIVIDADE || '').trim();
+    return Object.assign({}, legacyById[id] || {}, row, { _canonicalSource: 'FIRESTORE' });
+  });
+}
+
+function atividadesV2_adminFindActivityCanonicalFirst_(ss, idAtividade) {
+  if (!atividadesV2_canonicalAgendaIsActiveDev_()) {
+    return atividadesV2_adminFindByActivityId_(ss, ATIVIDADES_V2_SHEETS.ATIVIDADES, idAtividade);
+  }
+  var canonical = atividadesV2_canonicalAgendaGetPairDev_(idAtividade, { ambiente: 'DEV' });
+  if (!canonical.found) return null;
+  var legacy = atividadesV2_adminReadLegacyActivityIndex_(ss)[canonical.idAtividade] || {};
+  return atividadesV2_canonicalAgendaMergeDocumentsIntoRow_(
+    canonical.publicDocument,
+    canonical.privateDocument,
+    legacy
+  );
 }
 
 function atividadesV2_adminFindByActivityId_(ss, sheetName, idAtividade) {

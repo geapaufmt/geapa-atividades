@@ -863,7 +863,7 @@ function atividades_getActivityRowHeaderMap_() {
 
 function atividades_stampGeneralActivitySendDate_(sheet, headerMap, rowNumber, dateHeader) {
   GEAPA_CORE.coreWriteCellByHeader(sheet, rowNumber, headerMap, dateHeader, new Date(), { oneBased: true });
-  if (GEAPA_CORE.coreGetCol(headerMap, 'ATUALIZADO_EM')) {
+  if (!atividadesV2_canonicalAgendaIsActiveDev_() && GEAPA_CORE.coreGetCol(headerMap, 'ATUALIZADO_EM')) {
     GEAPA_CORE.coreWriteCellByHeader(sheet, rowNumber, headerMap, 'ATUALIZADO_EM', new Date(), { oneBased: true });
   }
 }
@@ -1222,10 +1222,21 @@ function atividades_marcarAtividadesGeraisRealizadas_(opts) {
       return;
     }
 
-    GEAPA_CORE.coreWriteCellByHeader(sheet, item.rowNumber, headerMap, 'STATUS', 'REALIZADA', { oneBased: true });
-    GEAPA_CORE.coreWriteCellByHeader(sheet, item.rowNumber, headerMap, 'DATA_REALIZACAO', new Date(), { oneBased: true });
-    if (GEAPA_CORE.coreGetCol(headerMap, 'ATUALIZADO_EM')) {
-      GEAPA_CORE.coreWriteCellByHeader(sheet, item.rowNumber, headerMap, 'ATUALIZADO_EM', new Date(), { oneBased: true });
+    if (atividadesV2_canonicalAgendaIsActiveDev_()) {
+      atividadesV2_canonicalAgendaUpdateDev_(activityId, {
+        STATUS_OPERACIONAL: 'REALIZADA',
+        DATA_REALIZACAO: new Date(),
+        ATUALIZADO_POR: 'ATIVIDADES_GERAIS_AUTO_REALIZADA',
+        ATUALIZADO_EM: new Date()
+      }, {
+        ambiente: 'DEV', dryRun: false, confirmacao: ATIVIDADES_V2_CANONICAL_CRUD_CONFIRMATION
+      });
+    } else {
+      GEAPA_CORE.coreWriteCellByHeader(sheet, item.rowNumber, headerMap, 'STATUS', 'REALIZADA', { oneBased: true });
+      GEAPA_CORE.coreWriteCellByHeader(sheet, item.rowNumber, headerMap, 'DATA_REALIZACAO', new Date(), { oneBased: true });
+      if (GEAPA_CORE.coreGetCol(headerMap, 'ATUALIZADO_EM')) {
+        GEAPA_CORE.coreWriteCellByHeader(sheet, item.rowNumber, headerMap, 'ATUALIZADO_EM', new Date(), { oneBased: true });
+      }
     }
 
     updated.push({

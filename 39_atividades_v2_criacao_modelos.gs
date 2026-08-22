@@ -177,8 +177,9 @@ function atividades_criarAtividadePorModelo_(payload, contexto) {
     var tokenCheck = atividades_modelosCriacaoValidateConfirmation_(request.confirmacaoToken, validated.meta.fingerprint);
     if (!tokenCheck.ok) return tokenCheck;
 
-    var sheet = atividadesV2_getTargetSheet_(ss, ATIVIDADES_V2_SHEETS.ATIVIDADES);
-    atividadesV2_applyHeadersIfMissing_(sheet, ATIVIDADES_V2_SCHEMA.ATIVIDADES);
+    var canonicalAgenda = atividadesV2_canonicalAgendaIsActiveDev_();
+    var sheet = canonicalAgenda ? null : atividadesV2_getTargetSheet_(ss, ATIVIDADES_V2_SHEETS.ATIVIDADES);
+    if (sheet) atividadesV2_applyHeadersIfMissing_(sheet, ATIVIDADES_V2_SCHEMA.ATIVIDADES);
     atividadesV2_applyHeadersIfMissing_(
       atividadesV2_getTargetSheet_(ss, ATIVIDADES_V2_SHEETS.APRESENTACOES),
       ATIVIDADES_V2_SCHEMA.APRESENTACOES
@@ -188,8 +189,23 @@ function atividades_criarAtividadePorModelo_(payload, contexto) {
       ATIVIDADES_V2_SCHEMA.ENVOLVIDOS
     );
     creation = validated.meta.creation;
-    atividadesV2_portalWriteStage_(trace, 'ESCRITA_PLANILHA_OFICIAL', function() {
-      atividadesV2_appendAtividadeV2Row_(sheet, creation.row);
+    atividadesV2_portalWriteStage_(trace, canonicalAgenda
+      ? 'ESCRITA_FIRESTORE_CANONICA_E_EXTENSOES_LEGADAS'
+      : 'ESCRITA_PLANILHA_OFICIAL', function() {
+      if (canonicalAgenda) {
+        creation.row.CANONICAL_REQUEST_ID = atividadesV2_portalWriteRequestId_(request);
+        creation.canonicalWrite = atividadesV2_canonicalAgendaCreateDev_(creation.row, {
+          ambiente: 'DEV',
+          dryRun: false,
+          confirmacao: ATIVIDADES_V2_CANONICAL_CRUD_CONFIRMATION
+        });
+        if (creation.canonicalWrite.idempotentReplay) {
+          creation.idAtividade = creation.canonicalWrite.idAtividade;
+          creation.row.ID_ATIVIDADE = creation.canonicalWrite.idAtividade;
+        }
+      } else {
+        atividadesV2_appendAtividadeV2Row_(sheet, creation.row);
+      }
       creation.apresentacao = atividades_modelosCriacaoAppendPresentationExtension_(ss, creation, validated.meta.model, validated.meta.contexto);
       creation.envolvido = atividades_modelosCriacaoAppendPresenterInvolvement_(ss, creation, validated.meta.model);
     });

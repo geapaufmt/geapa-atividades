@@ -63,7 +63,75 @@ A propriedade de rollback deve existir somente durante uma janela explicitamente
 
 ## Exportacao para Sheets
 
-`atividadesV2_firestoreExportarAgendaParaSheetsDev` le as duas collections e produz a aba derivada `EXPORT_ATIVIDADES_FIRESTORE`. Ela nao sobrescreve `Atividades` e deixa vazios os campos fora do piloto. A escrita exige a mesma habilitacao remota e a confirmacao `AUTORIZO_EXPORT_FIRESTORE_DEV_PARA_SHEETS`.
+`atividadesV2_firestoreExportarAgendaParaSheetsDev` le as duas collections e regenera integralmente a aba derivada `EXPORT_ATIVIDADES_FIRESTORE`, ordenada por `ID_ATIVIDADE`. A operacao valida antes a existencia do par publico/privado para cada atividade, nao sobrescreve `Atividades` e deixa vazios os campos fora do piloto.
+
+A escrita exige `ATIVIDADES_V2_FIRESTORE_DEV_EXPORT_AUTHORIZED=SIM` e a confirmacao `AUTORIZO_EXPORT_FIRESTORE_DEV_PARA_SHEETS`. A propriedade deve existir somente durante a janela de exportacao. O metadado `ATIVIDADES_V2_FIRESTORE_DEV_LAST_EXPORT_METADATA` registra horario, contagem, schema e estrategia `FULL_REGENERATION`; ele nao participa da decisao sobre dados oficiais.
+
+`atividadesV2_firestoreDiagnosticarDivergenciaExportacaoAgendaDev()` e estritamente read-only. Ele compara os 51 campos migrados por ID e informa ausentes, extras, duplicados, campos divergentes, contagens e ultima exportacao. A resolucao declarada e sempre `FIRESTORE_WINS`; o diagnostico nunca escreve nem usa Sheets para corrigir Firestore.
+
+## Contrato CRUD canonico
+
+Todas as funcoes exigem DEV explicito; PROD e rejeitado pelo mesmo resolvedor usado nas leituras e escritas.
+
+| Operacao | Contrato | Leituras/escritas esperadas |
+| --- | --- | --- |
+| criar | `atividadesV2_firestoreCriarAtividadeAgendaDev(row, options)` | verifica os dois paths e grava o par em um batch |
+| consultar | `atividadesV2_firestoreConsultarAtividadeAgendaDev(id)` | 2 reads: `activities` e `activityPrivate` |
+| listar | `atividadesV2_firestoreListarAtividadesAgendaDev()` | lista somente `activities`; nao le dados privados |
+| atualizar | `atividadesV2_firestoreAtualizarAtividadeAgendaDev(id, updates, options)` | 2 reads e um batch atomico de 2 writes |
+| estado/status | `atividadesV2_firestoreAlterarStatusAtividadeAgendaDev(action, payload, options)` | reutiliza as regras administrativas existentes e o update canonico |
+| cancelar | `atividadesV2_firestoreCancelarAtividadeAgendaDev(payload, options)` | cancelamento logico; preserva historico |
+| excluir | `atividadesV2_firestoreExcluirAtividadeAgendaDev(id, options)` | retorna `EXCLUSAO_FISICA_NAO_SUPORTADA`; zero writes |
+
+Mutacoes reais exigem `ATIVIDADES_V2_FIRESTORE_DEV_CANONICAL_WRITES_AUTHORIZED=SIM`, modo `FIRESTORE_CANONICAL` e a confirmacao interna `AUTORIZO_WRITE_FIRESTORE_DEV_ATIVIDADES_AGENDA_CRUD`. O Portal nao recebe nem envia essa confirmacao: ela fica no backend da biblioteca. O batch substitui integralmente o par para evitar documento publico e privado em versoes diferentes.
+
+Exclusao fisica nao pertence ao contrato operacional atual. A regra de dominio e cancelar/ocultar; delete permanece disponivel apenas no rollback inicial, protegido por outro gate e bloqueado depois do corte canonico.
+
+## Auditoria de writers apos a consolidacao
+
+| Classe | Fluxos | Tratamento |
+| --- | --- | --- |
+| A - Firestore canonico | `atividadesV2_portalCriarAtividade_`; `atividades_criarAtividadePorModelo_`; `atividadesV2_portalSalvarEdicaoAtividadeAdmin_`; `atividadesV2_portalAlterarStatusAtividadeAdmin_`; `atividadesV2_updateRowByHeaders_` para titulo/eixo; `atividadesV2_aplicarAlteracoesCicloAtividades_`; `atividades_refletirStatusApresentacoesEmAtividades_`; `atividades_marcarAtividadesGeraisRealizadas_`; APIs CRUD publicas | campos migrados vao diretamente ao batch `activities` + `activityPrivate` |
+| B - Sheets bloqueado | `atividadesV2_appendAtividadeV2Row_`; `atividadesV2_adminWriteRowBatch_`; migracoes/setup que reescrevem `Atividades`; complementacao de `ID_PESSOA_PRINCIPAL`; heranca V1 de config; geracao V1 de ID; calculo V1 de carga horaria | no DEV, tentativa de escrever header migrado falha com `ESCRITA_LEGADA_BLOQUEADA` ou erro especifico de ID imutavel |
+| C - dominio nao migrado | apresentacoes, envolvidos, presencas, justificativas, convites, arquivos/materiais, filas, logs e `PORTAL_ACOES`; campos como `STATUS_EIXO_TEMATICO`, flags de presenca e notificacoes | continuam em Sheets. Quando uma chamada mistura campos, o helper separa: campos canonicos vao ao Firestore e somente a extensao legada vai ao Sheets |
+| D - transicao/obsoleto | importacao inicial, rollback inicial, normalizacao de IDs na aba oficial e geracao dos read models `portalActivities`/snapshots como fonte | importacao e rollback falham depois de `FIRESTORE_CANONICAL`; read models antigos permanecem apenas como fallback derivado temporario |
+
+O `onEditAtividades` ignora edicoes manuais de headers migrados quando o modo canonico esta ativo. A alteracao manual pode continuar visivel na planilha antiga, mas nao dispara efeitos e nunca volta ao Firestore. Ela nao e dado oficial.
+
+## Teste CRUD DEV controlado
+
+`atividadesV2_runTesteCrudAgendaFirestoreDev()` esta preparado, mas desabilitado por padrao. Ele cria um registro tecnico, consulta o par, atualiza campos publicos/privados, regenera e valida a exportacao e termina cancelando o registro. Nao existe delete fisico.
+
+Antes de uma execucao remota, sao necessarias autorizacao humana explicita e as tres propriedades temporarias:
+
+- `ATIVIDADES_V2_FIRESTORE_DEV_CRUD_TEST_AUTHORIZED=SIM`;
+- `ATIVIDADES_V2_FIRESTORE_DEV_CANONICAL_WRITES_AUTHORIZED=SIM`;
+- `ATIVIDADES_V2_FIRESTORE_DEV_EXPORT_AUTHORIZED=SIM`.
+
+As propriedades devem ser removidas ao fim. O runner nunca aceita PROD. Edicao manual do espelho deve ser validada em etapa humana separada: alterar uma celula da linha de teste, executar o diagnostico read-only, confirmar `FIRESTORE_WINS` e regenerar o espelho. Nao existe codigo de reverse sync.
+
+## Cotas de leitura do Portal
+
+- calendario/lista autenticada inicial: uma query em `activities where ativo == true`; com 52 documentos ativos, cerca de 52 document reads;
+- reabertura da aba na mesma sessao/cache valido: 0 reads adicionais;
+- detalhe publico: 0 reads Firestore adicionais depois da lista; detalhes operacionais ainda vem do backend e recebe por cima o resumo canonico ja carregado;
+- lista administrativa: cerca de 52 reads em `activities`, sem `activityPrivate`;
+- detalhe ou edicao administrativa: 2 reads, um por documento do par;
+- exportacao/diagnostico completo: 104 reads no estado atual.
+
+Nao existe N+1 de `activityPrivate` no navegador, listener em tempo real ou listener duplicado. A collection publica completa e necessaria para montar a agenda atual; por isso ela nao foi trocada por dezenas de leituras pontuais. O enriquecimento legado agora possui whitelist e nao substitui titulo, data, status ou qualquer outro campo canonico.
+
+## Proximo dominio recomendado
+
+Recomendacao: **apresentacoes**, sem incluir arquivos/materiais no primeiro corte. E o dominio que hoje mais altera titulo/eixo e estado da atividade, portanto sua migracao elimina a principal fronteira de escrita cruzada ja observada.
+
+- presencas: maior volume, dados individuais e forte dependencia do motor disciplinar;
+- justificativas: dependem do modelo de presencas e contem decisoes sensiveis;
+- apresentacoes: cardinalidade controlada, IDs existentes e acoplamento direto ja mapeado com cadastro/agenda;
+- convites: dependem de destinatarios, filas e idempotencia de comunicacao;
+- arquivos/materiais: dependem de Drive, historico e politica de links/permissoes.
+
+Antes de migrar apresentacoes, separar claramente metadados da apresentacao dos artefatos de Drive e manter estes ultimos fora do primeiro incremento.
 
 ## Autorizacoes ainda necessarias
 
@@ -72,8 +140,9 @@ A propriedade de rollback deve existir somente durante uma janela explicitamente
 - publicar versoes DEV do Core/Atividades e atualizar somente o deployment Apps Script DEV;
 - publicar Rules e indexes no projeto DEV;
 - habilitar o primeiro write remoto no Apps Script;
-- executar a importacao inicial;
-- ativar o modo `FIRESTORE_CANONICAL`;
+- publicar a versao consolidada somente na cadeia DEV;
+- habilitar explicitamente o gate CRUD canonico no backend DEV;
+- autorizar separadamente qualquer execucao do runner CRUD remoto;
 - habilitar a configuracao web DEV/HOMOLOG com `FIREBASE_DEV_WEB_CONFIG_JSON`.
 
 Nenhuma dessas operacoes remotas e executada pela alteracao de codigo.

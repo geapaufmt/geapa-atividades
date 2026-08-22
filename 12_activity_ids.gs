@@ -90,6 +90,10 @@ function atividades_ensureActivityIdForRow_(rowNumber) {
     }
 
     var nextId = atividades_getNextActivityId_();
+    atividadesV2_canonicalAgendaAssertLegacySheetFieldsWriteAllowed_(ctx.sheet, {
+      ID_ATIVIDADE: nextId,
+      ATUALIZADO_EM: new Date()
+    });
     GEAPA_CORE.coreWriteCellByHeader(ctx.sheet, targetRow, headerMap, 'ID_ATIVIDADE', nextId, {
       oneBased: true
     });

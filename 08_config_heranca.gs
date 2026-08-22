@@ -79,6 +79,8 @@ function atividades_aplicarConfigLinhaAtividade_(rowNumber, opts) {
   var changedHeaders = [];
   var skippedHeaders = [];
 
+  atividadesV2_canonicalAgendaAssertLegacySheetFieldsWriteAllowed_(sheet, rule || {});
+
   ATIVIDADES_CFG.CONFIG_INHERITED_HEADERS.forEach(function(header) {
     if (!Object.prototype.hasOwnProperty.call(rule, header)) return;
     if (!GEAPA_CORE.coreGetCol(headerMap, header)) return;
