@@ -7,6 +7,15 @@ var ATIVIDADES_V2_CANONICAL_CRUD_TEST_PROPERTY = 'ATIVIDADES_V2_FIRESTORE_DEV_CR
 var ATIVIDADES_V2_CANONICAL_CRUD_TEST_CLEANUP_PROPERTY = 'ATIVIDADES_V2_FIRESTORE_DEV_TEST_CLEANUP_AUTHORIZED';
 var ATIVIDADES_V2_CANONICAL_CRUD_TEST_CLEANUP_CONFIRMATION = 'AUTORIZO_CLEANUP_FIRESTORE_DEV_ATIVIDADES_CRUD_TEST';
 var ATIVIDADES_V2_CANONICAL_CRUD_TEST_RUNNER_ID = 'ATIVIDADES_V2_CRUD_TEST_RUNNER_V2';
+var ATIVIDADES_V2_INTERRUPTED_CRUD_RECOVERY_ID = 'ATV-2026-2-0026';
+var ATIVIDADES_V2_INTERRUPTED_CRUD_RECOVERY_TEST_RUN_ID =
+  'CRUD-FIRESTORE-DEV-4b389276-0bfc-409c-8019-ba63426c6ef5';
+var ATIVIDADES_V2_INTERRUPTED_CRUD_RECOVERY_PUBLIC_HASH =
+  '9vrjZTSPyujrIThAwStzur-eor0MDlvFY7Qy50toNs8';
+var ATIVIDADES_V2_INTERRUPTED_CRUD_RECOVERY_PRIVATE_HASH =
+  'RXAS59BWUAoqhwh2xbC6SIKn1qoBd9WOoQe9nuKXqpE';
+var ATIVIDADES_V2_INTERRUPTED_CRUD_RECOVERY_CONFIRMATION =
+  'AUTORIZO_RECOVERY_FIRESTORE_DEV_ATIVIDADES_CRUD_TEST_ATV_2026_2_0026';
 
 function atividadesV2_canonicalAgendaAssertCrudTestAuthorized_() {
   atividadesV2_canonicalAgendaContext_({ ambiente: 'DEV' });
@@ -266,6 +275,114 @@ function atividadesV2_runExportacaoAgendaFirestoreParaSheetsDev_() {
     ambiente: 'DEV',
     dryRun: false,
     confirmacao: 'AUTORIZO_EXPORT_FIRESTORE_DEV_PARA_SHEETS'
+  });
+}
+
+function atividadesV2_canonicalAgendaAssertInterruptedCrudRecoveryAuthorized_(options) {
+  var opts = Object.assign({}, options || {});
+  var environmentSupplied = false;
+  ['ambiente', 'environment'].forEach(function(key) {
+    if (!Object.prototype.hasOwnProperty.call(opts, key) || !String(opts[key] || '').trim()) return;
+    environmentSupplied = true;
+    if (String(opts[key]).trim().toUpperCase() !== 'DEV') {
+      throw new Error('RECOVERY_TESTE_CRUD_SOMENTE_DEV: informe DEV explicitamente; PROD nao e permitido.');
+    }
+  });
+  if (!environmentSupplied) {
+    throw new Error('RECOVERY_TESTE_CRUD_SOMENTE_DEV: informe DEV explicitamente; PROD nao e permitido.');
+  }
+  if (opts.dryRun !== false) throw new Error('RECOVERY_TESTE_CRUD_MODO_REAL_OBRIGATORIO.');
+  if (String(opts.idAtividade || '').trim().toUpperCase() !== ATIVIDADES_V2_INTERRUPTED_CRUD_RECOVERY_ID) {
+    throw new Error('RECOVERY_TESTE_CRUD_ID_NAO_AUTORIZADO.');
+  }
+  atividadesV2_bindExecutionEnvironment_({ ambiente: 'DEV' });
+  atividadesV2_canonicalAgendaContext_({ ambiente: 'DEV' });
+  if (atividadesV2_canonicalAgendaMode_() !== 'FIRESTORE_CANONICAL') {
+    throw new Error('FIRESTORE_CANONICAL_NAO_ATIVADO.');
+  }
+  var authorized = atividades_normalizeTextUpper_(
+    PropertiesService.getScriptProperties().getProperty(ATIVIDADES_V2_CANONICAL_CRUD_TEST_CLEANUP_PROPERTY)
+  ) === 'SIM';
+  if (!authorized || String(opts.confirmacao || '') !== ATIVIDADES_V2_INTERRUPTED_CRUD_RECOVERY_CONFIRMATION) {
+    throw new Error('RECOVERY_TESTE_CRUD_FIRESTORE_DEV_NAO_AUTORIZADO.');
+  }
+  return Object.freeze({
+    ambiente: 'DEV',
+    dryRun: false,
+    idAtividade: ATIVIDADES_V2_INTERRUPTED_CRUD_RECOVERY_ID
+  });
+}
+
+function atividadesV2_canonicalAgendaAssertInterruptedCrudRecoveryValidation_(validation) {
+  var report = validation || {};
+  if (report.ok !== true || report.environment !== 'DEV' || report.readOnly !== true ||
+      Number(report.expectedActivities || 0) !== 52 || Number(report.expectedDocuments || 0) !== 104 ||
+      Number(report.activitiesCount || 0) !== 52 || Number(report.activityPrivateCount || 0) !== 52 ||
+      Number(report.matchingHashes || 0) !== 104 ||
+      (report.missingPaths || []).length || (report.unexpectedPaths || []).length ||
+      (report.divergentPaths || []).length || (report.errors || []).length) {
+    throw new Error('RECOVERY_TESTE_CRUD_VALIDACAO_FINAL_DIVERGENTE.');
+  }
+  return true;
+}
+
+/** Recovery privado e nao generico: aceita somente o par tecnico observado em DEV. */
+function atividadesV2_canonicalAgendaRecoverInterruptedCrudTestArtifactDev_(options) {
+  atividadesV2_canonicalAgendaAssertInterruptedCrudRecoveryAuthorized_(options);
+  var expectedHashes = Object.freeze({
+    publicSourceHash: ATIVIDADES_V2_INTERRUPTED_CRUD_RECOVERY_PUBLIC_HASH,
+    privateSourceHash: ATIVIDADES_V2_INTERRUPTED_CRUD_RECOVERY_PRIVATE_HASH
+  });
+  var artifact = atividadesV2_canonicalAgendaReadCrudTestArtifactDev_(ATIVIDADES_V2_INTERRUPTED_CRUD_RECOVERY_ID);
+  atividadesV2_canonicalAgendaAssertCrudTestArtifact_(
+    artifact,
+    ATIVIDADES_V2_INTERRUPTED_CRUD_RECOVERY_ID,
+    ATIVIDADES_V2_INTERRUPTED_CRUD_RECOVERY_TEST_RUN_ID,
+    expectedHashes
+  );
+  var cleanup = atividadesV2_canonicalAgendaCleanupCrudTestArtifactDev_(
+    ATIVIDADES_V2_INTERRUPTED_CRUD_RECOVERY_ID,
+    ATIVIDADES_V2_INTERRUPTED_CRUD_RECOVERY_TEST_RUN_ID,
+    expectedHashes,
+    {
+      ambiente: 'DEV',
+      dryRun: false,
+      confirmacao: ATIVIDADES_V2_CANONICAL_CRUD_TEST_CLEANUP_CONFIRMATION
+    }
+  );
+  if (!cleanup || cleanup.ok !== true || Number(cleanup.deleted || 0) !== 2) {
+    throw new Error('RECOVERY_TESTE_CRUD_DELETE_FALHOU.');
+  }
+
+  // Depois do delete, somente a validacao read-only da importacao e executada.
+  var validation = atividadesV2_canonicalAgendaValidateInitialImportDev_({ ambiente: 'DEV' });
+  atividadesV2_canonicalAgendaAssertInterruptedCrudRecoveryValidation_(validation);
+  return Object.freeze({
+    ok: true,
+    environment: 'DEV',
+    recoveredId: ATIVIDADES_V2_INTERRUPTED_CRUD_RECOVERY_ID,
+    testRunId: ATIVIDADES_V2_INTERRUPTED_CRUD_RECOVERY_TEST_RUN_ID,
+    deleted: 2,
+    deletedPaths: cleanup.deletedPaths,
+    activitiesCount: validation.activitiesCount,
+    activityPrivateCount: validation.activityPrivateCount,
+    matchingHashes: validation.matchingHashes,
+    missingPaths: validation.missingPaths,
+    unexpectedPaths: validation.unexpectedPaths,
+    divergentPaths: validation.divergentPaths,
+    validationReadOnly: true,
+    sheetsWritten: false,
+    exportExecuted: false,
+    prodTouched: false
+  });
+}
+
+function atividadesV2_runRecuperarArtefatoCrudInterrompidoFirestoreDev_() {
+  return atividadesV2_canonicalAgendaRecoverInterruptedCrudTestArtifactDev_({
+    ambiente: 'DEV',
+    dryRun: false,
+    idAtividade: 'ATV-2026-2-0026',
+    confirmacao: 'AUTORIZO_RECOVERY_FIRESTORE_DEV_ATIVIDADES_CRUD_TEST_ATV_2026_2_0026'
   });
 }
 

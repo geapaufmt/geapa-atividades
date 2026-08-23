@@ -770,6 +770,11 @@ function atividadesV2_runExportacaoAgendaFirestoreParaSheetsDev() {
   return atividadesV2_runExportacaoAgendaFirestoreParaSheetsDev_();
 }
 
+/** Recovery unico do artefato tecnico interrompido ATV-2026-2-0026. */
+function atividadesV2_runRecuperarArtefatoCrudInterrompidoFirestoreDev() {
+  return atividadesV2_runRecuperarArtefatoCrudInterrompidoFirestoreDev_();
+}
+
 /** Compara Firestore e EXPORT_ATIVIDADES_FIRESTORE sem corrigir nenhum destino. */
 function atividadesV2_firestoreDiagnosticarDivergenciaExportacaoAgendaDev() {
   return atividadesV2_canonicalAgendaDiagnoseExportDev_({ ambiente: 'DEV' });

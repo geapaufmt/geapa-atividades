@@ -115,6 +115,10 @@ Antes de uma execucao remota, sao necessarias autorizacao humana explicita e as 
 
 As propriedades devem ser removidas ao fim. O runner nunca aceita PROD e embute as confirmacoes especificas de CRUD, exportacao e limpeza; a rotina de limpeza nao e API publica. O resultado aprovado inclui `finalState` com as contagens iniciais e arrays vazios para paths ausentes, inesperados e divergentes. Nao existe codigo de reverse sync.
 
+### Recovery unico do teste interrompido
+
+`atividadesV2_runRecuperarArtefatoCrudInterrompidoFirestoreDev()` existe exclusivamente para o par tecnico `ATV-2026-2-0026` deixado por uma execucao cancelada. Ele exige `ATIVIDADES_V2_FIRESTORE_DEV_TEST_CLEANUP_AUTHORIZED=SIM`, confirmacao propria embutida, `testRunId`, marcas tecnicas e os dois `sourceHash` observados. Qualquer divergencia aborta. Depois da exclusao do par, executa somente a validacao read-only da importacao e exige retorno a 52 `activities`, 52 `activityPrivate` e 104 hashes correspondentes; nao exporta nem toca Sheets.
+
 ## Cotas de leitura do Portal
 
 - calendario/lista autenticada inicial: uma query em `activities where ativo == true`; com 52 documentos ativos, cerca de 52 document reads;
