@@ -316,6 +316,15 @@ function atividadesV2_canonicalAgendaBuildDocuments_(row, now) {
     canonicalUpdatedAt: updatedAt.toISOString(),
     schemaVersion: ATIVIDADES_V2_CANONICAL_PRIVATE_SCHEMA_VERSION
   };
+  var technicalTestRunId = atividadesV2_canonicalAgendaText_(source.TEST_RUN_ID, 120);
+  var technicalTestRunner = atividadesV2_canonicalAgendaText_(source.CREATED_BY_TEST_RUNNER, 120);
+  var isTechnicalTest = source.IS_TECHNICAL_TEST === true ||
+    atividades_normalizeTextUpper_(source.IS_TECHNICAL_TEST) === 'SIM';
+  if (isTechnicalTest || technicalTestRunId || technicalTestRunner) {
+    privateDocument.isTechnicalTest = isTechnicalTest;
+    privateDocument.testRunId = technicalTestRunId;
+    privateDocument.createdByTestRunner = technicalTestRunner;
+  }
   privateDocument.sourceHash = atividadesV2_firestoreBuildSourceHash_(privateDocument, ['canonicalUpdatedAt', 'sourceHash']);
 
   return Object.freeze({
@@ -546,6 +555,11 @@ function atividadesV2_canonicalAgendaMergeDocumentsIntoRow_(publicData, privateD
   }
   merged._canonicalSource = 'FIRESTORE';
   merged.CANONICAL_REQUEST_ID = String(publicData && publicData.creationRequestId || '');
+  if (privateData && (privateData.isTechnicalTest === true || privateData.testRunId || privateData.createdByTestRunner)) {
+    merged.IS_TECHNICAL_TEST = privateData.isTechnicalTest === true;
+    merged.TEST_RUN_ID = String(privateData.testRunId || '');
+    merged.CREATED_BY_TEST_RUNNER = String(privateData.createdByTestRunner || '');
+  }
   merged._publicSourceHash = String(publicData && publicData.sourceHash || '');
   merged._privateSourceHash = String(privateData && privateData.sourceHash || '');
   return merged;

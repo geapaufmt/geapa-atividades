@@ -11,6 +11,8 @@ const documents = new Map();
 let executionEnvironment = 'DEV';
 let batchCalls = 0;
 let deleteCalls = 0;
+let failDeletePath = '';
+const deletedPaths = [];
 
 const scriptProperties = {
   getProperty: (key) => properties.get(key) || null,
@@ -75,8 +77,12 @@ const context = {
       items.forEach((item) => documents.set(item.path, structuredClone(item.data)));
       return { ok: true, written: items.length, code: 'FIRESTORE_BATCH_SET_OK' };
     },
-    coreFirestoreEnvironmentDeleteDocument: () => {
+    coreFirestoreEnvironmentDeleteDocument: (documentPath, options) => {
+      assert.equal(options.ambiente, 'DEV');
       deleteCalls += 1;
+      deletedPaths.push(documentPath);
+      if (documentPath === failDeletePath) return { ok: false, deleted: false };
+      documents.delete(documentPath);
       return { ok: true, deleted: true };
     }
   }
@@ -202,4 +208,138 @@ assert.equal(
 );
 
 assert.equal(batchCalls, 3, 'create, update e cancel usam um batch atomico cada');
+
+assert.throws(
+  () => context.atividadesV2_canonicalAgendaCleanupCrudTestArtifactDev_(
+    row.ID_ATIVIDADE, row.CANONICAL_REQUEST_ID,
+    { publicSourceHash: pair.publicDocument.sourceHash, privateSourceHash: pair.privateDocument.sourceHash },
+    { ambiente: 'DEV', dryRun: false, confirmacao: 'AUTORIZO_CLEANUP_FIRESTORE_DEV_ATIVIDADES_CRUD_TEST' }
+  ),
+  /NAO_AUTORIZADO/
+);
+properties.set('ATIVIDADES_V2_FIRESTORE_DEV_TEST_CLEANUP_AUTHORIZED', 'SIM');
+const cleanupOptions = {
+  ambiente: 'DEV', dryRun: false,
+  confirmacao: 'AUTORIZO_CLEANUP_FIRESTORE_DEV_ATIVIDADES_CRUD_TEST'
+};
+const normalHashes = {
+  publicSourceHash: pair.publicDocument.sourceHash,
+  privateSourceHash: pair.privateDocument.sourceHash
+};
+assert.throws(
+  () => context.atividadesV2_canonicalAgendaCleanupCrudTestArtifactDev_(
+    row.ID_ATIVIDADE, row.CANONICAL_REQUEST_ID, normalHashes, cleanupOptions
+  ),
+  /ARTEFATO_NAO_RECONHECIDO/,
+  'atividade normal jamais pode ser apagada pela limpeza tecnica'
+);
+assert.equal(deleteCalls, 0);
+
+const technicalRunId = 'CRUD-FIRESTORE-DEV-TEST-0060';
+const technicalRow = Object.assign({}, row, {
+  ID_ATIVIDADE: 'ATV-2026-2-0060',
+  NUMERO_SEQUENCIAL_NO_CICLO: 60,
+  CANONICAL_REQUEST_ID: technicalRunId,
+  IS_TECHNICAL_TEST: true,
+  TEST_RUN_ID: technicalRunId,
+  CREATED_BY_TEST_RUNNER: 'ATIVIDADES_V2_CRUD_TEST_RUNNER_V2',
+  ORIGEM_FLUXO: 'TESTE_CRUD_FIRESTORE_DEV'
+});
+result = context.atividadesV2_canonicalAgendaCreateDev_(technicalRow, writeOptions);
+assert.equal(result.ok, true);
+result = context.atividadesV2_canonicalAgendaCancelDev_({ idAtividade: technicalRow.ID_ATIVIDADE }, writeOptions);
+assert.equal(result.ok, true);
+const technicalPair = context.atividadesV2_canonicalAgendaGetPairDev_(technicalRow.ID_ATIVIDADE, { ambiente: 'DEV' });
+assert.equal(technicalPair.privateDocument.isTechnicalTest, true);
+assert.equal(technicalPair.privateDocument.testRunId, technicalRunId, 'marca tecnica deve sobreviver ao cancelamento');
+const technicalHashes = {
+  publicSourceHash: technicalPair.publicDocument.sourceHash,
+  privateSourceHash: technicalPair.privateDocument.sourceHash
+};
+
+assert.throws(
+  () => context.atividadesV2_canonicalAgendaCleanupCrudTestArtifactDev_(
+    technicalRow.ID_ATIVIDADE, '', technicalHashes, cleanupOptions
+  ),
+  /TEST_RUN_ID_AUSENTE/
+);
+const missingRunId = 'CRUD-FIRESTORE-DEV-MISSING-MARKER';
+documents.set('activities/ATV-2026-2-0061', {
+  idAtividade: 'ATV-2026-2-0061', creationRequestId: missingRunId,
+  origemFluxo: 'TESTE_CRUD_FIRESTORE_DEV', sourceHash: 'PUBLIC-0061'
+});
+documents.set('activityPrivate/ATV-2026-2-0061', {
+  idAtividade: 'ATV-2026-2-0061', isTechnicalTest: true,
+  createdByTestRunner: 'ATIVIDADES_V2_CRUD_TEST_RUNNER_V2', sourceHash: 'PRIVATE-0061'
+});
+assert.throws(
+  () => context.atividadesV2_canonicalAgendaCleanupCrudTestArtifactDev_(
+    'ATV-2026-2-0061', missingRunId,
+    { publicSourceHash: 'PUBLIC-0061', privateSourceHash: 'PRIVATE-0061' }, cleanupOptions
+  ),
+  /TEST_RUN_ID_DIVERGENTE/,
+  'artefato sem testRunId persistido nao pode ser apagado'
+);
+documents.delete('activities/ATV-2026-2-0061');
+documents.delete('activityPrivate/ATV-2026-2-0061');
+assert.throws(
+  () => context.atividadesV2_canonicalAgendaCleanupCrudTestArtifactDev_(
+    technicalRow.ID_ATIVIDADE, 'RUN-DIVERGENTE', technicalHashes, cleanupOptions
+  ),
+  /TEST_RUN_ID_DIVERGENTE/
+);
+assert.throws(
+  () => context.atividadesV2_canonicalAgendaCleanupCrudTestArtifactDev_(
+    technicalRow.ID_ATIVIDADE, technicalRunId,
+    { publicSourceHash: 'HASH-ALTERADO', privateSourceHash: technicalHashes.privateSourceHash },
+    cleanupOptions
+  ),
+  /HASH_DIVERGENTE/
+);
+assert.throws(
+  () => context.atividadesV2_canonicalAgendaCleanupCrudTestArtifactDev_(
+    technicalRow.ID_ATIVIDADE, technicalRunId, technicalHashes,
+    Object.assign({}, cleanupOptions, { ambiente: 'PROD' })
+  ),
+  /SOMENTE_DEV/
+);
+assert.equal(deleteCalls, 0, 'guards negativos nao podem chamar delete');
+
+const partialRunId = 'CRUD-FIRESTORE-DEV-PARTIAL-0062';
+documents.set('activities/ATV-2026-2-0062', {
+  idAtividade: 'ATV-2026-2-0062', creationRequestId: partialRunId,
+  origemFluxo: 'TESTE_CRUD_FIRESTORE_DEV', sourceHash: 'PUBLIC-0062'
+});
+documents.set('activityPrivate/ATV-2026-2-0062', {
+  idAtividade: 'ATV-2026-2-0062', isTechnicalTest: true, testRunId: partialRunId,
+  createdByTestRunner: 'ATIVIDADES_V2_CRUD_TEST_RUNNER_V2', sourceHash: 'PRIVATE-0062'
+});
+failDeletePath = 'activities/ATV-2026-2-0062';
+assert.throws(
+  () => context.atividadesV2_canonicalAgendaCleanupCrudTestArtifactDev_(
+    'ATV-2026-2-0062', partialRunId,
+    { publicSourceHash: 'PUBLIC-0062', privateSourceHash: 'PRIVATE-0062' }, cleanupOptions
+  ),
+  /DELETE_PUBLICO_FALHOU_REVERTIDO/
+);
+assert.equal(documents.get('activities/ATV-2026-2-0062').sourceHash, 'PUBLIC-0062');
+assert.equal(documents.get('activityPrivate/ATV-2026-2-0062').sourceHash, 'PRIVATE-0062', 'delete parcial deve ser compensado');
+documents.delete('activities/ATV-2026-2-0062');
+documents.delete('activityPrivate/ATV-2026-2-0062');
+failDeletePath = '';
+deletedPaths.length = 0;
+
+const cleanupResult = context.atividadesV2_canonicalAgendaCleanupCrudTestArtifactDev_(
+  technicalRow.ID_ATIVIDADE, technicalRunId, technicalHashes, cleanupOptions
+);
+assert.equal(cleanupResult.ok, true);
+assert.equal(cleanupResult.deleted, 2);
+assert.deepEqual(deletedPaths, [
+  'activityPrivate/ATV-2026-2-0060',
+  'activities/ATV-2026-2-0060'
+]);
+assert.equal(documents.has('activities/ATV-2026-2-0060'), false);
+assert.equal(documents.has('activityPrivate/ATV-2026-2-0060'), false);
+assert.equal(documents.has('activities/ATV-2026-2-0053'), true, 'cleanup nao toca outra atividade');
+assert.equal(documents.has('activityPrivate/ATV-2026-2-0053'), true, 'cleanup nao toca outro documento privado');
 console.log('firestore_canonical_crud.test.cjs: OK');

@@ -100,15 +100,18 @@ O `onEditAtividades` ignora edicoes manuais de headers migrados quando o modo ca
 
 ## Teste CRUD DEV controlado
 
-`atividadesV2_runTesteCrudAgendaFirestoreDev()` esta preparado, mas desabilitado por padrao. Ele cria um registro tecnico, consulta o par, atualiza campos publicos/privados, regenera e valida a exportacao e termina cancelando o registro. Nao existe delete fisico.
+`atividadesV2_runTesteCrudAgendaFirestoreDev()` esta preparado, mas desabilitado por padrao. Ele captura paths e hashes iniciais, cria um par marcado com `testRunId`, consulta, atualiza, cancela, regenera e valida o espelho. Depois remove fisicamente somente esse par tecnico, regenera novamente a exportacao e exige que paths, hashes e contagens retornem exatamente ao snapshot inicial.
 
-Antes de uma execucao remota, sao necessarias autorizacao humana explicita e as tres propriedades temporarias:
+A exclusao usada nessa limpeza e privada ao runner: exige a marca em `activityPrivate`, o mesmo `testRunId` no par, identificador fixo do runner e os dois `sourceHash` esperados. Qualquer ausencia ou divergencia aborta antes do delete. Falha parcial de exclusao e compensada restaurando o documento removido. O contrato operacional `atividadesV2_firestoreExcluirAtividadeAgendaDev` continua retornando `EXCLUSAO_FISICA_NAO_SUPORTADA` para atividades reais.
+
+Antes de uma execucao remota, sao necessarias autorizacao humana explicita e as quatro propriedades temporarias:
 
 - `ATIVIDADES_V2_FIRESTORE_DEV_CRUD_TEST_AUTHORIZED=SIM`;
 - `ATIVIDADES_V2_FIRESTORE_DEV_CANONICAL_WRITES_AUTHORIZED=SIM`;
-- `ATIVIDADES_V2_FIRESTORE_DEV_EXPORT_AUTHORIZED=SIM`.
+- `ATIVIDADES_V2_FIRESTORE_DEV_EXPORT_AUTHORIZED=SIM`;
+- `ATIVIDADES_V2_FIRESTORE_DEV_TEST_CLEANUP_AUTHORIZED=SIM`.
 
-As propriedades devem ser removidas ao fim. O runner nunca aceita PROD. Edicao manual do espelho deve ser validada em etapa humana separada: alterar uma celula da linha de teste, executar o diagnostico read-only, confirmar `FIRESTORE_WINS` e regenerar o espelho. Nao existe codigo de reverse sync.
+As propriedades devem ser removidas ao fim. O runner nunca aceita PROD e embute as confirmacoes especificas de CRUD, exportacao e limpeza; a rotina de limpeza nao e API publica. O resultado aprovado inclui `finalState` com as contagens iniciais e arrays vazios para paths ausentes, inesperados e divergentes. Nao existe codigo de reverse sync.
 
 ## Cotas de leitura do Portal
 
