@@ -13,6 +13,26 @@ O Core exige `ambiente: DEV` ou `ambiente: PROD` em toda API nova. Leituras e es
 
 As propriedades legadas `GEAPA_CORE_FIRESTORE_PROJECT_ID` e `GEAPA_CORE_FIRESTORE_DATABASE_ID` nao sao fallback das APIs novas. DEV e PROD com o mesmo project ID resultam em erro. Escritas PROD estao bloqueadas no codigo desta fase.
 
+## Checkpoint concluido em DEV
+
+O piloto de cadastro/agenda foi encerrado com 52 documentos em `activities`, 52 em `activityPrivate`, CRUD remoto completo e `EXPORT_ATIVIDADES_FIRESTORE` sincronizada. O contrato operacional consolidado e unidirecional:
+
+```text
+Portal DEV
+  -> Firestore canonico (activities + activityPrivate)
+  -> EXPORT_ATIVIDADES_FIRESTORE
+```
+
+- Firestore e a fonte da verdade do cadastro e da agenda;
+- `EXPORT_ATIVIDADES_FIRESTORE` e somente espelho/exportacao derivada;
+- nao existe reverse sync nem dual-write bidirecional;
+- `activityPrivate` e backend-only e nunca e contrato de leitura do navegador;
+- exclusao fisica de atividade normal nao e suportada; cancelamento e ocultacao preservando historico sao a politica operacional;
+- a aba legada `Atividades` pode continuar armazenando campos de dominios ainda nao migrados, mas nao e fonte canonica dos campos do piloto;
+- presencas, justificativas, apresentacoes, envolvidos, convites, arquivos/materiais, notificacoes e logs continuam fora do contrato canonico desta etapa.
+
+Esse checkpoint vale somente para DEV. Ele nao autoriza cutover, write ou alteracao de configuracao em PROD.
+
 ## Escopo
 
 Incluido: identidade da atividade, classificacao, titulo/descricao, eixos, pessoa principal, data, horario, local, formato, publico-alvo, carga horaria, publicacao/visibilidade e auditoria do cadastro.
