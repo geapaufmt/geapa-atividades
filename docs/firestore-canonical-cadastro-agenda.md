@@ -67,6 +67,8 @@ A propriedade de rollback deve existir somente durante uma janela explicitamente
 
 A escrita exige `ATIVIDADES_V2_FIRESTORE_DEV_EXPORT_AUTHORIZED=SIM` e a confirmacao `AUTORIZO_EXPORT_FIRESTORE_DEV_PARA_SHEETS`. A propriedade deve existir somente durante a janela de exportacao. O metadado `ATIVIDADES_V2_FIRESTORE_DEV_LAST_EXPORT_METADATA` registra horario, contagem, schema e estrategia `FULL_REGENERATION`; ele nao participa da decisao sobre dados oficiais.
 
+Para execucao manual pelo editor Apps Script, `atividadesV2_runExportacaoAgendaFirestoreParaSheetsDev()` e o runner publico sem argumentos. Ele exige o gate acima, modo `FIRESTORE_CANONICAL` e ambiente efetivo diferente de PROD; em seguida chama somente `atividadesV2_firestoreExportarAgendaParaSheetsDev` com DEV, `dryRun:false` e a confirmacao oficial.
+
 `atividadesV2_firestoreDiagnosticarDivergenciaExportacaoAgendaDev()` e estritamente read-only. Ele compara os 51 campos migrados por ID e informa ausentes, extras, duplicados, campos divergentes, contagens e ultima exportacao. A resolucao declarada e sempre `FIRESTORE_WINS`; o diagnostico nunca escreve nem usa Sheets para corrigir Firestore.
 
 ## Contrato CRUD canonico

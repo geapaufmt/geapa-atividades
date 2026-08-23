@@ -242,6 +242,33 @@ function atividadesV2_canonicalAgendaCrudTestExportOptions_() {
   return { ambiente: 'DEV', dryRun: false, confirmacao: ATIVIDADES_V2_CANONICAL_EXPORT_CONFIRMATION };
 }
 
+function atividadesV2_assertRunExportacaoAgendaFirestoreParaSheetsDev_() {
+  var boundEnvironment = typeof ATIVIDADES_V2_EXECUTION_ENVIRONMENT_ === 'undefined'
+    ? ''
+    : String(ATIVIDADES_V2_EXECUTION_ENVIRONMENT_ || '').trim().toUpperCase();
+  if (boundEnvironment && boundEnvironment !== 'DEV') {
+    throw new Error('PILOTO_FIRESTORE_SOMENTE_DEV: runner de exportacao nao pode operar em PROD.');
+  }
+  atividadesV2_bindExecutionEnvironment_({ ambiente: 'DEV' });
+  atividadesV2_canonicalAgendaContext_({ ambiente: 'DEV' });
+  if (atividadesV2_canonicalAgendaMode_() !== 'FIRESTORE_CANONICAL') {
+    throw new Error('FIRESTORE_CANONICAL_NAO_ATIVADO.');
+  }
+  var authorized = atividades_normalizeTextUpper_(
+    PropertiesService.getScriptProperties().getProperty(ATIVIDADES_V2_CANONICAL_EXPORT_WRITE_PROPERTY)
+  ) === 'SIM';
+  if (!authorized) throw new Error('EXPORT_FIRESTORE_DEV_NAO_AUTORIZADO.');
+}
+
+function atividadesV2_runExportacaoAgendaFirestoreParaSheetsDev_() {
+  atividadesV2_assertRunExportacaoAgendaFirestoreParaSheetsDev_();
+  return atividadesV2_firestoreExportarAgendaParaSheetsDev({
+    ambiente: 'DEV',
+    dryRun: false,
+    confirmacao: 'AUTORIZO_EXPORT_FIRESTORE_DEV_PARA_SHEETS'
+  });
+}
+
 function atividadesV2_canonicalAgendaAssertZeroExportDivergence_(report, code) {
   if (!report || report.ok !== true ||
       (report.missingIds || []).length || (report.extraIds || []).length ||

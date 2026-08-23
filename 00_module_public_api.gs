@@ -766,6 +766,10 @@ function atividadesV2_firestoreExportarAgendaParaSheetsDev(options) {
   }, { entrypoint: 'atividadesV2_firestoreExportarAgendaParaSheetsDev' });
 }
 
+function atividadesV2_runExportacaoAgendaFirestoreParaSheetsDev() {
+  return atividadesV2_runExportacaoAgendaFirestoreParaSheetsDev_();
+}
+
 /** Compara Firestore e EXPORT_ATIVIDADES_FIRESTORE sem corrigir nenhum destino. */
 function atividadesV2_firestoreDiagnosticarDivergenciaExportacaoAgendaDev() {
   return atividadesV2_canonicalAgendaDiagnoseExportDev_({ ambiente: 'DEV' });
