@@ -40,6 +40,12 @@ const context = {
     if (!['DEV', 'PROD'].includes(value)) throw new Error('ambiente invalido');
     return value;
   },
+  atividadesV2_bindExecutionEnvironment_: (options) => {
+    const value = String(options && (options.ambiente || options.environment) || '').toUpperCase();
+    if (!['DEV', 'PROD'].includes(value)) throw new Error('ambiente invalido');
+    executionEnvironment = value;
+    return value;
+  },
   atividadesV2_adminBuildStatusUpdates_: (action) => {
     if (String(action).toUpperCase() === 'CANCELAR') {
       return { ok: true, data: { STATUS_OPERACIONAL: 'CANCELADA', STATUS_PUBLICACAO_PORTAL: 'OCULTA', VISIBILIDADE_PORTAL: 'OCULTA' } };

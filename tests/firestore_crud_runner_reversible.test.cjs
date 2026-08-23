@@ -21,6 +21,16 @@ let exportedHashes = new Map();
 let exportCalls = 0;
 const deletePaths = [];
 let cancelObserved = false;
+let boundEnvironment = '';
+const environmentTrace = [];
+let readPairCalls = 0;
+let validateExportCalls = 0;
+
+function assertDevEnvironment(operation, options) {
+  const environment = String(options && (options.ambiente || options.environment) || '').toUpperCase();
+  assert.equal(environment, 'DEV', `${operation} deve receber ambiente DEV explicitamente`);
+  environmentTrace.push(operation);
+}
 
 function clone(value) {
   return value === undefined ? undefined : JSON.parse(JSON.stringify(value));
@@ -53,15 +63,18 @@ const context = {
   ATIVIDADES_V2_CANONICAL_CRUD_CONFIRMATION: 'AUTORIZO_WRITE_FIRESTORE_DEV_ATIVIDADES_AGENDA_CRUD',
   ATIVIDADES_V2_CANONICAL_EXPORT_CONFIRMATION: 'AUTORIZO_EXPORT_FIRESTORE_DEV_PARA_SHEETS',
   atividades_normalizeTextUpper_: (value) => String(value || '').trim().toUpperCase(),
+  atividadesV2_bindExecutionEnvironment_: (options) => {
+    assertDevEnvironment('BIND_ENVIRONMENT', options);
+    boundEnvironment = 'DEV';
+    return boundEnvironment;
+  },
   atividadesV2_canonicalAgendaContext_: (options) => {
-    const environment = String(options && options.ambiente || '').toUpperCase();
-    if (environment !== 'DEV') throw new Error('SOMENTE_DEV');
+    assertDevEnvironment('CANONICAL_CONTEXT', options);
     return { environment: 'DEV' };
   },
   atividadesV2_canonicalAgendaMode_: () => properties.get('ATIVIDADES_V2_AGENDA_CANONICAL_MODE'),
   atividadesV2_canonicalAgendaDevOptions_: (options) => {
-    const environment = String(options && options.ambiente || 'DEV').toUpperCase();
-    if (environment !== 'DEV') throw new Error('SOMENTE_DEV');
+    assertDevEnvironment('CLEANUP_TEST_ARTIFACT', options);
     return Object.assign({}, options, { ambiente: 'DEV', environment: 'DEV' });
   },
   atividadesV2_canonicalAgendaActivityId_: (value) => {
@@ -71,6 +84,7 @@ const context = {
   },
   atividadesV2_canonicalAgendaListAll_: (collection, environment) => {
     assert.equal(environment, 'DEV');
+    environmentTrace.push(`LIST_${collection}`);
     return listCollection(collection);
   },
   atividadesV2_canonicalAgendaBuildExportRows_: (publicDocs, privateDocs) => {
@@ -83,10 +97,13 @@ const context = {
       unexpectedPrivatePaths: privateDocs.filter((item) => !publicIds.has(item.id)).map((item) => `activityPrivate/${item.id}`)
     };
   },
-  atividadesV2_buildNextActivityIdentityForCreate_: () => ({
-    idAtividade: 'ATV-2026-2-0053', ano: 2026, semestre: 2, sequencial: 53
-  }),
-  atividadesV2_canonicalAgendaCreateDev_: (row) => {
+  atividadesV2_buildNextActivityIdentityForCreate_: () => {
+    assert.equal(boundEnvironment, 'DEV', 'IDENTITY deve herdar o ambiente DEV vinculado pelo runner');
+    environmentTrace.push('IDENTITY');
+    return { idAtividade: 'ATV-2026-2-0053', ano: 2026, semestre: 2, sequencial: 53 };
+  },
+  atividadesV2_canonicalAgendaCreateDev_: (row, options) => {
+    assertDevEnvironment('CREATE', options);
     documents.set(`activities/${row.ID_ATIVIDADE}`, {
       idAtividade: row.ID_ATIVIDADE,
       creationRequestId: row.CANONICAL_REQUEST_ID,
@@ -103,12 +120,17 @@ const context = {
     });
     return { ok: true, written: 2, publicSourceHash: 'PUB-CREATE', privateSourceHash: 'PRI-CREATE' };
   },
-  atividadesV2_canonicalAgendaGetPairDev_: (id) => ({
-    found: documents.has(`activities/${id}`),
-    publicDocument: clone(documents.get(`activities/${id}`)),
-    privateDocument: clone(documents.get(`activityPrivate/${id}`))
-  }),
-  atividadesV2_canonicalAgendaUpdateDev_: (id, updates) => {
+  atividadesV2_canonicalAgendaGetPairDev_: (id, options) => {
+    const operation = ['READ_PAIR', 'CONFIRM_UPDATE', 'CONFIRM_CANCEL'][readPairCalls++] || 'READ_PAIR_UNEXPECTED';
+    assertDevEnvironment(operation, options);
+    return {
+      found: documents.has(`activities/${id}`),
+      publicDocument: clone(documents.get(`activities/${id}`)),
+      privateDocument: clone(documents.get(`activityPrivate/${id}`))
+    };
+  },
+  atividadesV2_canonicalAgendaUpdateDev_: (id, updates, options) => {
+    assertDevEnvironment('UPDATE', options);
     const publicDocument = documents.get(`activities/${id}`);
     const privateDocument = documents.get(`activityPrivate/${id}`);
     publicDocument.tituloPublico = updates.TITULO_PUBLICO;
@@ -116,7 +138,8 @@ const context = {
     privateDocument.sourceHash = 'PRI-UPDATE';
     return { ok: true, written: 2 };
   },
-  atividadesV2_canonicalAgendaCancelDev_: ({ idAtividade }) => {
+  atividadesV2_canonicalAgendaCancelDev_: ({ idAtividade }, options) => {
+    assertDevEnvironment('CANCEL', options);
     const publicDocument = documents.get(`activities/${idAtividade}`);
     const privateDocument = documents.get(`activityPrivate/${idAtividade}`);
     publicDocument.statusOperacional = 'CANCELADA';
@@ -127,12 +150,17 @@ const context = {
     cancelObserved = true;
     return { ok: true, written: 2 };
   },
-  atividadesV2_canonicalAgendaExportToSheetsDev_: () => {
+  atividadesV2_canonicalAgendaExportToSheetsDev_: (options) => {
+    const operation = ['EXPORT_FULL', 'EXPORT_AFTER_CANCEL', 'EXPORT_FINAL'][exportCalls] || 'EXPORT_UNEXPECTED';
+    assertDevEnvironment(operation, options);
     exportCalls += 1;
     exportedHashes = new Map(Array.from(documents.entries()).map(([key, value]) => [key, value.sourceHash]));
     return { ok: true, totalActivities: listCollection('activities').length };
   },
-  atividadesV2_canonicalAgendaDiagnoseExportDev_: () => {
+  atividadesV2_canonicalAgendaDiagnoseExportDev_: (options) => {
+    const operation = ['VALIDATE_EXPORT', 'VALIDATE_AFTER_CANCEL', 'VALIDATE_FINAL'][validateExportCalls++] ||
+      'VALIDATE_EXPORT_UNEXPECTED';
+    assertDevEnvironment(operation, options);
     const current = new Map(Array.from(documents.entries()).map(([key, value]) => [key, value.sourceHash]));
     const same = current.size === exportedHashes.size &&
       Array.from(current.entries()).every(([key, hash]) => exportedHashes.get(key) === hash);
@@ -144,19 +172,19 @@ const context = {
   },
   GEAPA_CORE: {
     coreFirestoreEnvironmentGetDocument: (documentPath, options) => {
-      assert.equal(options.ambiente, 'DEV');
+      assertDevEnvironment('CLEANUP_READ', options);
       return documents.has(documentPath)
         ? { ok: true, found: true, data: clone(documents.get(documentPath)) }
         : { ok: true, found: false };
     },
     coreFirestoreEnvironmentDeleteDocument: (documentPath, options) => {
-      assert.equal(options.ambiente, 'DEV');
+      assertDevEnvironment('CLEANUP_DELETE', options);
       deletePaths.push(documentPath);
       const deleted = documents.delete(documentPath);
       return { ok: deleted, deleted };
     },
     coreFirestoreEnvironmentBatchSetDocuments: (items, options) => {
-      assert.equal(options.ambiente, 'DEV');
+      assertDevEnvironment('CLEANUP_RESTORE', options);
       items.forEach((item) => documents.set(item.path, clone(item.data)));
       return { ok: true, written: items.length };
     }
@@ -199,4 +227,12 @@ assert.equal(
 );
 assert.equal(exportedHashes.size, 104, 'espelho final contem somente as 52 atividades canonicas');
 assert.equal(exportedHashes.has('activities/ATV-2026-2-0053'), false, 'artefato 0053 nao permanece no espelho final');
+for (const operation of [
+  'BIND_ENVIRONMENT', 'IDENTITY', 'CREATE', 'READ_PAIR', 'UPDATE', 'CONFIRM_UPDATE',
+  'EXPORT_FULL', 'VALIDATE_EXPORT', 'CANCEL', 'CONFIRM_CANCEL', 'EXPORT_AFTER_CANCEL',
+  'VALIDATE_AFTER_CANCEL', 'CLEANUP_TEST_ARTIFACT', 'CLEANUP_READ', 'CLEANUP_DELETE',
+  'EXPORT_FINAL', 'VALIDATE_FINAL'
+]) {
+  assert.equal(environmentTrace.includes(operation), true, `${operation} deve ser coberta pelo teste de ambiente`);
+}
 console.log('firestore_crud_runner_reversible.test.cjs: OK');

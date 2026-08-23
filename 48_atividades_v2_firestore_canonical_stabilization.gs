@@ -301,6 +301,7 @@ function atividadesV2_canonicalAgendaEmergencyCleanupCrudTest_(idAtividade, test
 
 /** Runner remoto autocontido: valida o CRUD e remove somente seu artefato marcado. */
 function atividadesV2_runTesteCrudAgendaFirestoreDev() {
+  atividadesV2_bindExecutionEnvironment_({ ambiente: 'DEV' });
   atividadesV2_canonicalAgendaAssertCrudTestAuthorized_();
   var baseline = atividadesV2_canonicalAgendaCapturePhysicalStateDev_();
   if (!baseline.pairIntegrityOk) throw new Error('TESTE_CRUD_ESTADO_INICIAL_PAR_CANONICO_INVALIDO.');
